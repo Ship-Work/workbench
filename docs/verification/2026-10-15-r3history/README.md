@@ -8,6 +8,7 @@ Branch `claude/history-copy-confirms`, stacked on the 15 October train `claude/t
    - A written copy shows ✓ Copied for four seconds beside the control pressed. In a transcript row it sits after More; in a result, beside Copy result. Every row keeps the space, and the Spacer absorbs it while nothing shows. VoiceOver hears it once.
    - A refused write confirms nothing. Its reason shows under that row or result, and is heard.
    - History owns the one confirmation (`TranscriptReviewFeedback`, as Meetings, Home and Review transcript use), keyed to the transcript or task copied. Rows sit in a lazy list and can leave it, so it is the page's, not a row's. A new copy anywhere in History moves it, and the owner's event-checked expiry stops a stale timer.
+   - Which item shows the label or the problem is decided in one place, `HistoryCopy.shown`. Transcript rows, result cards and the check all call it, so the check runs the keying History ships.
    - It is judged by the copy's outcome, never the status line. `copyCapture` and `copySavedResult` now return their outcome, and `copyCapture` returns nil for an empty transcript, which attempts nothing and leaves the status saying the last copy's words. Existing callers are unchanged.
    - The header keeps Snap's slot. The clipboard receipt, the toolbar cue and undelivered-result handling are unchanged.
 2. **Settings › Updates: the confirmation sits under its row** (#338). The ✓ Copied kept for Copy build details sat between that button and Release notes and downloads, so the row always read as two buttons, a hole, then a stray link. It now sits under the row and shares that line with the problem note, as Meetings' Copy transcript does (Fit rule 7).
@@ -28,24 +29,31 @@ Branch `claude/history-copy-confirms`, stacked on the 15 October train `claude/t
 - `page-settings-state-copied-*` (after only): Settings › General after Copy build details. ✓ Copied sits under the row. Every pixel above it matches the at-rest render of the same window; the only difference is the label itself.
 - `page-history-state-transcripts-*`: the at-rest page is pixel-identical to the train, as are History's mixed, results, larger-text and result-reuse renders. The reserved space is invisible at rest.
 - `page-history-state-copied-*` and `-copied-larger-text-*` (after only): the newest transcript confirming ✓ Copied, in the minimum window's content column (History's narrowest), at standard and 1.35 times the text size. Copy, Review transcript, Details…, More, ✓ Copied and the trash all fit on one line, with nothing clipped.
-- `page-history-state-result-copied-*` and `-result-copied-larger-text-*` (after only): an expanded result confirming ✓ Copied beside Copy result, at both sizes.
+- `page-history-state-result-copied-*` and `-result-copied-larger-text-*` (after only): History's Results with the completed task's result open, confirming ✓ Copied beside its Copy result, at standard and 1.35 times the text size. The page is drawn at the minimum window's content-column width and made taller, so the open card shows whole. The confirmation reaches the card from the page, and only that task shows it.
 
-The full gallery passed on the final code: `SURFACE_GALLERY_OK: 370 renders, 162 entries, 0 flags`.
+Before the review fixes, the full gallery passed: `SURFACE_GALLERY_OK: 370 renders, 162 entries, 0 flags`. On the final code it draws all 370 renders, and every file in `after/` reproduces byte for byte. It flags two steps, both outside this change: the floating toolbar's "A copied cue appearing under a stationary pointer holds its time" check, light and dark. The reviewed head before the fixes (`ac31d3c`) fails the same two steps on this Mac at the same time, though it passed there earlier in the evening. This branch does not touch the toolbar or its cue.
 
 ## Checks run (debug build, this Mac)
 
 | Check | Result | Fails on the train? |
 |---|---|---|
 | `swift build --product LocalVoice` | passes | — |
-| `--check-feedback` (also in `--check-core`) | 143 checks pass, 11 of them new. They drive the glue History's rows call, with Copy result through `HistoryResultReuse.copy`, a private pasteboard, a synthetic clock and an announcer. A transcript copy writes the exact words and confirms ✓ Copied for that id only, heard once. It is there at 3.9 s and gone at 4.0 s. Copy result two seconds later takes the label, is heard, and is not ended by the first copy's timer. The receipt keeps the result's identity. A refused write confirms nothing and is heard as its reason, beside the item pressed. An empty transcript right after a copy confirms nothing and hears nothing | Yes. The glue does not exist on the train, so the check does not compile. Two mutations of the glue each fail it: confirming before the write fails "a refused write confirms nothing…", and keying on the status text (which only an attempted copy changes, as `AppModel.status` does) fails "an empty transcript right after a copy attempts nothing…" |
+| `--check-feedback` (also in `--check-core`) | 143 checks pass, 11 of them new. They drive the glue History's rows call, with Copy result through `HistoryResultReuse.copy`, a private pasteboard, a synthetic clock and an announcer. A transcript copy writes the exact words and confirms ✓ Copied for that id only, heard once. It is there at 3.9 s and gone at 4.0 s. Copy result two seconds later takes the label, is heard, and is not ended by the first copy's timer. The receipt keeps the result's identity. A refused write confirms nothing and is heard as its reason, beside the item pressed. An empty transcript right after a copy confirms nothing and hears nothing | Yes. The glue does not exist on the train, so the check does not compile. Three mutations each fail it: confirming before the write fails "a refused write confirms nothing…"; keying on the status text (which only an attempted copy changes, as `AppModel.status` does) fails "an empty transcript right after a copy attempts nothing…"; and dropping the id guard in `HistoryCopy.shown`, so every row would confirm, fails "a transcript's Copy… confirms Copied beside that row only" |
 | `--check-core` | passes | — |
 | `python3 scripts/test-capture-persistence.py` | 202 checks pass, 3 of them new. On the exact `AppModel.copyCapture`: it writes the exact words to the pasteboard it is given and reports the write; an empty transcript returns nil and writes nothing while the status still says the last copy's words; a refused write reports its failure | Yes. Against the train's `AppModel.swift` the new checks do not compile (`copyCapture` takes no pasteboard and returns nothing) |
 | `--check-handoff-jobs` | 218 checks pass, including the existing Copy result receipt assertion | — (unchanged) |
 | `--check-history-journey`, `--check-history-library` | pass | — (unchanged) |
 | `python3 scripts/check-surfaces.py` | 688 entries OK, `docs/surfaces.json` unchanged | — |
 | `scripts/test.sh harnesses` | passes | — |
-| `--render-surfaces` | `SURFACE_GALLERY_OK`, 0 flags | — |
+| `--render-surfaces` | Before the review fixes: `SURFACE_GALLERY_OK`, 0 flags. Final code: 370 renders, `after/` reproduced byte for byte, and 2 flags, both in the toolbar's copied-cue pointer check, which `ac31d3c` also fails on this Mac now (see Renders) | — |
 | Settings gap measurement (above) | 18 px against a 24 px limit | Yes. 135 px on the train |
+
+## Independent review
+
+The review's verdict was ship, with two P3 findings. Both are answered on this branch.
+
+1. **The keying was copied into the check, not called.** The check had its own copy of the "this item holds the confirmation" rule, so breaking that rule in HistoryView or the result card passed every check. The rule now lives in `HistoryCopy.shown`. HistoryView's transcript rows and HandoffJobCard's Copy result call it (the card asks by task id), and so does the check. The third mutation above shows the check now fails when the shipped rule breaks. The check's first assertion now says the transcript write follows `copyCapture`'s contract, because `test-capture-persistence.py` proves the exact method. The view's own call sites still have no automated cover beyond the renders.
+2. **Copy result's render was the preview alone.** It is now History's Results with the completed task open, rendered through HistoryView's gallery init. That init takes a result that is already open, and the app passes none. So the render shows the page handing the confirmation to the card, and the card handing it to that task's Copy result.
 
 ## Not verified natively
 
