@@ -4,6 +4,7 @@ import Foundation
 /// checks. Every write requires the exact field value and UTF-16 selection.
 @MainActor
 enum PromptInsertionRunner {
+    static let inserted = "Prompt inserted. Nothing was submitted."
     struct Snapshot: Equatable {
         var value: String
         var selection: NSRange
@@ -50,6 +51,6 @@ enum PromptInsertionRunner {
             }
             plan = expected
         }
-        return PromptInsertion.inserted
+        return inserted
     }
 }
