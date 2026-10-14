@@ -63,7 +63,7 @@ struct SnapWorkspaceView: View {
             }
             Divider()
             HStack {
-                TextField("Search titles, notes and tags", text: $model.search).textFieldStyle(.roundedBorder)
+                TextField("Search titles, notes, tags and image text", text: $model.search).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Search Snaps")
                 Picker("Show", selection: $model.showingArchived) { Text("Snaps").tag(false); Text("Archived").tag(true) }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 175)
@@ -149,7 +149,7 @@ struct SnapWorkspaceView: View {
         return model.showingArchived ? "Nothing archived" : "Your Snaps start here"
     }
     private var emptyDetail: String {
-        if !model.search.isEmpty { return "Try another title, note or tag. Your selection is kept." }
+        if !model.search.isEmpty { return "Try another title, note, tag or words shown in the image. Your selection is kept." }
         if model.showingArchived { return "Archived Snaps stay here until you restore them." }
         if model.draft != nil { return "Review your unfinished Snap, then save it to History." }
         return "Choose Region, Window or Screen, then save your capture here."
