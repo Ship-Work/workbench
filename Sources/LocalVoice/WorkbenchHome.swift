@@ -493,7 +493,6 @@ struct WorkbenchClipboardShelf: View {
     /// gone (#134 T5). Shown only while no current receipt is.
     var unresolved: UnresolvedDelivery? = nil
     let review: () -> Void
-    let showCue: () -> Void
     /// Review for an undelivered result: the Dictate page for the draft's
     /// words, History for a transcript's.
     var reviewUnresolved: (UnresolvedDelivery) -> Void = { _ in }
@@ -534,8 +533,7 @@ struct WorkbenchClipboardShelf: View {
                 HStack {
                     Button("Review text") { if receipt == nil, let unresolved { reviewUnresolved(unresolved) } else { review() } }
                     Spacer()
-                    if receipt != nil { Button("Show cue", action: showCue) }
-                    else if let unresolved {
+                    if receipt == nil, let unresolved {
                         if unresolved.offersCopy { Button("Copy again", action: copyAgain) }
                         Button("Dismiss", action: dismissUnresolved).accessibilityLabel("Dismiss unfinished delivery")
                     }
@@ -863,7 +861,6 @@ struct WorkbenchHomePage: View {
                             default: model.openHistory()
                             }
                         },
-                        showCue: { model.clipboardReceipt.revealHUD() },
                         reviewUnresolved: { _ in model.reviewUnresolvedDelivery() },
                         copyAgain: { model.copyUnresolvedDelivery() }, dismissUnresolved: { model.dismissUnresolvedDelivery() })
                 }

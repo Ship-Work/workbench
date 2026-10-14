@@ -99,7 +99,6 @@ struct WorkbenchQuickPanel: View {
                                 default: model.openHistory(); open("history")
                                 }
                             },
-                            showCue: { model.onCloseMenu?(); receipts.revealHUD() },
                             reviewUnresolved: { entry in
                                 open(entry.isDraft ? "dictate" : "history")
                                 model.reviewUnresolvedDelivery()

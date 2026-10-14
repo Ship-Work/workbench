@@ -930,7 +930,7 @@ private struct HistoryNativeAcceptanceView: View {
             ("shelf-draft-changed", "Panel shelf: the draft changed", "A failed copy of the draft once the draft has changed: Review text opens Dictate, and there is no Copy again.",
              fromDraft.shown(in: now))] {
             let receipts = ClipboardReceiptModel(clipboardChangeCount: { 0 }, automaticallySchedules: false)
-            let view = WorkbenchClipboardShelf(receipts: receipts, unresolved: entry, review: {}, showCue: {})
+            let view = WorkbenchClipboardShelf(receipts: receipts, unresolved: entry, review: {})
                 .frame(width: 304).fixedSize(horizontal: false, vertical: true).padding(12)
             let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
             let window = offscreenWindow(size: host.fittingSize, styleMask: [.borderless])
@@ -3980,7 +3980,7 @@ private struct HistoryNativeAcceptanceView: View {
         list += [action(panel, "Shortcut label on each row", "Edits that shortcut inside the panel"),
                  page(panel, "Open Workbench", "home"), page(panel, "Settings", "settings"), page(panel, "Shortcuts", "shortcuts"),
                  action(panel, WorkbenchUpdates.shared.panelTitle, "Checks for updates"), action(panel, "Quit", "Quits Workbench"),
-                 page(panel, "Clipboard receipt · Review text", "history"), action(panel, "Clipboard receipt · Show cue", "Shows the clipboard cue"),
+                 page(panel, "Clipboard receipt · Review text", "history"),
                  page(panel, "Recovery · Open Dictate…, for a dictation error", "dictate"),
                  page(panel, "Recovery · Open History…, for a transcript removal or export", "history"),
                  page(panel, "Recovery · Open Home…, when the speech model could not be prepared", "home"),
