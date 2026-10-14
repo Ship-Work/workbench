@@ -246,8 +246,18 @@ final class DemoLibraryModel: ObservableObject {
     }
     @Published private(set) var resources: [DemoResource] = [] { didSet { reconcileSelection() } }
     @Published var selection: UUID?
-    @Published var draft: DemoResource? { didSet { if draft == nil { draftNotice = nil } } }
+    @Published var draft: DemoResource? {
+        didSet {
+            if draft == nil { draftNotice = nil }
+            if draftWorkingCopy?.id != draft?.id { draftWorkingCopy = nil }
+        }
+    }
     @Published private(set) var draftNotice: String?
+    /// The open editor's current fields, reported by the editor. Not published,
+    /// so typing never re-renders Library; only Quit reads it.
+    private(set) var draftWorkingCopy: DemoResource?
+    /// Replaces the Quit question in checks; Discard is true.
+    var approveDiscard: (() -> Bool)?
     @Published var query = "" { didSet { reconcileSelection() } }
     @Published var favoritesOnly = false { didSet { reconcileSelection() } }
     @Published var notice: String?
@@ -313,6 +323,24 @@ final class DemoLibraryModel: ObservableObject {
             return
         }
         draft = DemoResource(title: String(text.split(separator: "\n").first?.prefix(80) ?? ""), content: text)
+    }
+    func noteDraftEdit(_ item: DemoResource) {
+        if item.id == draft?.id { draftWorkingCopy = item }
+    }
+    var hasUnsavedDraft: Bool {
+        guard let draft, let working = draftWorkingCopy, working.id == draft.id else { return false }
+        return working != draft
+    }
+    /// Decide before shutdown starts, without discarding if another activity later cancels Quit.
+    func canTerminate() -> Bool {
+        guard hasUnsavedDraft, let draft else { return true }
+        if let approveDiscard { return approveDiscard() }
+        let alert = NSAlert(); alert.messageText = "Discard your changes to this \(draft.kind.rawValue.lowercased())?"
+        alert.informativeText = resources.contains(where: { $0.id == draft.id })
+            ? "The saved version in Library stays unchanged."
+            : "It has not been saved to Library."
+        alert.addButton(withTitle: "Keep editing"); alert.addButton(withTitle: "Discard")
+        return alert.runModal() == .alertSecondButtonReturn
     }
     func save(_ proposed: DemoResource) -> Bool {
         var item = proposed
