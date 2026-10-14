@@ -92,7 +92,7 @@ final class ToolbarKeyboardTraversalTests: XCTestCase {
         XCTAssertEqual(backward, ["accessory", "primary", "launcher"], "Shift-Tab from the launcher")
     }
 
-    /// Read has no accessory: Tab goes from the next action straight to More.
+    /// Snap has no accessory: Tab goes from the next action straight to the launcher.
     @MainActor func testTabCyclesARowWithoutAnAccessory() throws {
         let (forward, backward) = try cycle(ToolbarViewState(name: "snap", tier: .revealed, mode: .snap), count: 2)
         XCTAssertEqual(forward, ["primary", "launcher"])

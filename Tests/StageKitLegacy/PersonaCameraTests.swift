@@ -1274,7 +1274,7 @@ final class PersonaCameraTests {
     /// A lost input or an engine that cannot restart stops the ring with its reason, and leaves
     /// the saved choice on; a refusal turns it off and is remembered.
     func testAFaultStopsTheRingWithoutSavingItOff() throws {
-        try MainActor.assumeIsolated {
+        MainActor.assumeIsolated {
             var saved: [Bool] = []
             let microphones = Box()
             let access = PersonaVoiceAccess(permission: { .allowed }, requestPermission: { $0(true) },

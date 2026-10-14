@@ -27,7 +27,6 @@ __STORE__
         defer { try? fm.removeItem(at: fixture) }
         let destination = fixture.appendingPathComponent("New session")
         let expectMissing = CommandLine.arguments.contains("--missing")
-        let optionalMissing = CommandLine.arguments.contains("--optional-missing")
         if expectMissing {
             for existing in [false, true] {
                 if existing { try fm.createDirectory(at: destination, withIntermediateDirectories: true) }

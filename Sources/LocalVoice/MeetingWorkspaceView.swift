@@ -224,7 +224,7 @@ struct MeetingWorkspaceView: View {
             }.padding(Workbench.pagePadding).frame(maxWidth: .infinity, alignment: .topLeading)
         }.onAppear { if !model.isBusy { model.refreshApps() } }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshSourcesOnReturn() }
-            .onChange(of: model.completedTranscriptID) { value in
+            .onChange(of: model.completedTranscriptID) { _, value in
                 copyFeedback.finish(nil)
                 if value != nil { showingNewRecording = false }
             }
