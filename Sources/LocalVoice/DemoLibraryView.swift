@@ -334,7 +334,12 @@ private struct DemoResourceEditor: View {
     @ObservedObject var library: DemoLibraryModel
     @State var item: DemoResource
     @FocusState private var titleFocused: Bool
-    init(library: DemoLibraryModel, initial: DemoResource) { self.library = library; _item = State(initialValue: initial) }
+    init(library: DemoLibraryModel, initial: DemoResource) {
+        self.library = library
+        // A sheet shown again after Keep editing keeps what was typed.
+        let working = library.draftWorkingCopy.flatMap { $0.id == initial.id ? $0 : nil }
+        _item = State(initialValue: working ?? initial)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("\(library.resources.contains { $0.id == item.id } ? "Edit" : "Save") \(item.kind.rawValue.lowercased())").font(.title2.weight(.semibold))
@@ -371,5 +376,6 @@ private struct DemoResourceEditor: View {
                     .disabled(item.validationMessage != nil || library.savingDisabled)
             }
         }.padding(24).frame(width: 520).onAppear { titleFocused = true }.workbenchTheme()
+        .onChange(of: item) { _, new in library.noteDraftEdit(new) }
     }
 }
