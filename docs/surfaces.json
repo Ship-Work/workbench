@@ -4158,7 +4158,7 @@
   {
     "id": "shortcut.stage.clear",
     "surface": "global shortcuts",
-    "label": "Clear & return to demo",
+    "label": "Clear",
     "case": "clear",
     "kind": "action",
     "belongsTo": "draw"
@@ -4315,7 +4315,7 @@
   {
     "id": "shortcut.stage.pen",
     "surface": "global shortcuts",
-    "label": "Pen",
+    "label": "Draw",
     "case": "pen",
     "kind": "action",
     "belongsTo": "draw"
@@ -4356,7 +4356,7 @@
   {
     "id": "shortcut.stage.rectangle",
     "surface": "global shortcuts",
-    "label": "Rectangle",
+    "label": "Shape",
     "case": "rectangle",
     "kind": "action",
     "belongsTo": "draw"

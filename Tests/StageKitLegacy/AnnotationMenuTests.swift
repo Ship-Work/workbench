@@ -84,6 +84,8 @@ final class AnnotationMenuTests: XCTestCase {
             app.settings.value.shortcuts[Action.pen.rawValue]?.enabled = false
             reopen(menu)
             XCTAssertEqual(item("pen", in: menu)?.title, "Pen")
+            XCTAssertEqual(item("rectangle", in: menu)?.title, "Rectangle", "Draw's tool list keeps the tools' names (#76)")
+            XCTAssertEqual(item("clear", in: menu)?.title, "Clear", "Clear has the key's name")
             XCTAssertEqual(item("pen", in: menu)?.keyEquivalent, "")
             XCTAssertTrue(item("pen", in: menu)?.toolTip?.contains("Shortcut off") == true)
         }

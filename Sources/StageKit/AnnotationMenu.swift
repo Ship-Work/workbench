@@ -30,7 +30,7 @@ final class AnnotationMenu: AnnotationShortcutMenu, NSMenuDelegate {
 
         for tool in DrawingTool.allCases {
             guard let action = Action(rawValue: tool.rawValue) else { continue }
-            let item = actionItem(action, checked: app.tool == tool)
+            let item = actionItem(action, title: tool.title, checked: app.tool == tool)
             item.image = NSImage(systemSymbolName: tool.symbol, accessibilityDescription: nil)
             addItem(item)
         }
