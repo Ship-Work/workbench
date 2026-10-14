@@ -952,7 +952,9 @@ private struct HistoryNativeAcceptanceView: View {
     /// selections and the recording must come through unchanged, or the pass fails.
     func renderFoldedStates(to output: URL) throws -> [(String, [SurfaceGallery.Shot])] {
         let size = SurfaceGallery.sizes[1].size, library = model.library
-        let window = homeWindow(size: size)
+        final class Frames { var byID: [String: CGRect] = [:] }
+        let frames = Frames()
+        let window = homeWindow(size: size) { id, frame in if id.hasPrefix("home.current-work.") { frames.byID[id] = frame } }
         defer { window.contentViewController = nil; window.close(); model.phase = .idle; model.elapsed = 0 }
         var added: [DemoResource] = []
         defer {
@@ -995,7 +997,7 @@ private struct HistoryNativeAcceptanceView: View {
         try cleanupStore.save(.init(naturalProvider: .ollama, model: "gemma3:1b"))
         model.cleanupModels.presentDownload("gemma3:1b", fraction: 0.42)
         defer {
-            model.cleanupModels.cancel()
+            model.cleanupModels.cancel(); model.cleanupModels.clearFailure()
             if let savedCleanup { UserDefaults.standard.set(savedCleanup, forKey: CleanupConfigurationStore.key) }
             else { UserDefaults.standard.removeObject(forKey: CleanupConfigurationStore.key) }
         }
@@ -1009,11 +1011,30 @@ private struct HistoryNativeAcceptanceView: View {
         let dictateShot = try save(dictate, id: "state-writing-model-download", title: "Dictate during a writing model download, minimum window, \(Int(dictateSize.width)) × \(Int(dictateSize.height)) pt",
                                    detail: "Downloading gemma3:1b · 42% under the speech model and text style line, beside Models….",
                                    file: "page-dictate-state-writing-model-download-\(theme).png", to: output)
+        // Home, with speech ready and the first-dictation guide showing: Current work carries the
+        // line with Models…, above the guide (#335).
+        frames.byID = [:]
         let (homeDownload, homeSize) = try renderPage("home", in: window)
+        guard model.ready, model.writingModelLine == "Downloading gemma3:1b · 42%", frames.byID["home.current-work.writing-model"]?.isEmpty == false else {
+            throw VoiceError.message("Home did not show the writing model's download line with Models… in Current work while speech was ready.")
+        }
         let homeShot = try save(homeDownload, id: "state-writing-model-download", title: "Home during a writing model download, minimum window, \(Int(homeSize.width)) × \(Int(homeSize.height)) pt",
-                                detail: "The engine banner carries Downloading gemma3:1b · 42% under the speech model's line.",
+                                detail: "Speech is ready, so Current work carries Downloading gemma3:1b · 42% with its progress and Models…, above the first-dictation guide.",
                                 file: "page-home-state-writing-model-download-\(theme).png", to: output)
-        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot])]
+        // The download failed: its reason stays on Home with the attention symbol until Models clears it.
+        model.cleanupModels.cancel()
+        let reason = "gemma3:1b couldn’t be downloaded. The synthetic Ollama server stopped responding."
+        model.cleanupModels.presentFailure(reason)
+        frames.byID = [:]
+        let (homeFailure, failureSize) = try renderPage("home", in: window)
+        guard model.writingModelLine == reason, frames.byID["home.current-work.writing-model"]?.isEmpty == false else {
+            throw VoiceError.message("Home did not show the writing model's failure with Models… in Current work.")
+        }
+        let failureShot = try save(homeFailure, id: "state-writing-model-failure", title: "Home after a writing model download failed, minimum window, \(Int(failureSize.width)) × \(Int(failureSize.height)) pt",
+                                   detail: "The reason stays in Current work beside the attention symbol and Models…, where Download again and Cancel live.",
+                                   file: "page-home-state-writing-model-failure-\(theme).png", to: output)
+        model.cleanupModels.clearFailure()
+        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot, failureShot])]
     }
 
     // MARK: Read states

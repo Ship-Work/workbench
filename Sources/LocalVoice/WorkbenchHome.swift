@@ -549,6 +549,7 @@ struct WorkbenchClipboardShelf: View {
 /// before you have one), what this Mac allows and the keys worth learning. Every action acts on
 /// the item beside it.
 struct WorkbenchHomePage: View {
+    @Environment(\.pageSectionFrames) private var sectionFrames
     @ObservedObject var model: AppModel
     @ObservedObject var stage: StageKitController
     @ObservedObject var readback: ReadbackModel
@@ -691,6 +692,7 @@ struct WorkbenchHomePage: View {
         // The guide reads only History and the saved guide state, never this property: asking
         // `journey` here recursed until the stack overflowed whenever speech was preparing.
         dictationLive || (model.preparing && !model.ready && !guideShows)
+            || HomeJourney.writingModelIsCurrentWork(hasLine: model.writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
             || readback.isRecording || readback.hasPendingTranscriptions || stage.isDrawing || stage.isPresenting
             || personaControl.isCurrentWork || stage.hasTimerSession || meetings.isBusy || jobs.isBusy
     }
@@ -709,6 +711,15 @@ struct WorkbenchHomePage: View {
             if meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
             // The guide shows the speech engine itself while it is offered.
             if !model.ready && !journey.showsGuide { engineBanner }
+            // The writing model's download or its failure while speech is ready, when no engine
+            // banner carries it: the same line Dictate and the panel show (#335). Cancel stays in Models.
+            if model.ready, let line = model.writingModelLine {
+                let failed = model.cleanupModels.downloading == nil
+                liveRow(line, failed ? "exclamationmark.triangle.fill" : "text.badge.checkmark", attention: failed) {
+                    if !failed { ProgressView().controlSize(.small) }
+                    Button("Models…") { model.page = "models" }
+                }.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.writing-model", $0) }
+            }
             // Other running or resumable work.
             if model.waitingForDrawing {
                 liveRow("Text ready", "doc.on.clipboard") { Button("Copy") { model.copyWaitingDelivery() } }
@@ -928,6 +939,12 @@ struct HomeJourney: Equatable {
     /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
     /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
     /// bar, in History's words.
+    /// The writing model's download or failure is current work while speech is ready, in its own
+    /// row, or while the guide is hidden, in the engine banner. While the guide shows over speech
+    /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
+    static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
+        hasLine && (speechReady || !guideShows)
+    }
     static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?) -> String {
         shortcut.enabled && failure == nil ? "or press \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
     }
