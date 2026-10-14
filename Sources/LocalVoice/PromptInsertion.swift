@@ -7,17 +7,20 @@ struct PromptInsertionPlan {
     private(set) var selection: NSRange
     private(set) var remaining: Substring
     private(set) var insertedCharacters = 0
+    private(set) var confirmedWrites = 0
     init?(value: String, selection: NSRange, text: String) {
         guard selection.location != NSNotFound, Range(selection, in: value) != nil,
               !text.isEmpty, text.count <= 50_000 else { return nil }
         expectedValue = value; self.selection = selection; remaining = text[...]
     }
-    var nextChunk: String { String(remaining.prefix(2)) }
+    /// Two Characters first, to learn that the field takes confirmed writes, then doubling to
+    /// at most 256: a long prompt lands in about a second, and every write is still confirmed.
+    var nextChunk: String { String(remaining.prefix(confirmedWrites == 0 ? 2 : min(256, 2 << confirmedWrites))) }
     mutating func acknowledge(_ chunk: String) {
         guard !chunk.isEmpty, remaining.hasPrefix(chunk), let range = Range(selection, in: expectedValue) else { return }
         expectedValue.replaceSubrange(range, with: chunk)
         selection = NSRange(location: selection.location + chunk.utf16.count, length: 0)
-        remaining = remaining.dropFirst(chunk.count); insertedCharacters += chunk.count
+        remaining = remaining.dropFirst(chunk.count); insertedCharacters += chunk.count; confirmedWrites += 1
     }
     func matches(value: String?, selection: NSRange?) -> Bool {
         value == expectedValue && selection == self.selection

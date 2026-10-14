@@ -304,7 +304,8 @@ sized from its content's `onGeometryChange` report, never from a background
 
 From the toolbar's Prompts, the original field, value and UTF-16 selection are
 captured before the picker opens. Supported fields receive confirmed literal
-chunks; other readable fields get one guarded paste labelled as such. Without
+chunks, two Characters first and then doubling to 256, so a long prompt lands in
+about a second; other readable fields get one guarded paste labelled as such. Without
 Accessibility approval, or with no readable field, the action is Copy prompt: one
 copy of the exact text and the Copied, Paste with ⌘V. receipt, with no paste or
 Accessibility write. Library's Saved Prompts… never captures an external field: it

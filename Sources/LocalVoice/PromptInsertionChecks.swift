@@ -37,7 +37,21 @@ enum PromptInsertionChecks {
         let field = Field()
         let result = await field.run(unicode)
         try check(field.value == "before \(unicode) after" && result == "Prompt inserted. Nothing was submitted.", "literal Unicode, newlines and selected-range replacement")
-        try check(field.writes.joined() == unicode && field.writes.allSatisfy { $0.count <= 2 } && field.pastes == 0, "progressive writes use whole Characters with no fallback replay")
+        try check(field.writes.joined() == unicode && field.writes.first!.count <= 2 && field.writes.allSatisfy { $0.count <= 256 } && field.pastes == 0,
+                  "progressive writes use whole Characters with no fallback replay")
+        // A long prompt: a two-Character probe, then confirmed writes that double to 256 Characters,
+        // cut across emoji sequences, combining marks, CJK and newlines.
+        let long = String(String(repeating: unicode, count: 200).prefix(2_000))
+        let longField = Field()
+        let longResult = await longField.run(long)
+        try check(longField.value == "before \(long) after" && longResult == "Prompt inserted. Nothing was submitted." && longField.pastes == 0
+                  && longField.writes.count <= 14 && longField.writes.first!.count <= 2 && longField.writes.allSatisfy { $0.count <= 256 }
+                  && longField.writes.map(\.count).reduce(0, +) == long.count, "a 2,000-Character prompt lands exactly in at most 14 confirmed writes")
+        var confirmations = 0
+        let stopsSecond = Field(); stopsSecond.afterWrite = { confirmations += 1; if confirmations == 2 { stopsSecond.cancelled = true } }
+        let stopsResult = await stopsSecond.run(long)
+        try check(stopsSecond.writes.count == 2 && stopsSecond.pastes == 0 && stopsResult.contains("could not be confirmed")
+                  && stopsResult.contains("nothing was replayed"), "Escape during the second write stops there, with nothing replayed")
         let fallback = Field(); fallback.progressive = false
         let fallbackResult = await fallback.run(unicode)
         try check(fallbackResult == "pasted" && fallback.pastes == 1 && fallback.writes.isEmpty && fallback.value == field.value, "unsupported progressive write uses exactly one validated paste")
