@@ -936,15 +936,15 @@ struct HomeJourney: Equatable {
     var offersGuide: Bool { !showsGuide && !hasDictated }
     /// What to save once History holds a dictation.
     var guideToSave: FirstDictationGuide? { transcripts > 0 && guide != .completed ? .completed : nil }
-    /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
-    /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
-    /// bar, in History's words.
     /// The writing model's download or failure is current work while speech is ready, in its own
     /// row, or while the guide is hidden, in the engine banner. While the guide shows over speech
     /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
     static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
         hasLine && (speechReady || !guideShows)
     }
+    /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
+    /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
+    /// bar, in History's words.
     static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?) -> String {
         shortcut.enabled && failure == nil ? "or press \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
     }
