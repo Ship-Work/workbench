@@ -91,6 +91,12 @@ enum ImageWorkspaceChecks {
                 preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
                 try await settle(preview)
                 try render(preview.panel!, to: output.appendingPathComponent("image-workspace-" + theme + ".png"))
+                // An arrow selected shows the Pen, Arrow and Box inspector. It is added and removed outside
+                // Undo, then the text box is selected again, so the shots after it stay as they were.
+                let arrow = SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+                editor.draft.edit.marks.append(arrow); editor.select(arrow.id); try await settle(preview)
+                try render(preview.panel!, to: output.appendingPathComponent("image-workspace-arrow-" + theme + ".png"))
+                editor.draft.edit.marks.removeAll { $0.id == arrow.id }; editor.select(textID); try await settle(preview)
                 owner.contentView = NSHostingView(rootView: SnapWorkspaceView(model: snap, selectedIDs: .constant([]))
                     .frame(width: 1180, height: 780))
                 owner.setContentSize(NSSize(width: 1180, height: 780))

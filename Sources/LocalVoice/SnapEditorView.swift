@@ -108,8 +108,7 @@ struct SnapEditorView: View {
                 }
                 colourPicker(selected: true)
                 if mark.kind != .text {
-                    Slider(value: Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }), in: 0.001...0.02)
-                        .accessibilityLabel("Line width")
+                    lineWidth(Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }))
                 }
                 Text("Drag to move. Drag a corner to resize. Arrow keys nudge; Shift moves ten pixels.").font(.caption).foregroundStyle(.secondary)
                 Button("Delete mark", role: .destructive) { editing.removeSelected() }
@@ -117,7 +116,7 @@ struct SnapEditorView: View {
             } else if [.pen, .arrow, .rectangle].contains(editing.tool) {
                 Text("Mark style").font(.headline)
                 colourPicker(selected: false)
-                Slider(value: $editing.lineWidth, in: 0.001...0.02).accessibilityLabel("Line width")
+                lineWidth($editing.lineWidth)
                 Divider()
             } else {
                 Text("Make it clear").font(.headline)
@@ -135,6 +134,13 @@ struct SnapEditorView: View {
                 .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6)).accessibilityLabel("Image notes")
             Text("Notes stay with this Snap. Text boxes appear in the copied or exported image.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    /// Captioned like Text size, in the pixels the saved image draws (SnapRendering.draw).
+    private func lineWidth(_ width: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Line width · \(Int(max(1, width.wrappedValue * min(editing.imageSize.width, editing.imageSize.height)))) px").font(.caption)
+            Slider(value: width, in: 0.001...0.02).accessibilityLabel("Line width")
+        }
     }
     private func colourPicker(selected: Bool) -> some View {
         Picker("Colour", selection: Binding(get: { editing.colour }, set: { value in
