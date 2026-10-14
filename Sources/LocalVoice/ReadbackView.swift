@@ -415,10 +415,10 @@ struct ReadbackView: View {
                         Button("Save image to Library…") { imageResult = onSaveImageToLibrary(preview(section, number: number)) }
                     }
                     Divider()
-                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id) } }.disabled(changing)
+                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id, mode: captureMode) } }.disabled(changing)
                     Button(section.audio == nil ? "Record narration" : "Re-record narration") { model.startNarration(for: section.id) }
                         .disabled(changing || model.microphonePermission != .authorized)
-                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id) } }.disabled(changing)
+                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id, mode: captureMode) } }.disabled(changing)
                     Divider()
                     Button("Move to Recently Deleted") { model.deleteSection(section.id) }.disabled(changing)
                 } label: { Image(systemName: "ellipsis.circle") }

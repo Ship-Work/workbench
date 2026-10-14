@@ -329,12 +329,14 @@ enum ReadbackChecks {
         var denial: String? = "Synthetic ordinary dictation is active"
         var captureCount = 0
         var duringCapture: (() -> Void)?
-        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults) {
+        // Redo needs both permissions before it captures; fixed answers keep these checks off this Mac's settings.
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults, captureDisplay: {
             captureCount += 1
             await Task.yield()
             duringCapture?()
             return ReadbackScreenshot(data: Data("Replacement synthetic screenshot".utf8), displayName: "Synthetic capture", screenFrame: .zero)
-        }
+        }, screenAccess: .fixed(true), microphoneAccess: { .authorized },
+            makeNarrationRecorder: { _, _ in throw ReadbackError.message("Admission checks never record.") })
         defer { duringCapture = nil; model.shutdown() }
         model.mayBeginCapture = { denial }
         try check(model.manifest?.sections.first == section, "isolated model loads the ready synthetic section without permission prompts")

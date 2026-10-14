@@ -918,14 +918,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
         var retainedInSnapHistory = false
         do {
-            let selected = try await withTaskCancellationHandler {
-                try await captureImage(mode, fromEditor: fromEditor, request: request)
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    guard self?.captureRequest == request else { return }
-                    self?.cancelCapture()
-                }
-            }
+            let selected = try await ownedCapture(mode, fromEditor: fromEditor, request: request)
             guard captureRequest == request, !Task.isCancelled else { return }
             guard let capture = selected else { notice = nil; return }
             if let reason = mayBeginCapture?() { throw ReadbackError.message(reason) }
@@ -1103,11 +1096,24 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         stateChanged()
     }
 
-    func replaceScreenshot(_ sectionID: UUID) async {
-        guard !isCapturing, !isRecording, let root = sessionURL else { return }
+    /// Replace and Redo use the page's Capture area and own their capture as Capture & narrate
+    /// does: Escape changes nothing, and closing the session or quitting discards a late image.
+    func replaceScreenshot(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
+        guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
+        // Replacing records no audio, so it needs only Screen Recording.
+        guard screenPermissionGranted else { notice = permissionsProblem; stateChanged(); return }
+        let request = UUID(); captureRequest = request
         isCapturing = true; stateChanged()
+        defer {
+            if captureRequest == request { captureRequest = nil; isCapturing = false; stateChanged() }
+        }
         do {
-            let capture = try await captureScreen(fromEditor: true)
+            let selected = try await ownedCapture(mode, fromEditor: true, request: request)
+            guard captureRequest == request, !Task.isCancelled else { return }
+            guard let capture = selected else { notice = nil; return }
+            guard sessionURL?.standardizedFileURL == root.standardizedFileURL, manifest?.id == sessionID else {
+                throw ReadbackError.message("The session changed during capture. Capture again in the selected session.")
+            }
             var current = try ReadbackStore.load(from: root)
             guard let index = current.sections.firstIndex(where: { $0.id == sectionID && $0.deletedAt == nil }) else { throw ReadbackError.message("The section is no longer available.") }
             try archiveFile(relative: current.sections[index].screenshot, label: "screen", root: root, section: current.sections[index])
@@ -1115,19 +1121,30 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].capturedAt = Date(); current.sections[index].displayName = capture.displayName
             try ReadbackStore.save(current, at: root); publish(current, for: root)
             notice = "Screenshot replaced. Its narration was kept."
-        } catch { notice = "The screenshot was not replaced. \(error.localizedDescription)" }
-        isCapturing = false; stateChanged()
+        } catch {
+            guard captureRequest == request else { return }
+            if Task.isCancelled { notice = nil; return }
+            notice = "The screenshot was not replaced. \(error.localizedDescription)"
+        }
     }
 
-    func redoBoth(_ sectionID: UUID) async {
+    func redoBoth(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before replacing it."; return }
-        guard !isCapturing, !isRecording, let root = sessionURL else { return }
+        guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
         if let reason = mayBeginCapture?() { notice = reason; stateChanged(); return }
+        // Redo narrates the new image, so a selector never opens for a take it cannot record.
+        guard permissionsReady else { notice = permissionsProblem; stateChanged(); return }
+        let request = UUID(); captureRequest = request
         isCapturing = true; stateChanged()
+        defer {
+            if captureRequest == request { captureRequest = nil; isCapturing = false; stateChanged() }
+        }
         do {
-            let capture = try await captureScreen(fromEditor: true)
+            let selected = try await ownedCapture(mode, fromEditor: true, request: request)
+            guard captureRequest == request, !Task.isCancelled else { return }
+            guard let capture = selected else { notice = nil; return }
             if let reason = mayBeginCapture?() { throw ReadbackError.message(reason) }
-            guard sessionURL?.standardizedFileURL == root.standardizedFileURL else {
+            guard sessionURL?.standardizedFileURL == root.standardizedFileURL, manifest?.id == sessionID else {
                 throw ReadbackError.message("The session changed during capture. Capture again in the selected session.")
             }
             var current = try ReadbackStore.load(from: root)
@@ -1138,7 +1155,11 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             try ReadbackStore.save(current, at: root); publish(current, for: root)
             recordingThumbnail = NSImage(data: capture.data); recordingScreenFrame = capture.screenFrame
             isCapturing = false; try startNarration(root: root, sectionID: sectionID)
-        } catch { isCapturing = false; notice = "The section was not replaced. \(error.localizedDescription)"; stateChanged() }
+        } catch {
+            guard captureRequest == request else { return }
+            if Task.isCancelled { notice = nil; return }
+            isCapturing = false; notice = "The section was not replaced. \(error.localizedDescription)"; stateChanged()
+        }
     }
 
     func retryTranscription(_ sectionID: UUID) {
@@ -1286,18 +1307,20 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         processor?.cancel(); processor = nil
     }
 
-    private func captureScreen(fromEditor: Bool) async throws -> ReadbackScreenshot {
-        if fromEditor {
-            onHideForEditorCapture?()
+    /// The request's image; cancelling the task cancels its selector while the request is still owned.
+    private func ownedCapture(_ mode: SnapCapture.Mode, fromEditor: Bool, request: UUID) async throws -> ReadbackScreenshot? {
+        try await withTaskCancellationHandler {
+            try await captureImage(mode, fromEditor: fromEditor, request: request)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.captureRequest == request else { return }
+                self?.cancelCapture()
+            }
         }
-        // isCapturing synchronously hides the shared toolbar for every entry
-        // point. Give WindowServer a frame before acquiring the display.
-        defer { if fromEditor { onRestoreAfterEditorCapture?() } }
-        try await Task.sleep(nanoseconds: 250_000_000)
-        return try await captureDisplay()
     }
 
-    /// Screen keeps the existing capture and shortcut path. Apple's selectors supply a
+    /// Screen keeps the existing capture and shortcut path; isCapturing synchronously hides the
+    /// shared toolbar, so Screen gives WindowServer a frame first. Apple's selectors supply a
     /// region or window through Snap's source; Escape supplies no image and starts no audio.
     private func captureImage(_ mode: SnapCapture.Mode, fromEditor: Bool, request: UUID) async throws -> ReadbackScreenshot? {
         if fromEditor { onHideForEditorCapture?() }
