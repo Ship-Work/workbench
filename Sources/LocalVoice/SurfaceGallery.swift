@@ -2481,7 +2481,7 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// Valid portable media and a long session exercise the real review layout. No device,
     /// live data or provider runs. Recording is a presentation-only override in the same view.
-    func renderSnapTalkStates(to output: URL, states: [String] = ["review", "processing", "recovery", "unavailable", "unsaved", "recording", "settings", "sessions", "deleted", "narration", "narration-not-ready", "access-off", "access-pending"]) throws -> [SurfaceGallery.Shot] {
+    func renderSnapTalkStates(to output: URL, states: [String] = ["review", "processing", "recovery", "unavailable", "unsaved", "recording", "settings", "sessions", "deleted", "narration", "narration-not-ready", "needs-narration", "access-off", "access-pending"]) throws -> [SurfaceGallery.Shot] {
         var shots: [SurfaceGallery.Shot] = []
         for state in states {
             let base = home.appendingPathComponent("SnapTalk gallery \(theme) \(state)")
@@ -2492,6 +2492,12 @@ private struct HistoryNativeAcceptanceView: View {
             // and its Models… door, and says so when the model could not be prepared (#134 follow-up).
             if state.hasPrefix("narration") {
                 manifest.sections[0].audio = nil; manifest.sections[0].originalTranscript = nil; manifest.sections[0].transcript = nil
+            }
+            // A capture whose microphone could not start: notes finish it, beside Record narration (#63).
+            if state == "needs-narration" {
+                manifest.sections[0].audio = nil; manifest.sections[0].originalTranscript = nil; manifest.sections[0].transcript = nil
+                manifest.sections[0].status = .needsNarration
+                manifest.sections[0].failure = "The microphone could not start. Check that an input device is connected."
             }
             if state == "narration-not-ready" {
                 model.ready = false; model.preparing = false; model.modelFailure = "Check your connection and try again."

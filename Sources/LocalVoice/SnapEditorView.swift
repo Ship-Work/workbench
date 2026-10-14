@@ -91,22 +91,23 @@ struct SnapEditorView: View {
             if let mark = editing.selectedMark {
                 Text(mark.kind == .text ? "Text on image" : "Selected mark").font(.headline)
                 if mark.kind == .text {
-                    TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected { $0.text = String(value.prefix(10_000)) } }))
+                    TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected("text") { $0.text = String(value.prefix(10_000)) } }))
                         .font(.body).frame(height: 120).focused($textFocused)
+                        .onChange(of: textFocused) { _, focused in if !focused { editing.endEditRun() } }
                         .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Text on image")
-                    Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected { $0.background = value } })) {
+                    Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected("background") { $0.background = value } })) {
                         ForEach(["none", "white", "black", "yellow"], id: \.self) { Text($0.capitalized).tag($0) }
                     }.id(appearance.colorScheme)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Text size · \(Int((mark.fontSize ?? 0.035) * min(editing.imageSize.width, editing.imageSize.height))) px").font(.caption)
-                        Slider(value: Binding(get: { editing.selectedMark?.fontSize ?? 0.035 }, set: { value in editing.fontSize = value; editing.updateSelected { $0.fontSize = value } }), in: 0.008...0.15)
+                        Slider(value: Binding(get: { editing.selectedMark?.fontSize ?? 0.035 }, set: { value in editing.fontSize = value; editing.updateSelected("fontSize") { $0.fontSize = value } }), in: 0.008...0.15)
                             .accessibilityLabel("Text size")
                     }
                 }
                 colourPicker(selected: true)
                 if mark.kind != .text {
-                    Slider(value: Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected { $0.width = value } }), in: 0.001...0.02)
+                    Slider(value: Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }), in: 0.001...0.02)
                         .accessibilityLabel("Line width")
                 }
                 Text("Drag to move. Drag a corner to resize. Arrow keys nudge; Shift moves ten pixels.").font(.caption).foregroundStyle(.secondary)
@@ -136,7 +137,7 @@ struct SnapEditorView: View {
     }
     private func colourPicker(selected: Bool) -> some View {
         Picker("Colour", selection: Binding(get: { editing.colour }, set: { value in
-            editing.colour = value; if selected { editing.updateSelected { $0.colour = value } }
+            editing.colour = value; if selected { editing.updateSelected("colour") { $0.colour = value } }
         })) { ForEach(["red", "yellow", "blue", "white", "black"], id: \.self) { Text($0.capitalized).tag($0) } }
             // Native popup labels can retain their previous colour when appearance changes.
             .id(appearance.colorScheme)
