@@ -63,6 +63,7 @@ enum PersonaGeometry {
 
 enum PersonaError: LocalizedError {
     case invalidSettings, changedOnDisk, unreadableImage, outsidePreparedGroup, alreadyAdded, libraryUnavailable
+    case noSavedPersona, emptyGroup
     var errorDescription: String? {
         switch self {
         case .invalidSettings: return "The saved personas contain unsupported or invalid settings. The original files are unchanged."
@@ -71,8 +72,18 @@ enum PersonaError: LocalizedError {
         case .outsidePreparedGroup: return "Choose a persona in the prepared group."
         case .alreadyAdded: return "This persona is already in your library."
         case .libraryUnavailable: return "The saved personas are missing, unreadable or from a newer Workbench. Reopen Workbench before adding a persona."
+        case .noSavedPersona: return "Nothing to show yet. Add a persona first."
+        // The panel line can be seen by others, so it never names the private group.
+        case .emptyGroup: return "This group has no personas yet. Choose its members first."
         }
     }
+}
+
+/// A library that could not be read keeps its own reason on every show door: it may hold
+/// personas, and Add stays off until it can be read, so "nothing to show" would mislead.
+struct PersonaLibraryUnreadable: LocalizedError {
+    let reason: String
+    var errorDescription: String? { reason }
 }
 
 /// A new editable portrait between choosing its picture and Add persona. It
@@ -748,6 +759,23 @@ final class PersonaLibrary: NSObject, ObservableObject {
         var next = archive; next.groups[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         do { try commit(next); notice = nil } catch { notice = error.localizedDescription }
     }
+    /// What Remove group… takes, for its confirmation: the member list always, a saved
+    /// layout or public label only when the group has one, and what is shown from it or
+    /// kept for Show again. The personas stay. It reads state and changes nothing.
+    func groupRemovalMessage(_ group: PersonaGroup?) -> String {
+        let group = group.flatMap { asked in groups.first { $0.id == asked.id } } ?? group
+        var parts = ["member list"]
+        if group?.overlays?.isEmpty == false { parts.append("saved layout") }
+        if group?.publicLabel?.isEmpty == false { parts.append("public label") }
+        let named = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+        var message = "Its \(named) will be removed. Its personas, images and scenes stay in your library."
+        // A hidden card, one the camera took the slot from, or a paused set is off the
+        // screen but kept for Show again, so it is named as kept, not shown.
+        if let id = group?.id, liveSelection?.groupID == id || (sessionState.phase != .idle && sessionState.currentGroupID == id) {
+            message += artworkVisible ? " What is shown from this group ends." : " What is kept from this group for Show again ends."
+        }
+        return message
+    }
     func removeGroup(_ id: UUID) {
         guard writable() else { return }
         var next = archive; next.groups.removeAll { $0.id == id }
@@ -1152,7 +1180,10 @@ final class PersonaLibrary: NSObject, ObservableObject {
         let guest = requested.flatMap { id in group.map { $0.personaIDs.contains(id) } == false ? id : nil }
         let candidateIDs = group.map { (guest.map { [$0] } ?? []) + $0.personaIDs } ?? items.map(\.id)
         guard let initialID = (requested ?? selectedID).flatMap({ candidateIDs.contains($0) ? $0 : nil }) ?? candidateIDs.first
-        else { throw PersonaError.unreadableImage }
+        else {
+            if items.isEmpty, let readOnlyReason { throw PersonaLibraryUnreadable(reason: readOnlyReason) }
+            throw items.isEmpty ? PersonaError.noSavedPersona : PersonaError.emptyGroup
+        }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         let deck = PersonaCardDeck(candidates: candidateIDs.compactMap { byID[$0] }, root: root,
                                    budget: cardImageBudget, label: publicLabel(for:))

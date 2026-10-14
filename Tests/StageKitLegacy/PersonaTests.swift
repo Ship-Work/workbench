@@ -210,6 +210,75 @@ final class PersonaTests {
         XCTAssertFalse(reopened.overlayVisible)
     }
 
+    /// Prepared sets draw into this instead of windows over the desktop.
+    private final class SessionPanel: PersonaSessionDisplaying {
+        func setVoiceRing(_ on: Bool) {}
+        func setVoiceColor(_ color: InkColor) {}
+        func showVoice(_ frames: [PersonaVoiceFrame]) {}
+        var onPlacementChange: ((PersonaOverlayState) -> Void)?
+        var onSelection: (() -> Void)?
+        var frame: CGRect? = CGRect(x: 0, y: 0, width: 80, height: 120)
+        func show(image: NSImage, name: String, state: PersonaOverlayState, animated: Bool) -> PersonaOverlayState { state }
+        func configure(image: NSImage, name: String, state: PersonaOverlayState) {}
+        func hide() {}
+        func shutdown() {}
+    }
+
+    func testRemoveGroupAsksFirstAndSaysWhatGoes() throws {
+        let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("portrait.png"); try fixture().write(to: source)
+        let store = root.appendingPathComponent("library")
+        let library = PersonaLibrary(root: store, sessionPanelFactory: { SessionPanel() }, sessionHUDEnabled: false)
+        defer { library.shutdown() }
+        library.usesSharedControls = true
+        let a = try library.addImage(source), b = try library.addImage(source)
+        let members = try library.createGroup(name: "Private members", members: [a.id])
+        let arranged = try library.createGroup(name: "Private arranged", members: [b.id])
+        func message(_ id: UUID) -> String { library.groupRemovalMessage(library.groups.first { $0.id == id }) }
+
+        XCTAssertEqual(message(members), "Its member list will be removed. Its personas, images and scenes stay in your library.")
+        XCTAssertFalse(message(members).contains("saved layout"), "A members-only group has no layout to lose")
+        try library.saveGroupLayout(arranged, overlays: [PersonaOverlayItem(personaID: b.id)], publicLabel: "Second step")
+        XCTAssertTrue(message(arranged).contains("member list, saved layout and public label will be removed"))
+        XCTAssertFalse(message(arranged).contains("ends"), "Nothing is shown from it yet")
+
+        // A card shown from the group goes with it; the other group's message is unchanged.
+        library.prepareGroup(arranged)
+        try library.showOverlay().get()
+        XCTAssertEqual(library.liveSelection?.groupID, arranged)
+        let groups = library.groups, live = library.liveSelection, saved = try Data(contentsOf: store.appendingPathComponent("persona-library.json"))
+        XCTAssertTrue(message(arranged).hasSuffix(" What is shown from this group ends."))
+        XCTAssertFalse(message(members).contains("ends"))
+        XCTAssertEqual(library.groups, groups); XCTAssertEqual(library.liveSelection, live)
+        XCTAssertEqual(try Data(contentsOf: store.appendingPathComponent("persona-library.json")), saved, "Asking writes nothing")
+        // Hidden, nothing from it is on screen, but the card kept for Show again goes.
+        library.hideArtwork()
+        XCTAssertTrue(library.hasHiddenCard)
+        XCTAssertTrue(message(arranged).hasSuffix(" What is kept from this group for Show again ends."))
+        XCTAssertFalse(message(arranged).contains("What is shown"), "A hidden card is not called shown")
+        library.endOverlaySession()
+        XCTAssertFalse(message(arranged).contains("ends"), "Nothing shown, nothing ends")
+
+        // So does a prepared set running from it, shown or paused.
+        try library.startOverlaySession(groupIDs: [arranged], initialGroupID: arranged)
+        XCTAssertTrue(library.sessionState.phase != .idle)
+        XCTAssertTrue(message(arranged).hasSuffix(" What is shown from this group ends."))
+        XCTAssertFalse(message(members).contains("ends"))
+        library.pauseOverlaySession()
+        XCTAssertEqual(library.sessionState.phase, .paused)
+        XCTAssertTrue(message(arranged).hasSuffix(" What is kept from this group for Show again ends."))
+        library.endOverlaySession()
+        XCTAssertFalse(message(arranged).contains("ends"))
+        XCTAssertEqual(library.groups.map(\.id), [members, arranged], "Only Remove removes")
+
+        // Edit group › Remove group… only asks; the confirmation's Remove is the one removal.
+        let view = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/StageKit/PersonaLibraryView.swift"), encoding: .utf8)
+        XCTAssertTrue(view.contains("Button(\"Remove group…\", role: .destructive) { removingGroup = group }"), "The menu item asks first")
+        XCTAssertEqual(view.components(separatedBy: "library.removeGroup(").count, 2, "One place removes a group")
+        XCTAssertTrue(view.contains("if let group = removingGroup { library.removeGroup(group.id) }"), "That place is the confirmation's Remove")
+    }
+
     func testLiveCandidatesRemainScopedAndHUDLabelsExcludePrivateNames() throws {
         let a = UUID(), b = UUID(), other = UUID()
         var group = PersonaGroup(name: "Secret customer", personaIDs: [a, b])
