@@ -783,6 +783,24 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check((try Data(contentsOf: savedFieldAudio)) == wav && !fieldFailed.captureRecovery.hasRecovery,
                   "Uncertain live insertion preserves its exact original audio in existing Saved recordings")
 
+        // A writer that never wrote leaves the words copied (test-live-dictation.py):
+        // nothing in the field is uncertain, so no review entry and no kept audio.
+        let fieldUntouched = CaptureHarness(directory: folder("live-field-untouched"))
+        let fieldUntouchedURL = try recording(fieldUntouched, seconds: 1, peak: -20)
+        let untouchedRecorder = FixtureLiveCapture(); untouchedRecorder.checkpoint = liveRecorder.checkpoint
+        let untouchedOwner = LiveDictationDelivery()
+        untouchedOwner.outcome = .init(message: "Copied.", clipboardChangeCount: 1, failure: .focusChanged, pasteWasAttempted: false)
+        fieldUntouched.liveCapture = untouchedRecorder; fieldUntouched.liveDictation = untouchedOwner
+        let untouchedID = fieldUntouched.captureRecovery.pending!.id
+        fieldUntouched.stopRecording(); try await waitUntil("untouched live field") { fieldUntouched.phase == .idle }
+        try check(untouchedOwner.finishCalls == 1 && TextDelivery.calls == pasteCallsBeforeField && fieldUntouched.history.count == 1
+                  && fieldUntouched.unresolvedDelivery == nil && fieldUntouched.clipboardReceipt.actual.receipt?.title == "Copied",
+                  "A live writer that never wrote ends as a copy, with no ⌘V fallback and no review entry")
+        let untouchedSaved = fieldUntouched.captureRecovery.savedRecordingsDirectory.appendingPathComponent(untouchedID.uuidString)
+        try check(!fieldUntouched.captureRecovery.hasRecovery && !FileManager.default.fileExists(atPath: untouchedSaved.path)
+                  && !FileManager.default.fileExists(atPath: fieldUntouchedURL.path),
+                  "A field never written releases its original audio instead of keeping it in Saved recordings")
+
         let fieldCancel = CaptureHarness(directory: folder("live-field-cancel-changed"))
         let fieldCancelURL = try recording(fieldCancel, seconds: 1, peak: -20)
         let fieldCancelOwner = LiveDictationDelivery(); fieldCancelOwner.attempted = true

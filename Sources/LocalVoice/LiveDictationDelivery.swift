@@ -101,15 +101,28 @@ final class LiveDictationDelivery {
     func finish(_ text: String, restoreClipboard: Bool) -> TextDelivery.Outcome {
         let success = replace(fitted(text))
         end()
-        // Live AX writes never use the clipboard. Preserve it by doing nothing when
-        // requested; otherwise keep the final words copied, as ordinary paste does.
-        let copied = restoreClipboard ? nil : system.copy(text)
         if success {
+            // Live AX writes never use the clipboard. Preserve it by doing nothing when
+            // requested; otherwise keep the final words copied, as ordinary paste does.
+            let copied = restoreClipboard ? nil : system.copy(text)
             return .init(message: "Inserted into \(name)." + (!restoreClipboard && copied == nil ? " The transcript could not be copied; it is saved in History." : ""),
                          clipboardChangeCount: copied, wasPasted: true, destinationName: name,
                          pasteWasAttempted: attempted)
         }
-        return .init(message: "Live insertion stopped. Review the text in \(name); the complete transcript is saved in History. Nothing was pasted again.",
+        // A stopped writer confirmed nothing, so the words as dictated are copied
+        // whatever Restore clipboard says, as every failed ⌘V return leaves them.
+        let copied = system.copy(text)
+        guard attempted else {
+            // Nothing reached the field: an honest copy, not an uncertain paste.
+            guard let copied else {
+                return .init(message: "The transcript could not be copied; it is saved in History.",
+                             clipboardChangeCount: nil, wasPasted: false, destinationName: name, failure: .copyFailed)
+            }
+            return .init(message: "Copied. " + TextDelivery.copiedDetail(.focusChanged), clipboardChangeCount: copied,
+                         wasPasted: false, destinationName: name, failure: .focusChanged)
+        }
+        let kept = copied == nil ? "the complete transcript is saved in History" : "the complete transcript is copied and saved in History"
+        return .init(message: "Live insertion stopped. Review the text in \(name); \(kept). Nothing was pasted again.",
                      clipboardChangeCount: copied, wasPasted: false, destinationName: name,
                      failure: .pasteUnconfirmed, pasteWasAttempted: attempted)
     }

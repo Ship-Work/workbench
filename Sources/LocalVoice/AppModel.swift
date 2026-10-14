@@ -678,11 +678,12 @@ final class AppModel: NSObject, ObservableObject {
                     if let owned = liveDictation {
                         outcome = owned.finish(result, restoreClipboard: settings.preferences.restoreClipboard)
                         liveDictation = nil
-                        // History already owns the result. Only confirmed field delivery
-                        // releases its original; uncertainty keeps it in Saved recordings.
+                        // History already owns the result. Confirmed field delivery, or a
+                        // field never written, releases its original; only a write that was
+                        // attempted and not confirmed keeps it in Saved recordings.
                         if let pending = captureRecovery.pending, pending.id == captureID {
                             do {
-                                if outcome.wasPasted { try captureRecovery.clear(captureID) }
+                                if outcome.wasPasted || !outcome.pasteWasAttempted { try captureRecovery.clear(captureID) }
                                 else { _ = try captureRecovery.keepAudioForLater(committedCapture: captureID) }
                                 recordURL = nil; canRetry = false
                             } catch {
