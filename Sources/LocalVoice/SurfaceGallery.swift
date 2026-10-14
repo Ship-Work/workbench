@@ -575,12 +575,22 @@ private struct HistoryNativeAcceptanceView: View {
         let pickers = try renderPickerStates(to: output)
         let (pickerShots, pickerHost) = try checkPickerHost(to: output)
         var pages = SurfacePass.pages.map { SurfaceGallery.Page(route: $0.0, title: $0.1, fallsThrough: false, shots: []) }
+        final class KeyboardFrames { var byID: [String: CGRect] = [:] }
         for (name, size) in SurfaceGallery.sizes {
-            let window = homeWindow(size: size)
+            let keyboardFrames = KeyboardFrames()
+            let window = homeWindow(size: size) { id, frame in if id.hasPrefix("keyboard.") { keyboardFrames.byID[id] = frame } }
             defer { window.contentViewController = nil; window.close() }
             let fallback = name == "default" ? SurfacePass.contentPixels(try renderPage(SurfaceGallery.unknownRoute, in: window).0) : nil
             for index in pages.indices {
+                // A door names Snap, which is off and sits below the list's fold (#76).
+                if pages[index].route == "shortcuts" { keyboardFrames.byID = [:]; guard keyboard.reveal("voice.8") else { throw VoiceError.message("Keyboard has no Snap shortcut to reveal.") } }
                 let (rep, drawn) = try renderPage(pages[index].route, in: window)
+                if pages[index].route == "shortcuts" {
+                    guard let list = keyboardFrames.byID["keyboard.list"], let row = keyboardFrames.byID["keyboard.selected"],
+                          keyboard.selectedID == "voice.8", !list.isEmpty, list.insetBy(dx: -1, dy: -1).contains(row) else {
+                        throw VoiceError.message("Keyboard at the \(name) size did not scroll the revealed Snap row into its list: \(keyboardFrames.byID).")
+                    }
+                }
                 if let fallback { pages[index].fallsThrough = SurfacePass.contentPixels(rep) == fallback }
                 if SurfacePass.isBlank(rep, size: size) { pages[index].blank = true }
                 pages[index].shots.append(try save(rep, id: name, title: "\(name == "default" ? "Default" : "Minimum") window, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
@@ -1501,7 +1511,22 @@ private struct HistoryNativeAcceptanceView: View {
         let closed = Date().addingTimeInterval(3)
         repeat { settle(root, seconds: 0.1) } while window.attachedSheet != nil && Date() < closed
         guard window.attachedSheet == nil else { throw VoiceError.message("The Dictate settings sheet did not detach cleanly after Done.") }
-        return (shot, "Settings → Dictate settings attached the production 570 × 510 sheet with a nonempty scroll viewport, consumed its request, preserved the exact draft/original/selection/capture/recovery state, and Done closed it cleanly.")
+        // The sheet's Shortcut keycap opens Settings › Keyboard on Dictate, as AppDelegate.navigate
+        // does; the sheet must leave with its page rather than cover Keyboard (#76).
+        model.focusRequest = PageFocusRequest(target: .dictateOptions)
+        let reopened = Date().addingTimeInterval(4)
+        repeat { settle(root, seconds: 0.1) } while window.attachedSheet == nil && Date() < reopened
+        guard window.attachedSheet != nil else { throw VoiceError.message("Dictate settings did not open again for the keycap check.") }
+        let door = model.onEditShortcut
+        defer { model.onEditShortcut = door }
+        model.onEditShortcut = { [keyboard = keyboard, model = model] id in keyboard.stopInteraction(); keyboard.reveal("voice.\(id)"); model.page = "shortcuts" }
+        model.onEditShortcut?(1)
+        let left = Date().addingTimeInterval(3)
+        repeat { settle(root, seconds: 0.1) } while window.attachedSheet != nil && Date() < left
+        guard window.attachedSheet == nil, keyboard.selectedID == "voice.1", !keyboard.isInteracting else {
+            throw VoiceError.message("Dictate settings' Shortcut keycap left the sheet attached (\(window.attachedSheet != nil)) or opened Keyboard on \(keyboard.selectedID).")
+        }
+        return (shot, "Settings → Dictate settings attached the production 570 × 510 sheet with a nonempty scroll viewport, consumed its request, preserved the exact draft/original/selection/capture/recovery state, and Done closed it cleanly. Its Shortcut keycap closed the sheet and opened Keyboard on Dictate, idle.")
     }
 
     // MARK: Home states

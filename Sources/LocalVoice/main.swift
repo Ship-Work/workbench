@@ -160,7 +160,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             self.updateRecordingUI()
         }
-        stage.onEditShortcuts = { [weak self] in self?.navigate("shortcuts") }
+        // Draw's failure banner opens Keyboard on its first failing action; with none, on the last selection.
+        stage.onEditShortcuts = { [weak self] in
+            guard let self else { return }
+            self.navigate("shortcuts", select: self.stage.shortcutDescriptors.first { $0.error != nil }.map { "stage." + $0.id })
+        }
         stage.onBeginActivity = { [weak self] in self?.beginStageActivity() }
         stage.onPresentationWillBegin = { [weak self] in
             // Present is about to hide the window; End brings it back only if it was showing.
@@ -200,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return self.model.phase == .idle && !self.model.meetings.isBusy
                 ? nil : "Finish the current dictation or meeting before starting Snap & Talk narration."
         }
-        readback.onEditShortcut = { [weak self] in self?.navigate("shortcuts") }
+        readback.onEditShortcut = { [weak self] in self?.navigate("shortcuts", select: "voice.5") }
         readback.onNarrationNotHeard = { [weak self] in self?.model.showNarrationCue() }
         keyboard = KeyboardCoachModel(entries: shortcutEntries(), update: { [weak self] id, shortcut in guard let self else { return "Workbench is unavailable." }; return self.saveShortcut(id, shortcut) }, suspend: { [weak self] suspended in
             guard let self else { return }
@@ -309,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // An unrelated Stage edit must not discard the key-up of held dictation.
             if conflicts != self.registeredVoiceShortcutConflicts { self.registerShortcuts() }
         }
-        model.onEditShortcut = { [weak self] id in self?.navigate("shortcuts") }
+        model.onEditShortcut = { [weak self] id in self?.navigate("shortcuts", select: "voice.\(id)") }
         model.onShowEditor = { [weak self] page in self?.model.page = page; self?.showWindow() }
         model.onShowAnnotationMenu = { [weak self] in self?.showAnnotationMenu() }
         model.onMenuRecording = { [weak self] in self?.menuRecording() }
@@ -765,8 +769,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let navigationObserver { NotificationCenter.default.removeObserver(navigationObserver) }
         if let bugReportObserver { NotificationCenter.default.removeObserver(bugReportObserver) }
     }
-    func navigate(_ page: String) {
-        keyboard?.stopInteraction(); keyboard?.replaceEntries(shortcutEntries()); model.page = page; showWindow()
+    /// `select` names the shortcut a door is about, so Keyboard opens on it rather than on the last selection (#76).
+    func navigate(_ page: String, select id: String? = nil) {
+        keyboard?.stopInteraction(); keyboard?.replaceEntries(shortcutEntries())
+        if let id { keyboard?.reveal(id) }
+        model.page = page; showWindow()
     }
     /// The voice catalogue's titles, one per id in `VoicePreferences.shortcutIDs`.
     static let voiceShortcutCatalogue: [(UInt32, String)] = [(1, "Dictate"), (2, "Quick controls"), (3, "Library"), (4, "Switch to"), (5, "Snap & Talk"), (7, "Present"), (8, "Snap")]

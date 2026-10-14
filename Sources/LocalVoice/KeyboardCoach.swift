@@ -133,6 +133,9 @@ final class KeyboardCoachModel: ObservableObject {
     @Published private(set) var heldModifiers: UInt32 = 0
     @Published private(set) var heldKey: UInt32?
     @Published private(set) var practice: ShortcutPracticeState?
+    /// Counts doors that asked to show a shortcut, so the list scrolls to it then and
+    /// not when a row is clicked under the pointer.
+    @Published private(set) var revealRequest = 0
     var selected: ShortcutEntry? { entries.first { $0.id == selectedID } }
     var isInteracting: Bool { interaction != .idle }
 
@@ -240,6 +243,17 @@ final class KeyboardCoachModel: ObservableObject {
         if wasInteracting, practice?.isComplete != true { message = "Stopped. Your shortcuts are active again."; hasError = false }
     }
 
+    /// A door that names a shortcut (a keycap, Change shortcut…, a failing Draw key) opens
+    /// Keyboard on it, idle: it never starts recording or practice (#76). An id that is not
+    /// in the list changes nothing, so the page keeps what it showed.
+    @discardableResult
+    func reveal(_ id: String) -> Bool {
+        guard entries.contains(where: { $0.id == id }) else { return false }
+        stopInteraction(); selectedID = id; clearFeedback()
+        revealRequest += 1
+        return true
+    }
+
     /// Forgets the last recording or practice result, so a surface that starts
     /// over does not show an earlier visit's message. Never during an interaction.
     func clearFeedback() {
@@ -326,6 +340,7 @@ final class KeyboardCoachModel: ObservableObject {
 
 struct KeyboardCoachView: View {
     @ObservedObject var model: KeyboardCoachModel
+    @Environment(\.pageSectionFrames) private var sectionFrames
     private var selected: ShortcutEntry? { model.selected }
 
     var body: some View {
@@ -390,18 +405,25 @@ struct KeyboardCoachView: View {
         return (on, entries.filter { !$0.shortcut.enabled })
     }
 
+    /// The selected row scrolls into view when the page appears and when a door reveals it,
+    /// never on a row click, so a clicked row stays under the pointer. Only this list scrolls.
     private var actionList: some View {
         let groups = Self.ordered(model.entries)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(groups.on) { row($0) }
-                if !groups.off.isEmpty {
-                    Text("Off · \(groups.off.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        .padding(.top, 10).padding(.leading, 10).accessibilityAddTraits(.isHeader)
-                    ForEach(groups.off) { row($0) }
+        return ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(groups.on) { row($0) }
+                    if !groups.off.isEmpty {
+                        Text("Off · \(groups.off.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .padding(.top, 10).padding(.leading, 10).accessibilityAddTraits(.isHeader)
+                        ForEach(groups.off) { row($0) }
+                    }
                 }
-            }
-        }.scrollIndicators(.visible)
+            }.scrollIndicators(.visible)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("keyboard.list", $0) }
+                .onAppear { DispatchQueue.main.async { proxy.scrollTo(model.selectedID) } }
+                .onChange(of: model.revealRequest) { proxy.scrollTo(model.selectedID) }
+        }
     }
 
     private func row(_ entry: ShortcutEntry) -> some View {
@@ -418,6 +440,10 @@ struct KeyboardCoachView: View {
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("\(entry.title), \(entry.shortcut.label)")
                         .accessibilityAddTraits(model.selectedID == entry.id ? .isSelected : [])
+                        .id(entry.id)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                            if model.selectedID == entry.id { sectionFrames?("keyboard.selected", $0) }
+                        }
     }
 
     private var practiceProgress: some View {

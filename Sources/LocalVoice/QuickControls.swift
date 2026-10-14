@@ -17,7 +17,7 @@ struct ShortcutKeycap: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(model.editingShortcut == id ? Workbench.accent : .clear))
         }.buttonStyle(.plain).disabled(model.phase != .idle)
             .accessibilityLabel("Edit \(title.lowercased()) shortcut")
-            .help("Click to change · Escape cancels · Delete disables")
+            .help("Opens Settings › Keyboard with this shortcut selected")
     }
 }
 

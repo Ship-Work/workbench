@@ -110,7 +110,8 @@ enum KeyboardCoachChecks {
         try check(model.handle(event(.keyDown, shortcut: escape)) == nil && !model.isInteracting, "Escape must consume and cancel recording")
         try check(model.handle(event(.keyDown, shortcut: candidate)) != nil, "inactive coach must leave ordinary app controls alone")
         try checkPanelLifecycle()
-        print("KEYBOARD_COACH_CHECKS_OK: cross-module conflicts, native controls, transactional failure, complete press/release practice, event consumption, balanced suspension and the panel editor's exits")
+        try checkReveal()
+        print("KEYBOARD_COACH_CHECKS_OK: cross-module conflicts, native controls, transactional failure, complete press/release practice, event consumption, balanced suspension, the panel editor's exits and doors that open Keyboard on their shortcut")
     }
 
     /// #153: the menu-bar panel's inline editor and its recorder end on every way
@@ -199,6 +200,34 @@ enum KeyboardCoachChecks {
         watch.stop()
         center.post(name: NSApplication.didResignActiveNotification, object: nil)
         try check(leaves == 2 && removed == 2 && !watch.isWatching, "a closed panel stops watching")
+    }
+    /// #76: a door that names a shortcut opens Keyboard on it, idle, whatever the panel editor
+    /// or Home selected last. It never records, and an unknown id leaves the page as it was.
+    static func checkReveal() throws {
+        func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
+            guard condition() else { throw VoiceError.message("Keyboard doors: \(message)") }
+        }
+        var suspensions: [Bool] = []
+        let keyboard = KeyboardCoachModel(entries: [
+            ShortcutEntry(id: "voice.1", title: "Dictate", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))),
+            ShortcutEntry(id: "voice.5", title: "Snap & Talk", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(optionKey))),
+            ShortcutEntry(id: "stage.pen", title: "Pen", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(optionKey)))],
+            update: { _, _ in nil }, suspend: { suspensions.append($0) }, probe: { _ in nil }, notifications: NotificationCenter())
+        let editor = PanelShortcutEditor(keyboard: keyboard)
+        editor.change("stage.pen"); editor.end()
+        suspensions = []
+        let before = keyboard.revealRequest
+        try check(keyboard.reveal("voice.5") && keyboard.selectedID == "voice.5", "Snap & Talk's Change shortcut… selects Snap & Talk after the panel edited Pen")
+        try check(keyboard.interaction == .idle && keyboard.message == nil && keyboard.practice == nil && keyboard.revealRequest == before + 1,
+                  "a door shows the shortcut idle, without the last visit's message, and asks the list to scroll once")
+        try check(suspensions.isEmpty, "showing a shortcut never pauses or resumes global actions")
+        try check(!keyboard.reveal("voice.999") && keyboard.selectedID == "voice.5" && keyboard.revealRequest == before + 1,
+                  "an unknown id keeps the selection and scrolls nothing")
+        keyboard.beginRecording()
+        suspensions = []
+        try check(keyboard.reveal("voice.1") && keyboard.selectedID == "voice.1" && keyboard.interaction == .idle,
+                  "a door during recording stops it and selects its own shortcut")
+        try check(suspensions == [false], "a door during recording resumes global actions exactly once")
     }
     /// Dictate, Quick controls, Snap & Talk and Present start on Option keys; an update moves untouched ones once.
     static func checkPresenterFirstVoiceDefaults() throws {
