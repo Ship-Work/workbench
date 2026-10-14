@@ -383,6 +383,20 @@ enum ReadbackScreenCapture {
     }
 }
 
+/// A narration recorder. The app uses AVAudioRecorder; checks supply one that writes a synthetic take.
+@MainActor
+protocol NarrationRecording: AnyObject {
+    var currentTime: TimeInterval { get }
+    func prepareToRecord() -> Bool
+    func record() -> Bool
+    func stop()
+    func updateMeters()
+    func peakPower(forChannel channelNumber: Int) -> Float
+    func averagePower(forChannel channelNumber: Int) -> Float
+}
+
+extension AVAudioRecorder: NarrationRecording {}
+
 @MainActor
 final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private struct Job: Hashable {
@@ -531,7 +545,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var captureAccessRequest: UUID?
     private var captureAccessVisit = UUID()
     private var captureRequest: UUID?
-    private var recorder: AVAudioRecorder?
+    private let makeNarrationRecorder: ((URL, [String: Any]) throws -> NarrationRecording)?
+    private var recorder: NarrationRecording?
     private var meter: Timer?
     private var peakPower: Float = -160
     private var recordingContext: RecordingContext?
@@ -549,7 +564,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
          skillPacks: ReadbackSkillPackStore? = nil, screenAccess: ScreenCaptureAccess = .system,
          captureSelection: (any SnapImageSource)? = nil,
          microphoneAccess: @escaping () -> AVAuthorizationStatus = { AVCaptureDevice.authorizationStatus(for: .audio) },
-         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { await AVCaptureDevice.requestAccess(for: .audio) }) {
+         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { await AVCaptureDevice.requestAccess(for: .audio) },
+         makeNarrationRecorder: ((URL, [String: Any]) throws -> NarrationRecording)? = nil) {
         self.screenAccess = screenAccess
         self.transcribeAudio = transcribeAudio ?? { try await engine.transcribe($0) }
         self.defaults = defaults
@@ -558,6 +574,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         self.captureSelection = captureSelection ?? SnapCapture()
         self.microphoneAccess = microphoneAccess
         self.requestMicrophoneAccess = requestMicrophoneAccess
+        self.makeNarrationRecorder = makeNarrationRecorder
         super.init()
         microphonePermission = microphoneAccess()
         screenPermissionGranted = screenAccess.isGranted()
@@ -1006,8 +1023,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let pending = folder.appendingPathComponent("narration-pending-\(UUID().uuidString).wav")
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
-        let capture = try AVAudioRecorder(url: pending, settings: settings)
-        capture.delegate = self; capture.isMeteringEnabled = true
+        let capture = try makeNarrationRecorder?(pending, settings) ?? audioRecorder(url: pending, settings: settings)
         guard capture.prepareToRecord(), capture.record() else { throw ReadbackError.message("The microphone could not start. Check that an input device is connected.") }
         recorder = capture; recordingContext = RecordingContext(root: root, sectionID: sectionID, pendingURL: pending, previousSection: current.sections[index])
         recordingElapsed = 0; recordingLevel = 0; peakPower = -160; isRecording = true; recordingSectionID = sectionID
@@ -1027,7 +1043,16 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         stateChanged()
     }
 
-    func stopNarration() {
+    private func audioRecorder(url: URL, settings: [String: Any]) throws -> NarrationRecording {
+        let capture = try AVAudioRecorder(url: url, settings: settings)
+        capture.delegate = self; capture.isMeteringEnabled = true
+        return capture
+    }
+
+    func stopNarration() { keepNarration(cue: true) }
+
+    /// Stop and Quit keep a take the same way; quitting only skips the routine no-speech cue.
+    private func keepNarration(cue: Bool) {
         guard isRecording, let context = recordingContext else { return }
         let duration = recorder?.currentTime ?? recordingElapsed
         recorder?.stop(); recorder = nil; meter?.invalidate(); meter = nil
@@ -1036,7 +1061,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             guard duration >= 0.35, peakPower > -55 else {
                 try? FileManager.default.removeItem(at: context.pendingURL)
                 restoreNarration(context, message: "No clear speech was captured. The screenshot and any earlier narration were kept.")
-                onNarrationNotHeard?()
+                if cue { onNarrationNotHeard?() }
                 return
             }
             var current = try ReadbackStore.load(from: context.root)
@@ -1249,7 +1274,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func shutdown() {
         cancelCapture()
-        if isRecording { cancelNarration() }
+        // A take in progress is kept as Stop keeps it; the next launch transcribes it.
+        if isRecording { keepNarration(cue: false) }
         if let activeJob { markQueued(activeJob) }
         processor?.cancel(); processor = nil
     }

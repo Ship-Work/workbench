@@ -571,6 +571,115 @@ enum ReadbackChecks {
         try check(reconciled.sections[0] == recording.sections[0] && reconciled.sections[2] == recording.sections[2], "live recording and recognition retain every saved field")
         try check(reconciled.sections[1].status == .needsNarration && reconciled.sections[1].failure?.contains("interrupted") == true, "only an orphaned recording is marked interrupted")
         print("READBACK_RECOVERY_CHECKS_OK: \(passed) checks")
+        try await runQuitChecks()
+    }
+
+    /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it.
+    @MainActor
+    private final class SyntheticNarrationRecorder: NarrationRecording {
+        let url: URL, seconds: Double, peak: Float
+        private(set) var written: Data?
+        init(url: URL, seconds: Double, peak: Float) { self.url = url; self.seconds = seconds; self.peak = peak }
+        var currentTime: TimeInterval { written == nil ? 0 : seconds }
+        func prepareToRecord() -> Bool { true }
+        func record() -> Bool {
+            let rate = 16_000, count = Int(Double(rate) * seconds), amplitude = Double(Int16.max) * pow(10, Double(peak) / 20)
+            var samples = Data(capacity: count * 2)
+            for index in 0..<count {
+                let value = Int16(amplitude * sin(2 * Double.pi * 440 * Double(index) / Double(rate)))
+                withUnsafeBytes(of: value.littleEndian) { samples.append(contentsOf: $0) }
+            }
+            func field<T: FixedWidthInteger>(_ value: T) -> Data { withUnsafeBytes(of: value.littleEndian) { Data($0) } }
+            var wav = Data("RIFF".utf8) + field(UInt32(36 + samples.count)) + Data("WAVEfmt ".utf8)
+            wav += field(UInt32(16)) + field(UInt16(1)) + field(UInt16(1)) + field(UInt32(rate)) + field(UInt32(rate * 2))
+            wav += field(UInt16(2)) + field(UInt16(16)) + Data("data".utf8) + field(UInt32(samples.count)) + samples
+            guard (try? wav.write(to: url)) != nil else { return false }
+            written = wav
+            return true
+        }
+        func stop() {}
+        func updateMeters() {}
+        func peakPower(forChannel channelNumber: Int) -> Float { peak }
+        func averagePower(forChannel channelNumber: Int) -> Float { peak - 3 }
+    }
+
+    /// Quit keeps a narration in progress as Stop does: the take becomes the section's
+    /// narration, queued for the next launch, and a short or quiet take is discarded the same way.
+    @MainActor
+    private static func runQuitChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_QUIT_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        func waitFor(_ message: String, _ ready: () -> Bool) async throws {
+            for _ in 0..<500 {
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_QUIT_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        let fm = FileManager.default
+        let fixture = fm.temporaryDirectory.appendingPathComponent("Workbench-quit-narration-\(UUID().uuidString)")
+        var domains: [String] = []
+        defer {
+            for domain in domains { UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain) }
+            try? fm.removeItem(at: fixture)
+        }
+        for (name, seconds, peak, quit) in [("kept", 1.0, Float(-10), true), ("short", 0.2, -10, true), ("quiet", 1.0, -60, true), ("quiet-stop", 1.0, -60, false)] {
+            let root = fixture.appendingPathComponent(name)
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic quit")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            let section = ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)
+            manifest.sections = [section]; try ReadbackStore.save(manifest, at: root)
+            let before = try ReadbackStore.load(from: root).sections[0]
+            let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.QuitNarration.\(UUID().uuidString)").path
+            domains.append(domain)
+            let defaults = UserDefaults(suiteName: domain)!
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            var take: SyntheticNarrationRecorder?
+            let unused = ControlledTranscriber()
+            let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                transcribeAudio: { try await unused.transcribe($0) }, microphoneAccess: { .authorized },
+                makeNarrationRecorder: { url, _ in
+                    let recorder = SyntheticNarrationRecorder(url: url, seconds: seconds, peak: peak); take = recorder; return recorder
+                })
+            defer { model.shutdown() }
+            var cues = 0
+            model.onNarrationNotHeard = { cues += 1 }
+            model.startNarration(for: id)
+            try check(model.isRecording && take?.written != nil, "\(name): narration starts on the synthetic recorder")
+            try await waitFor("\(name) meter tick") { model.recordingElapsed > 0 }
+            if quit { model.shutdown() } else { model.stopNarration() }
+            let pending = try fm.contentsOfDirectory(atPath: root.appendingPathComponent(directory).path).filter { $0.hasPrefix("narration-pending-") }
+            let saved = try ReadbackStore.load(from: root).sections[0]
+            try check(pending.isEmpty && !model.isRecording, "\(name): no pending take remains after \(quit ? "quitting" : "Stop")")
+            try check(unused.calls == 0, "\(name): nothing is transcribed while quitting")
+            if name == "kept" {
+                try check(saved.audio == directory + "/narration.wav" && saved.status == .queued && saved.failure == nil,
+                    "quitting keeps the take as the section's queued narration")
+                let narration = try Data(contentsOf: root.appendingPathComponent(directory + "/narration.wav"))
+                try check(narration == take?.written, "the kept narration has the recorded bytes")
+                try check(cues == 0, "quitting with a kept take fires no cue")
+                let transcriber = ControlledTranscriber()
+                let relaunched = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                    transcribeAudio: { try await transcriber.transcribe($0) })
+                defer { relaunched.shutdown(); transcriber.cancel() }
+                try await waitFor("the next launch to transcribe the kept take") { transcriber.calls == 1 }
+                transcriber.complete("Narration kept through quit")
+                try await waitFor("the kept take to be ready") { (try? ReadbackStore.load(from: root).sections[0].status) == .ready }
+                let ready = try ReadbackStore.load(from: root).sections[0]
+                try check(ReadbackStore.readText(root: root, relative: ready.transcript) == "Narration kept through quit" && transcriber.calls == 1
+                    && unused.calls == 0, "the next launch transcribes the kept take once")
+            } else {
+                try check(saved == before, "\(name): a take too short or quiet to keep restores the section as Stop does")
+                try check(cues == (quit ? 0 : 1), "\(name): only Stop gives the no-speech cue")
+            }
+        }
+        print("READBACK_QUIT_CHECKS_OK: \(passed) checks")
     }
 
     @MainActor
