@@ -12,7 +12,7 @@ The record of one unattended lead session on main `edc15df` (Workbench 2.5.0 plu
 
 ## What was built
 
-Seven streams, then two more from round two, one worktree and one worker each (a tenth PR, #339, was closed; see the ledger). Every stream had an independent adversarial reviewer before its PR, and the integrated branch had a second, cross-stream review. The reviews caught two problems before they reached the installed build. Faster prompt insertion overflowed a shift and crashed on prompts longer than about 14,000 characters (fixed in #344, with a check at the 50,000-character Library limit). And a narration kept at Quit failed at the next launch because Snap & Talk drained its queue before speech had loaded; #345 now holds the take queued until speech is ready, with a check that uses a real engine still preparing.
+Seven streams, then two more from round two, then two follow-ups stacked on the train once their files were free, one worktree and one worker each (another PR, #339, was closed; see the ledger). Every stream had an independent adversarial reviewer before its PR, and the integrated branch had a second, cross-stream review. The reviews caught two problems before they reached the installed build. Faster prompt insertion overflowed a shift and crashed on prompts longer than about 14,000 characters (fixed in #344, with a check at the 50,000-character Library limit). And a narration kept at Quit failed at the next launch because Snap & Talk drained its queue before speech had loaded; #345 now holds the take queued until speech is ready, with a check that uses a real engine still preparing.
 
 | Stream | Outcome for people | Issues | PR |
 | --- | --- | --- | --- |
@@ -24,6 +24,8 @@ Seven streams, then two more from round two, one worktree and one worker each (a
 | Keyboard doors, Home and panel | Every "Change shortcut…" door opens Settings › Keyboard on the shortcut it names; guides never teach "press Off"; the clipboard receipt loses its jargon "Show cue"; Home shows a writing-model download; permission names wrap instead of truncating. | #335, #336, #76, #15 | #346 |
 | Persona (round two) | Show with nothing saved says so instead of blaming a missing image; Remove group… asks first. | #340 | #351 |
 | Library (round two) | Quit asks before discarding an open resource editor; choosing a pack skill for transcripts confirms it. | #341 | #350 |
+| Snap & Talk follow-up | A retake that hears nothing keeps the section's earlier words; the toolbar's Cancel narration asks first past ten seconds, as the page does; the narration notice names its key only when the key works. | #342 | #354 |
+| Dictate failure doors | Record again from the failure card and the chooser delivers into the field, like the toolbar's own start; Import audio says plainly that a file can't be read as audio and what to try. | #337 | #355 |
 | Presenting | Present, Draw and Persona successes confirm quietly instead of pinning an orange panel alert; the Timer publishes once a second; Settings, the panel and Draw's menu use the same Draw key names; Present's persona chooser only selects; board export is reachable while a board is open. | #333, #334, #276, #76, #31 | #348 |
 
 ## Decisions not taken
@@ -48,8 +50,6 @@ Seven streams, then two more from round two, one worktree and one worker each (a
 | Home counts a deck in "sections" | Visual review | docs/desktop.md asks for "screen count"; the numbers agree | The maintainer prefers one word | `HomeTiles.swift` |
 | Report a Problem copy in builds without an inbox | Window hunter | Every Stable build carries the inbox; almost unreachable | A build that ships without a reporting destination | `BugReportView.swift` |
 | Microphone Settings… in the panel's denied row | Leftover QA | Deliberate route: Dictate shows the failure where you act | A report that someone was stuck at the panel | `WorkbenchQuickPanel.swift` |
-| Snap & Talk follow-up: an empty or failed retake keeps the earlier words; the toolbar's Cancel narration asks first; the notice never says "Use Off" (the wait for speech was built into #345 after the cross-stream review) | Round two | All three rewrite the narration functions the Snap stream changed tonight; building them in parallel would make one change two branches | #345 merges; build in that order on top of it | #342 |
-| Record again delivers to the field from every door; Import audio says plainly why a file cannot be read | Round two | Edits the failure card and AppModel lines the Dictation stream owns tonight | The Dictation stream merges | #337 |
 | Persona: an unsaved Arrange overlays layout survives leaving the page | Round two | Same files as the Persona round-two stream; its render needs the gallery | The Persona stream and the gallery owner merge | #340 |
 | Present and Settings error lines use primary text; the panel's Options menus get VoiceOver names | Round two | Low value; files owned by tonight's Present and panel streams | Those streams merge; one small follow-up | #335 |
 | Remember a pack skill chosen for transcripts across relaunch | Round two | A new default that changes every later Hand off is a behaviour decision | The maintainer wants Hand off to remember it | #341 |
