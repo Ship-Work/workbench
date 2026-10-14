@@ -4513,8 +4513,8 @@ extension SurfacePass {
 
     /// Dictate's problem banner with a kept capture's Retry and Report a problem… beside it, carrying the problem's code.
     func renderDictateProblemDoor(to output: URL) throws -> SurfaceGallery.Shot {
-        let kept = model.page
-        defer { model.dismissError(); model.canRetry = false; model.page = kept }
+        let kept = model.page, keptRetry = model.canRetry
+        defer { model.dismissError(); model.canRetry = keptRetry; model.page = kept }
         model.report("Recording stopped. Original audio was kept for retry. The input device was disconnected.", on: .dictate, code: "dictate.recording_stopped")
         model.canRetry = true
         let window = homeWindow(size: SurfaceGallery.sizes[1].size)
@@ -4529,10 +4529,19 @@ extension SurfacePass {
             guard let bytes = page.bitmapData else { throw VoiceError.message("The \(route) page did not draw.") }
             return Data(bytes: bytes, count: page.bytesPerRow * page.pixelsHigh * 12 / 100)
         }
-        guard try banner("dictate", retry: true) != banner("dictate", retry: false) else {
+        // Two renders without Retry bracket the one with it and must match, so a band that
+        // changes by itself reads as that, never as Retry offered or withheld.
+        func offersRetry(_ route: String) throws -> Bool {
+            let before = try banner(route, retry: false), with = try banner(route, retry: true), after = try banner(route, retry: false)
+            guard before == after else {
+                throw VoiceError.message("The \(route) page's top band changes between identical renders, so it cannot show whether Retry is offered.")
+            }
+            return with != after
+        }
+        guard try offersRetry("dictate") else {
             throw VoiceError.message("The Dictate banner does not offer Retry transcription beside a kept capture's problem.")
         }
-        guard try banner("dictionary", retry: true) == banner("dictionary", retry: false) else {
+        guard try !offersRetry("dictionary") else {
             throw VoiceError.message("Your dictionary's banner offers Retry, which fills a Dictate draft it does not show.")
         }
         return try save(rep, id: "problem-door", title: "Dictate problem with Retry transcription and Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
