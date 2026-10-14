@@ -48,7 +48,8 @@ enum DictationCleanup {
         var text = times(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         text = resolveAdjacentTimeCorrections(text)
         text = resolveExplicitCorrections(text)
-        text = replacing(text, #"\b(?:u+m+|u+h+|e+rm+|hmm+)\b[,\s]*"#, "")
+        // Fillers match only their spoken forms, so acronyms (ERM, HMM) and hyphenated words (Uh-huh) survive.
+        text = replacing(text, #"(?-i)(?<![\p{L}\p{N}-])(?:[Uu]u*m+|[Uu]u*h+|[Ee]e*rm+|[Hh]mm+)(?![\p{L}\p{N}-])[,\s]*"#, "")
         text = replacing(text, #"^(?:okay|ok)[,\s]+(?:so[,\s]+)?(?:to\s+)?(?=hello\b|I\b|we\b|the\b)"#, "")
         text = replacing(text, #"\b(I|we|the|a|to|and)(?:,\s*|\s+)\1\b"#, "$1")
         text = replacing(text, #"\brock\s+melon\b"#, "rockmelon")

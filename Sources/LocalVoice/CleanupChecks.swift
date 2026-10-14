@@ -18,6 +18,11 @@ enum CleanupChecks {
         try check(clean == "Hello, this is Sam. The time is 2pm and I'm looking at a rockmelon. I'd like to catch the train at 7pm. I'd like to make a grocery list:\n• Apples\n• Bananas\n• Cucumbers", "false start, corrected time, requested grocery list")
         try check(DictationCleanup.light("Meet at 2 p.m. Bring the book.") == "Meet at 2pm. Bring the book.", "time punctuation preserved")
         try check(DictationCleanup.light("Um, I, I think we should go. Uh, bring a coat.") == "I think we should go. Bring a coat.", "filler sounds and accidental repetitions")
+        try check(DictationCleanup.light("Umm, I'll uh call you. Hmmm, erm, yes.") == "I'll call you. Yes.", "drawn-out filler sounds")
+        // Acronyms and hyphenated replies share letters with fillers but are words people said.
+        for kept in ["We need to review the ERM framework.", "Train an HMM on the data.", "The UM campus and UH staff met.", "Uh-huh, sounds good.", "Mm-hmm, that works."] {
+            try check(DictationCleanup.light(kept) == kept, "\"\(kept)\" keeps every word")
+        }
         try check(DictationCleanup.light("I like apples, bananas, and pears.") == "I like apples, bananas, and pears.", "ordinary prose is not turned into a list")
         try check(DictationCleanup.light("The meeting is at 9am. Oh wait, not 9am, 10am.") == "The meeting is at 10am.", "explicit correction outside example")
         try check(DictationCleanup.light("Meet at 6pm, actually 7pm.") == "Meet at 7pm.", "adjacent time correction")
