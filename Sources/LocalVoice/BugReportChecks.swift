@@ -995,11 +995,21 @@ enum BugReportChecks {
         await h.model.addScreenshot()
         try expect(!captured && h.model.problemAction == .screenAccess && h.model.problem == BugReportModel.screenAccessOff && !h.model.capturing,
                    "Screen Recording off offers Choose image… and Open System Settings… without capturing")
+        try expect(h.model.problemPlacement == .screenshot, "a screenshot problem shows under Add screenshot, where the person acted")
+        let unplayable = harness(root.appendingPathComponent("voice-problem"))
+        unplayable.model.open(origin: .help)
+        unplayable.model.togglePlayback()
+        try expect(unplayable.model.problem == "The voice note couldn't be played." && unplayable.model.problemPlacement == .voice,
+                   "a voice note problem shows under the voice row")
         var bytes = BugReportStore.Limits(); bytes.bytes = 1_024
         h = harness(root.appendingPathComponent("bytes"), limits: bytes)
         try fill(h.model)
+        h.model.services.screenCaptureGranted = { false }
+        await h.model.addScreenshot()
+        try expect(h.model.problemPlacement == .screenshot && h.model.problemAction == .screenAccess, "fixture: a screenshot problem first")
         h.model.send()
         try expect(h.store.deliveries().isEmpty && h.model.problemAction == .saveCopy, "the byte reservation refuses a large report")
+        try expect(h.model.problemPlacement == .form, "a later form problem moves to the form and drops the screenshot's actions")
         h = harness(root.appendingPathComponent("disk"), capacity: 1_024 * 1_024)
         try fill(h.model)
         h.model.send()
@@ -1029,7 +1039,7 @@ enum BugReportChecks {
         h.clock.advance(200 * 86_400)
         h.store.prune()
         try expect(h.store.delivery(unsent) != nil, "pruning never removes an unsent report")
-        return ["outbox: 0700/0600, draft resume and origin rules, a second report from the open composer, over-limit text kept, Save a copy without overwrite, entry/byte/disk quota with the draft kept, only settled copies make room (with a verifier), refusal names only unsent reports, facts from the moment of reporting with fresh access and speech, older delivery.json loads, Screen Recording preflight, no-DSN build"]
+        return ["outbox: 0700/0600, draft resume and origin rules, a second report from the open composer, over-limit text kept, Save a copy without overwrite, entry/byte/disk quota with the draft kept, only settled copies make room (with a verifier), refusal names only unsent reports, facts from the moment of reporting with fresh access and speech, older delivery.json loads, Screen Recording preflight, problems under the screenshot, voice or form, no-DSN build"]
     }
 }
 
