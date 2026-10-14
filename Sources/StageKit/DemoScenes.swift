@@ -778,7 +778,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
                 }
                 try adapter.save(scene, card: authored, replacingCard: true)
             }
-            notice = "Persona saved as an independent scene copy."
+            confirm("Persona saved as an independent scene copy.")
         } catch {
             if let created { try? FileManager.default.removeItem(at: created) }
             notice = error.localizedDescription

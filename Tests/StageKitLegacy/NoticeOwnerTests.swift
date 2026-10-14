@@ -110,6 +110,19 @@ final class NoticeOwnerTests: XCTestCase {
             XCTAssertEqual(stage.notice, "x", "Any other scene notice is a problem")
             XCTAssertTrue(stage.noticePage == .present)
             scenes.notice = nil
+            // Use in scene from Present's chooser is Present's confirmation; a card that cannot be
+            // placed is still Present's problem.
+            guard let sceneID = scenes.selectedID else { XCTAssertTrue(false, "Synthetic scene selected"); return }
+            let card: SavedPersona
+            do { card = try scenes.personas.addImage(image, name: "Synthetic persona") }
+            catch { XCTAssertTrue(false, "Synthetic persona: \(error)"); return }
+            scenes.usePersona(card, in: sceneID)
+            XCTAssertTrue(scenes.scenes.first { $0.id == sceneID }?.persona != nil, "The scene has its own copy")
+            XCTAssertTrue(stage.notice == nil && stage.noticePage == nil, "A persona placed in a scene is not a problem: \(stage.notice ?? "nil")")
+            XCTAssertEqual(stage.notice(on: .present), "Persona saved as an independent scene copy.")
+            scenes.usePersona(SavedPersona(name: "Synthetic missing persona", image: "synthetic-missing-persona.png"), in: sceneID)
+            XCTAssertTrue(stage.notice != nil && stage.noticePage == .present, "A persona that could not be placed is Present's problem: \(stage.notice ?? "nil")")
+            scenes.notice = nil
             // Persona's confirmations stay on Persona the same way.
             let personas = scenes.personas
             do {
