@@ -16,8 +16,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # The native work runs as five jobs on five runners. Each phase of scripts/test.sh
 # and each gallery depends only on the source, so every job builds what it needs
-# itself and a run finishes in the time of the longest job (about 13 minutes)
-# instead of one 34-minute chain. The organisation has five macOS runners in all,
+# itself and a run finishes in the time of the longest job (about 16 minutes;
+# the surface gallery, the slowest, has taken up to 20) instead of one 34-minute
+# chain. The organisation has five macOS runners in all,
 # so the native jobs run where they decide something: in the merge queue, which
 # tests every group with current main before it lands, and on manual runs. A pull
 # request push runs only the classifier and Site unless it carries the ci:native
@@ -180,7 +181,7 @@ jobs:
     needs: scope
     if: needs.scope.outputs.native == 'true'
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
