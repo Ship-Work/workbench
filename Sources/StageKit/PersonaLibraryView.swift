@@ -65,6 +65,7 @@ struct PersonaLibraryView: View {
     @State private var confirmingDiscard = false
     @State private var dismissAfterDiscard = false
     @State private var removingPersona: SavedPersona?
+    @State private var removingGroup: PersonaGroup?
     /// Which source this page is preparing. It follows the live source, so the
     /// page always shows what is actually on screen, and changing it starts nothing.
     @State private var source: PersonaLiveSource = .artwork
@@ -287,6 +288,15 @@ struct PersonaLibraryView: View {
             } message: {
                 Text("This removes \(removingPersona?.name ?? "the persona") from the library, groups and active overlays. Its original image is retained for saved scenes. To only hide an on-screen card, use Hide instead.")
             }
+            .alert("Remove “\(removingGroup?.name ?? "this group")”?", isPresented: Binding(get: { removingGroup != nil }, set: { if !$0 { removingGroup = nil } })) {
+                Button("Cancel", role: .cancel) { removingGroup = nil }
+                Button("Remove", role: .destructive) {
+                    if let group = removingGroup { library.removeGroup(group.id) }
+                    removingGroup = nil
+                }
+            } message: {
+                Text(library.groupRemovalMessage(removingGroup))
+            }
             .onAppear { if library.cameraOwnsSlot { source = .camera } }
             .onChange(of: library.liveSource) { _, value in source = value }
             .onDisappear {
@@ -367,7 +377,7 @@ struct PersonaLibraryView: View {
                 Menu("Edit group") {
                     Button("Choose members…") { editingGroup = group }
                     Button("Rename…") { groupName = group.name; renamingGroup = true }
-                    Button("Remove group", role: .destructive) { library.removeGroup(group.id) }
+                    Button("Remove group…", role: .destructive) { removingGroup = group }
                 }.disabled(library.isReadOnly)
             }
         }.fixedSize()

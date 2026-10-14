@@ -748,6 +748,21 @@ final class PersonaLibrary: NSObject, ObservableObject {
         var next = archive; next.groups[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         do { try commit(next); notice = nil } catch { notice = error.localizedDescription }
     }
+    /// What Remove group… takes, for its confirmation: the member list always, a saved
+    /// layout or public label only when the group has one, and what is on screen from it.
+    /// The personas stay. It reads state and changes nothing.
+    func groupRemovalMessage(_ group: PersonaGroup?) -> String {
+        let group = group.flatMap { asked in groups.first { $0.id == asked.id } } ?? group
+        var parts = ["member list"]
+        if group?.overlays?.isEmpty == false { parts.append("saved layout") }
+        if group?.publicLabel?.isEmpty == false { parts.append("public label") }
+        let named = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+        var message = "Its \(named) will be removed. Its personas, images and scenes stay in your library."
+        if let id = group?.id, liveSelection?.groupID == id || (sessionState.phase != .idle && sessionState.currentGroupID == id) {
+            message += " What is shown from this group ends."
+        }
+        return message
+    }
     func removeGroup(_ id: UUID) {
         guard writable() else { return }
         var next = archive; next.groups.removeAll { $0.id == id }
