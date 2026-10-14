@@ -1008,7 +1008,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             let added = result.added == 1 ? "Added 1 Snap." : "Added \(result.added) Snaps."
             let skipped = result.alreadyAdded == 1 ? " 1 already present was skipped." : " \(result.alreadyAdded) already present were skipped."
             notice = result.warning ?? (result.added == 0
-                ? "These Snaps are already in this session, including Recently Deleted. Restore a deleted section there."
+                ? (result.alreadyAdded == 1 ? "This Snap is" : "These Snaps are") + " already in this session, including Recently Deleted. Restore a deleted section there."
                 : added + " Narration is optional; type notes or choose Record narration." + (result.alreadyAdded > 0 ? skipped : ""))
         } catch { notice = "Snaps could not be added. \(error.localizedDescription)" }
         stateChanged()

@@ -297,6 +297,9 @@ enum SnapCaptureChecks {
         readback.importSnapSnapshots(try history.handoffSnapshots(ids: [fourth.id, fifth.id]))
         try check(readback.activeSections.count == 7 && readback.notice?.hasSuffix(" 1 already present was skipped.") == true,
                   "one Snap already in the session is skipped in the singular: \(readback.notice ?? "none")")
+        readback.importSnapSnapshots(try history.handoffSnapshots(ids: [fifth.id]))
+        try check(readback.activeSections.count == 7 && readback.notice?.hasPrefix("This Snap is already in this session") == true,
+                  "one Snap added again is named in the singular: \(readback.notice ?? "none")")
     }
 
     /// The production draft host presents one expanded editor regardless of the
