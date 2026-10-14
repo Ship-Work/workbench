@@ -30,8 +30,11 @@ public final class StageKitController: ObservableObject {
     public var onOpenScenes: (() -> Void)? {
         didSet { coordinator.onOpenScenes = onOpenScenes; coordinator.demoScenes.onOpen = onOpenScenes }
     }
-    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet.
-    public var onOpenPersonas: (() -> Void)?
+    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet, whose
+    /// Open Persona… comes here too.
+    public var onOpenPersonas: (() -> Void)? {
+        didSet { coordinator.demoScenes.onOpenPersonas = onOpenPersonas }
+    }
     /// Opens the host's My Profile editor: Persona's live menus offer My Profile… there while no
     /// profile photo is saved, so My Profile is always their first row.
     public var onEditProfile: (() -> Void)? {
@@ -404,7 +407,7 @@ public final class StageKitController: ObservableObject {
         let record = try library.importPackage(SceneFile.read(url))
         coordinator.demoScenes.query = ""
         coordinator.demoScenes.selectedID = record.id
-        coordinator.demoScenes.notice = "Added a personal scene copy. Pack updates will not change it."
+        coordinator.demoScenes.confirm("Added a personal scene copy. Pack updates will not change it.")
     }
 
     public func importPackPersona(at url: URL, name: String) throws {
@@ -489,21 +492,23 @@ public final class StageKitController: ObservableObject {
     /// Pause and Resume keep the timer's window as it is. A shown Pause or Resume never becomes a
     /// Start or a Restart (#174).
     public func performTimerTransport(expected: TimerStep) { coordinator.performTimerTransport(expected: expected) }
-    /// Every current notice with its page, most urgent first. The drawing and settings stores
-    /// record their notice's page where it is raised; a persona or scene notice belongs to its own
-    /// page. A card that could not show is live, so it comes before an older scene notice.
+    /// Every current notice with its page and tone, most urgent first. The drawing and settings
+    /// stores record their notice's page where it is raised; a persona or scene notice belongs to
+    /// its own page. A card that could not show is live, so it comes before an older scene notice,
+    /// and it is always a problem.
     private var notices: [StageNotice] {
-        let personas = coordinator.demoScenes.personas
+        let scenes = coordinator.demoScenes, personas = scenes.personas
         return [coordinator.postedNotice, coordinator.settings.postedNotice,
                 personas.cardFeedback.map { StageNotice(text: $0, page: .persona) },
-                coordinator.demoScenes.notice.map { StageNotice(text: $0, page: .present) },
-                personas.notice.map { StageNotice(text: $0, page: .persona) }].compactMap { $0 }
+                scenes.notice.map { StageNotice(text: $0, page: .present, tone: scenes.noticeIsDone ? .done : .problem) },
+                personas.notice.map { StageNotice(text: $0, page: .persona, tone: personas.noticeIsDone ? .done : .problem) }].compactMap { $0 }
     }
-    /// The notice to show now.
-    public var notice: String? { notices.first?.text }
+    /// The current problem, for a surface outside its page to show. Something that worked is
+    /// confirmed on its own page only, so it never stands in for, or hides, a problem (#134).
+    public var notice: String? { notices.first { $0.tone == .problem }?.text }
     /// The page that shows `notice` in full, from the same record: a surface with room for one
     /// sentence opens it for the rest (#134).
-    public var noticePage: StageNoticePage? { notices.first?.page }
+    public var noticePage: StageNoticePage? { notices.first { $0.tone == .problem }?.page }
     /// The first notice a page owns, for that page to show in full.
     public func notice(on page: StageNoticePage) -> String? { notices.first { $0.page == page }?.text }
 
@@ -681,6 +686,10 @@ public enum StageNoticePage: Sendable, CaseIterable { case draw, present, person
 
 /// A notice and its page, recorded together where the notice is raised (#134).
 struct StageNotice: Equatable {
+    /// Whether the notice is a problem to recover from or confirms something that worked, decided
+    /// where it is raised and never from its words. Only a problem reaches beyond its page.
+    enum Tone: Equatable { case problem, done }
     let text: String
     let page: StageNoticePage
+    var tone: Tone = .problem
 }

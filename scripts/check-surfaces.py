@@ -121,6 +121,9 @@ ENTRY_POINTS = [
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.shownPanel', 'Persona live copy', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.liveSourceControl', 'Persona source', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView', 'Persona workspace', 'doors'),
+    # Present's Add persona…: a selection-only chooser of saved cards (#276), so every control
+    # it has is listed, and anything that makes, edits or groups a card would show here.
+    ('StageKit/PersonaLibraryView.swift', 'PersonaSceneChooser', 'Present persona chooser', 'controls'),
     # Persona's other live source: the local camera bubble, prepared and run beside
     # the shown card's controls on the same page.
     ('StageKit/PersonaCamera.swift', 'PersonaCameraPanel', 'Persona live camera', 'controls'),
@@ -1102,13 +1105,14 @@ class Inventory:
         for start, end in ranges[:1]:
             for case, (label, expr) in choice_labels(swift, start, end, 'title').items():
                 self.add(swift, start + 1, 'title', labelled(label, expr), 'floating toolbar contextual actions', identity=case, case=case)
-        # Stage shortcuts: every Action case, titled as the shortcut list shows it.
+        # Stage shortcuts: every Action case, titled as the shortcut list shows it. An Action's own
+        # name for its case (a presenter key's) comes first; otherwise a tool's key has its name.
         swift, ranges = self.owner(*CATALOGUES[3], kinds=('enum',))
         for start, end in ranges[:1]:
             tools = self.find_enum(swift, 'DrawingTool')
             tool_labels = choice_labels(*tools, 'title') if tools else {}
             for case, (label, expr) in choice_labels(swift, start, end, 'title').items():
-                self.add(swift, start + 1, 'title', labelled(*tool_labels.get(case, (label, expr))),
+                self.add(swift, start + 1, 'title', labelled(*(tool_labels[case] if label is None and case in tool_labels else (label, expr))),
                          'global shortcuts', identity=case, case=case)
                 self.entries[-1]['id'] = 'shortcut.stage.' + case
         # Voice shortcuts: (id, title) pairs.

@@ -685,6 +685,26 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual('New action', entries['shortcut.voice.8']['label'])
         self.assertEqual('Break timer', entries['shortcut.stage.timer']['label'])
 
+    def test_a_presenter_keys_own_name_beats_its_tools(self):
+        self.write('StageKit/Core.swift', '''enum DrawingTool: String, CaseIterable {
+          case pen, arrow, ellipse
+          var title: String { rawValue == "ellipse" ? "Oval" : rawValue.capitalized }
+        }''')
+        self.write('StageKit/Settings.swift', '''enum Action: String, CaseIterable {
+          case pen, arrow, ellipse, undo
+          var tool: DrawingTool? { DrawingTool(rawValue: rawValue) }
+          var title: String {
+            switch self {
+            case .pen: return "Draw"
+            case .undo: return "Undo"
+            default: return tool?.title ?? rawValue.capitalized
+            }
+          }
+        }''')
+        entries = {e['id']: e['label'] for e in self.entries() if e['id'].startswith('shortcut.stage.')}
+        self.assertEqual({'shortcut.stage.pen': 'Draw', 'shortcut.stage.arrow': 'Arrow',
+                          'shortcut.stage.ellipse': 'Oval', 'shortcut.stage.undo': 'Undo'}, entries)
+
     def test_missing_owner_is_an_error(self):
         with self.assertRaisesRegex(ValueError, 'Missing surface owner'):
             check.derive(self.root)
