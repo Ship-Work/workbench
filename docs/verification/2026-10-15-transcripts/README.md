@@ -4,7 +4,7 @@ Branch `claude/transcripts-and-follow-ups`, from `main` at edc15df. Synthetic da
 
 ## What changed
 
-1. **Review transcript opens long meetings at once** (#332, #280). The review drew the whole saved transcript as one SwiftUI `Text` and rebuilt it on every wording switch. It is now a read-only, selectable text view with non-contiguous layout, with the same font, 3 pt line spacing, 600 pt measure, background and hairline. A wording switch replaces the words in the same view and returns to the top. Capture notes sit above the scrolling words. Return in the focused words is still Done, with or without Caps Lock (it beeped before the fix), and Escape already was.
+1. **Review transcript opens long meetings at once** (#332, #280). The review drew the whole saved transcript as one SwiftUI `Text` and rebuilt it on every wording switch. It is now a read-only, selectable text view with non-contiguous layout, with the same font, 3 pt line spacing, 600 pt measure, background and hairline. A wording switch replaces the words in the same view and returns to the top. Capture notes sit above the scrolling words; past about six lines they scroll in their own space. Return in the focused words is still Done, with or without Caps Lock (it beeped before the fix), and Escape already was.
 2. **Hand off sends a two-sided meeting once** (#281). A call-plus-microphone meeting's original is its own conversation without the You/Others labels. The prompt now leaves that original out. Cleanups, later edits and separately recognised recordings keep **Original wording**. The frozen selection, the portable original file and the input digest are unchanged. The comparison walks the words in place, so typing in the review stays light on a long call: about 0.16 ms for 1,200 turns in an optimised build, against about 10 ms for splitting and rejoining.
 3. **The handoff review opens on the runner that is set up** (#281). Run with now opens on an enabled runner, preferring the one that ran the newest task, and otherwise on Codex. When no runner is enabled, it opens on the newest task's runner. Coming back from Connections applies the same rule, unless the person has already picked a runner. Nothing is saved and nothing starts on its own.
 4. **Home's meeting recap is truthful** (#281).
@@ -22,10 +22,11 @@ Branch `claude/transcripts-and-follow-ups`, from `main` at edc15df. Synthetic da
 `before/` is `--render-surfaces` from main. `after/` is this branch. File names match, in light and dark.
 
 - `page-history-transcript-review-*`: there is no visible difference. No pixel differs by more than 24 of 255.
+- `page-history-transcript-review-notes-*` (after only): a meeting saved with a capture note for every gap, 32 of them. The notes scroll in about six lines above the words, and the words, Copy, Export and Review recording keep their places.
 - `page-settings-default-*`: **Release notes and downloads** moves right to keep space for ✓ Copied beside **Copy build details**.
 - `page-home-state-results-*`: the newest meeting keeps a line under its buttons for ✓ Copied transcript, as Meetings does. Kept beside the buttons, that space truncated all three buttons in the two-column layout, so it moved under them.
 
-The full gallery passed on the final code: `SURFACE_GALLERY_OK: 350 renders, 163 entries, 0 flags`. Its transcript-review, Settings and Home results renders are pixel-identical to `after/`.
+The full gallery passed on the final code: `SURFACE_GALLERY_OK: 352 renders, 163 entries, 0 flags`, 350 before the integration review's two notes renders. Its transcript-review, Settings and Home results renders are pixel-identical to `after/`.
 
 Some other renders differ from main only because of the clock or timing:
 - deck and report timestamps and report IDs;
@@ -63,6 +64,12 @@ Not run:
 - the `package-tests`, `checks` and `stage` phases as wholes;
 - the release build.
 
+## Integration review
+
+A cross-stream review of tonight's integrated branch found one P3 here, and it is fixed:
+
+1. Capture notes pinned above the words took their full height. History keeps up to 32 notes, and a meeting saved before #343 folded its gap notes has one note for every gap. At the sheet's 640 × 560 size, 32 gap notes made the notes 960 pt tall. The words' box grew to 976 pt, the words got no height, and the title and the Copy and Export row were clipped. The notes now take their own height up to 96 pt, about six lines, and scroll past that. The gallery opens a meeting with one note and one with 32 through Home's door. The words' box must stay where it is without notes, one note must take under 40 pt and not scroll, and 32 notes must take at most 96 pt and scroll. The notes as this branch first pinned them fail the 32-note check. A first attempt with `ViewThatFits` failed the one-note check, because one note took the full 96 pt. Reviews without notes render byte for byte as before.
+
 ## Not verified natively
 
 These still need a person on the installed app:
@@ -73,3 +80,4 @@ These still need a person on the installed app:
 - Escape and Return, also with Caps Lock on, with a real keyboard while the review's words have focus. The check sends key events to the sheet.
 - The Connections round trip: open a review with both runners off, switch on Claude Code, come back, and see a Claude Code state. No automated check covers this.
 - A follow-up finishing while Home is open in the running app.
+- A review of a meeting with many capture notes: that the sheet opens without a visible jump as the notes measure themselves, and that the notes scroll with a trackpad and with VoiceOver.

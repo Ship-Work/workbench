@@ -1108,6 +1108,8 @@ private struct HistoryNativeAcceptanceView: View {
         // the existing busy guard for replacing Dictate's draft.
         model.phase = .recording
         var shots: [SurfaceGallery.Shot] = []
+        // Where the words' box sits in the sheet with no capture notes, which a noted review keeps.
+        var plainBox = CGRect.null
         for (name, size) in SurfaceGallery.sizes {
             final class Frames { var values: [String: CGRect] = [:] }
             let frames = Frames()
@@ -1132,6 +1134,7 @@ private struct HistoryNativeAcceptanceView: View {
                   textFrame.width > 500, textFrame.height > 250 else {
                 throw VoiceError.message("History did not attach the full transcript review at \(name): \(frames.values).")
             }
+            plainBox = textFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
             settle(content)
             guard model.transcript == kept.draft, model.rawTranscript == kept.raw,
                   model.historyLibrary.selected == kept.selected, model.speechText == kept.reading,
@@ -1157,6 +1160,7 @@ private struct HistoryNativeAcceptanceView: View {
             }
         }
         try checkLongTranscriptReview(kept: (kept.draft, kept.raw, kept.selected))
+        shots.append(try checkNotedTranscriptReview(plainBox: plainBox, to: output))
         let original = TranscriptReview(transcript: item, version: .original)
         guard original.text == item.rawText,
               TranscriptExport.data(for: item, version: .original) == Data(original.text.utf8),
@@ -1180,6 +1184,83 @@ private struct HistoryNativeAcceptanceView: View {
             (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(documents)
         }
         return documents(view).first { !$0.isEditable && $0.isSelectable }
+    }
+
+    /// A meeting saved before gap notes were folded carries a note for every gap, up to the 32
+    /// History keeps. The notes stay above the words but scroll in their own space past about six
+    /// lines, so the sheet keeps its size and the words' box, Copy, Export and Review recording
+    /// stay where a review without notes has them. One note takes only its own lines.
+    func checkNotedTranscriptReview(plainBox: CGRect, to output: URL) throws -> SurfaceGallery.Shot {
+        let paragraphs = (1...24).map {
+            "Item \($0). Maya will review the proposal on Thursday. Sam will confirm the room and bring the revised agenda."
+        }.joined(separator: "\n\n")
+        let item = Transcript(id: UUID(uuidString: "5D1C0A1E-0000-4000-8000-000000000349")!, date: Date(timeIntervalSince1970: 1_789_401_000),
+                              text: paragraphs, seconds: 3_600, rawText: paragraphs)
+        // The wording Workbench saved for each gap before #343 folded them.
+        let notes = (1...32).map {
+            String(format: "remote: The audio source temporarily stopped supplying samples. Gap at %.2fs for %.2fs; the saved timeline includes silence.",
+                   Double($0) * 97.25, 1.5 + Double($0 % 5))
+        }
+        model.history.append(item)
+        defer {
+            model.history.removeAll { $0.id == item.id }
+            model.historyLibrary.removeReferences(kind: .transcript, ids: [item.id])
+        }
+        guard !plainBox.isNull else { throw VoiceError.message("No review without notes was measured.") }
+        final class Frames { var values: [String: CGRect] = [:] }
+        /// Opens the review with these notes; returns the sheet's content, the words' box in the
+        /// sheet, the height the notes take above the words, and whether the notes scroll.
+        func open(_ notes: [String]) throws -> (NSView, CGRect, CGFloat, Bool) {
+            model.historyLibrary.setMetadata(TranscriptMetadata(purpose: .meeting, captureNotes: notes), for: item.id)
+            guard model.historyLibrary.metadata(for: item.id).captureNotes == notes else {
+                throw VoiceError.message("The noted meeting fixture was not saved.")
+            }
+            let frames = Frames()
+            model.page = "home"; model.historyDoor = nil
+            let window = homeWindow(size: SurfaceGallery.sizes[1].size, hostsSheets: true) { frames.values[$0] = $1 }
+            let root = window.contentView?.superview ?? window.contentView!
+            windows.append(window)
+            settle(root)
+            model.openHistory(HomeMeetings.review(item.id))
+            let deadline = Date().addingTimeInterval(4)
+            repeat { settle(root, seconds: 0.1) }
+            while (window.attachedSheet == nil || frames.values["history.transcript-review.text"] == nil) && Date() < deadline
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                  let frame = frames.values["history.transcript-review"], let box = frames.values["history.transcript-review.text"],
+                  let document = Self.reviewDocument(in: content), document.string == item.text, let words = document.enclosingScrollView else {
+                throw VoiceError.message("History did not attach the review of a meeting with \(notes.count) capture notes: \(frames.values).")
+            }
+            settle(content)
+            guard abs(frame.width - 640) < 1, abs(frame.height - 560) < 1 else {
+                throw VoiceError.message("\(notes.count) capture notes resized the review to \(frame.size).")
+            }
+            func scrolls(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrolls) }
+            let placed = box.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            let scrolling = scrolls(content).contains { $0 !== words && ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height + 1 }
+            return (content, placed, placed.height - words.frame.height - Workbench.tilePadding, scrolling)
+        }
+        var windows: [NSWindow] = []
+        defer {
+            for window in windows {
+                if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+                window.contentViewController = nil; window.close()
+            }
+        }
+        let (_, oneBox, oneHeight, oneScrolls) = try open([notes[0]])
+        // Two lines of callout text, the one note's own height, are well under 40 points.
+        guard abs(oneBox.minY - plainBox.minY) < 1, abs(oneBox.height - plainBox.height) < 1, oneHeight > 0, oneHeight < 40, !oneScrolls else {
+            throw VoiceError.message(String(format: "One capture note took %.0f pt above the words, or scrolled (%@), or moved the words' box.",
+                                            oneHeight, oneScrolls ? "yes" : "no"))
+        }
+        let (content, box, height, scrolling) = try open(notes)
+        guard abs(box.minY - plainBox.minY) < 1, abs(box.height - plainBox.height) < 1,
+              height <= TranscriptReviewView.notesHeight + 1, scrolling else {
+            throw VoiceError.message(String(format: "32 capture notes squeezed the review: words' box %.0f pt high at %.0f (%.0f at %.0f without notes), notes %.0f pt and %@.",
+                box.height, box.minY, plainBox.height, plainBox.minY, height, scrolling ? "scroll" : "do not scroll"))
+        }
+        return try save(try snapshot(content), id: "transcript-review-notes", title: "Transcript review, a meeting with 32 gap notes",
+            detail: "A meeting saved with a capture note for every gap. The notes scroll in about six lines above the words, so the sheet keeps its size and the words, Copy, Export and Review recording keep their places. One note takes only its own lines.",
+            file: "page-history-transcript-review-notes-\(theme).png", to: output)
     }
 
     /// A two-hour, two-sided meeting (1,200 labelled turns, about 110,000 characters) opens
