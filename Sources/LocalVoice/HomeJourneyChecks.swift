@@ -71,8 +71,23 @@ enum HomeJourneyChecks {
         try check(!HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: true),
                   "while the guide's own banner carries it, Current work is not an empty card")
         try check(!HomeJourney.writingModelIsCurrentWork(hasLine: false, speechReady: true, guideShows: false), "no writing model line adds no current work")
-        try check(CaptureMode.allCases.allSatisfy { !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Off to") && !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Press") },
+        // A failed download holds Current work only while the saved Text style uses Ollama; a running one always does.
+        let downloadLine = "Downloading gemma3:1b · 42%", failedLine = "gemma3:1b couldn’t be downloaded. Ollama stopped responding."
+        try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: true) == failedLine,
+                  "a failed download shows in Current work while the saved Text style uses Ollama")
+        try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: false) == nil,
+                  "after choosing a Text style that doesn't use Ollama, a failed download no longer holds Current work")
+        try check([true, false].allSatisfy { HomeJourney.writingModelLine(download: downloadLine, failure: nil, savedStyleUsesOllama: $0) == downloadLine },
+                  "a running download shows in Current work whatever the Text style")
+        try check(HomeJourney.writingModelLine(download: nil, failure: nil, savedStyleUsesOllama: true) == nil, "nothing downloading or failed shows nothing")
+        try check(CaptureMode.allCases.allSatisfy { !VoiceOptions.activationHint(dictateOff, failure: nil, capture: $0).contains("Off to") && !VoiceOptions.activationHint(dictateOff, failure: nil, capture: $0).contains("Press") },
                   "Dictate's Activation hint teaches no key while the shortcut is off")
+        try check(CaptureMode.allCases.allSatisfy { VoiceOptions.activationHint(dictateKey, failure: nil, capture: $0).contains("⌥V") },
+                  "Dictate's Activation hint names the Dictate shortcut while it works")
+        try check(CaptureMode.allCases.allSatisfy {
+                      let hint = VoiceOptions.activationHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.", capture: $0)
+                      return !hint.contains("⌥V") && !hint.contains("Press") && !hint.contains("Hold") && hint.contains("isn’t available")
+                  }, "Dictate's Activation hint never teaches a Dictate shortcut macOS could not register")
 
         // Current work comes first in every state; the columns hold every result section once.
         try check(HomeJourney(transcripts: 1, hasCurrentWork: true).sections == [.currentWork] + results,
