@@ -133,9 +133,15 @@ final class LiveDictationDelivery {
         defer { end() }
         guard attempted else { return nil }
         guard replace(originalText, restoring: original.selection), system.read() == original else {
-            return "Cancelled. Words already written in \(name) were left there. The recording is kept."
+            return Self.wordsLeftMessage(in: name)
         }
         return nil
+    }
+
+    /// A Cancel that could not take its live words back. The menu-bar panel's recovery row
+    /// shows only a message's first sentence, so that sentence says the words are still there.
+    static func wordsLeftMessage(in name: String) -> String {
+        "Cancelled, but words already written in \(name) remain. The recording is kept."
     }
 
     @discardableResult

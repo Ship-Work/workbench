@@ -826,7 +826,7 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                       "Cancel that leaves live words explains it, with Retry and the recording kept (\(path))")
         }
         try expectLiveTextKept(fieldCancel, fieldCancelOwner.cancellationProblem!, fieldCancelURL, "recording")
-        let keptProblem = "Cancelled. Words already written in Fixture were left there. The recording is kept."
+        let keptProblem = "Cancelled, but words already written in Fixture remain. The recording is kept."
         func keptOwner(_ problem: String?) -> LiveDictationDelivery {
             let owner = LiveDictationDelivery(); owner.attempted = true; owner.cancellationProblem = problem; return owner
         }
