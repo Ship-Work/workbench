@@ -36,6 +36,14 @@ try check(oriented.width == 80 && oriented.height == 128, "photo import applies 
 let original = try store.snapshot(first.id)
 try check(original.originalPNG == png && original.imagePNG == png, "original and untouched image exact bytes")
 try check(try SnapRendering.dimensions(png).width == 128, "fixture dimensions")
+let retina = SnapRendering.capturePixelSize(points: CGSize(width: 1470, height: 956), scale: 2)
+try check(retina.width == 2940 && retina.height == 1912, "a Retina screen captures at its full pixel size")
+let standard = SnapRendering.capturePixelSize(points: CGSize(width: 1920, height: 1080), scale: 1)
+try check(standard.width == 1920 && standard.height == 1080, "a 1x screen captures at its point size")
+let scaled = SnapRendering.capturePixelSize(points: CGSize(width: 1000, height: 667), scale: 1.5)
+try check(scaled.width == 1500 && scaled.height == 1001, "a fractional scale rounds to the nearest pixel")
+let unknown = SnapRendering.capturePixelSize(points: CGSize(width: 1470, height: 956), scale: 0)
+try check(unknown.width == 1470 && unknown.height == 956, "an unknown scale never shrinks the capture")
 let firstDir = root.appendingPathComponent(first.id.uuidString.lowercased())
 for name in ["original.png", "snap.json"] {
     let mode = try fm.attributesOfItem(atPath: firstDir.appendingPathComponent(name).path)[.posixPermissions] as? NSNumber

@@ -370,8 +370,9 @@ enum ReadbackScreenCapture {
             throw ReadbackError.message("The display under the pointer is not currently available for capture.")
         }
         let configuration = SCStreamConfiguration()
-        configuration.width = display.width
-        configuration.height = display.height
+        let pixels = SnapRendering.capturePixelSize(points: CGSize(width: display.width, height: display.height), scale: screen.backingScaleFactor)
+        configuration.width = pixels.width
+        configuration.height = pixels.height
         configuration.showsCursor = true
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
