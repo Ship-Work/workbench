@@ -1488,7 +1488,9 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].status = .needsNarration; current.sections[index].failure = "No speech was heard. Record the narration again."
         }
         try ReadbackStore.save(current, at: root); publish(current, for: root)
-        if sessionURL?.standardizedFileURL == root.standardizedFileURL { notice = "No speech heard. The screenshot and any earlier narration were kept." }
+        // A later take may already be recording: its notice says how to stop it, and this one would
+        // read as if that take were unheard. The section itself shows what was kept.
+        if sessionURL?.standardizedFileURL == root.standardizedFileURL, !isRecording { notice = "No speech heard. The screenshot and any earlier narration were kept." }
     }
 
     private func markQueued(_ job: Job) {

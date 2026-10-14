@@ -878,6 +878,43 @@ enum ReadbackChecks {
         let archived = try words.history.filter { $0.hasSuffix("-edited-transcript.txt") }
             .map { try String(contentsOf: words.root.appendingPathComponent(words.directory + "/history/" + $0), encoding: .utf8) }
         try check(archived == ["Earlier words, edited"], "words: the earlier edited narration is archived, not overwritten")
+
+        // 7. An empty result that lands while the next section records leaves that take's notice,
+        // which says how to stop it; the first section keeps its notes.
+        let next = fixture.appendingPathComponent("next-section")
+        var manifest = try ReadbackStore.create(at: next, title: "Synthetic retake")
+        for _ in 0..<2 {
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(next.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: next.appendingPathComponent(directory + "/screen.png"))
+            try ReadbackStore.writePrivate(Data("My notes".utf8), to: next.appendingPathComponent(directory + "/narration.txt"))
+            manifest.sections.append(ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: nil, originalTranscript: nil, transcript: directory + "/narration.txt", status: .ready, failure: nil, deletedAt: nil))
+        }
+        try ReadbackStore.save(manifest, at: next)
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.Retake.\(UUID().uuidString)").path
+        domains.append(domain)
+        let defaults = UserDefaults(suiteName: domain)!
+        defaults.set([next.path], forKey: "readback.recentSessionPaths.v1")
+        let transcriber = ControlledTranscriber()
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+            makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+        defer { model.shutdown(); transcriber.cancel() }
+        let (first, second) = (manifest.sections[0], manifest.sections[1])
+        model.startNarration(for: first.id)
+        try await waitFor("next-section meter tick") { model.recordingElapsed > 0 }
+        model.stopNarration()
+        try await waitFor("next-section recognition") { transcriber.calls == 1 }
+        model.startNarration(for: second.id)
+        let narrating = model.notice
+        try check(model.isRecording && narrating?.hasPrefix("Narrating section 2.") == true, "next section: section 2 records while section 1 transcribes")
+        transcriber.complete("")
+        try await waitFor("section 1 to finish") { (try? ReadbackStore.load(from: next).sections[0].status) == .ready }
+        try check(model.isRecording && model.notice == narrating, "next section: section 1's empty result leaves section 2's narrating notice")
+        let settled = try ReadbackStore.load(from: next).sections[0]
+        try check(settled.audio == nil && ReadbackStore.readText(root: next, relative: settled.transcript) == "My notes", "next section: section 1 keeps its notes")
+        model.cancelNarration()
         print("READBACK_RETAKE_CHECKS_OK: \(passed) checks")
     }
 
