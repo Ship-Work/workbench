@@ -223,7 +223,7 @@ struct MeetingWorkspaceView: View {
             // No width cap: the page fills the window like Dictate (docs/desktop.md § Page plan).
             }.padding(Workbench.pagePadding).frame(maxWidth: .infinity, alignment: .topLeading)
         }.onAppear { if !model.isBusy { model.refreshApps() } }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshAdmission() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshSourcesOnReturn() }
             .onChange(of: model.completedTranscriptID) { value in
                 copyFeedback.finish(nil)
                 if value != nil { showingNewRecording = false }
