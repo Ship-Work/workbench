@@ -424,7 +424,8 @@ struct ContentView: View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 12).fill(ink.opacity(0.5))
             // 15 pt on a standard Mac, the reading size Meetings' transcript shares; it grows with larger text.
-            if text.wrappedValue.isEmpty { Text(placeholder).font(.title3).foregroundStyle(.secondary).lineSpacing(7).padding(20).allowsHitTesting(false) }
+            // The editor's padding of 14 plus NSTextView's 5 pt line-fragment padding, so the hint sits where typed text starts.
+            if text.wrappedValue.isEmpty { Text(placeholder).font(.title3).foregroundStyle(.secondary).lineSpacing(6).padding(.horizontal, 19).padding(.vertical, 14).allowsHitTesting(false) }
             TextEditor(text: text).font(.title3).lineSpacing(6).scrollContentBackground(.hidden).padding(14).accessibilityLabel(label)
         }.overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.07))).frame(minHeight: 200, maxHeight: .infinity)
     }
