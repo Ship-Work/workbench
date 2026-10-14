@@ -947,7 +947,7 @@ final class AppModel: NSObject, ObservableObject {
         // The wait is said on History, where Open was clicked.
         let wait = "Finish the current dictation or processing before replacing its draft."
         guard phase == .idle else { report(wait, on: .history); return }
-        // History's notice has no Dismiss, so an Open that goes ahead takes its earlier wait away.
+        // An Open that goes ahead takes its earlier wait away, so the person need not dismiss it.
         if attention == Attention(message: wait, page: .history) { attention = nil }
         page = "dictate"
         if (!transcript.isEmpty || !rawTranscript.isEmpty) && (transcript != item.text || rawTranscript != (item.rawText ?? item.text)) {

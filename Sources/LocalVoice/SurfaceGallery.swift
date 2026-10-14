@@ -2363,8 +2363,51 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("transcripts", "History, Transcripts", "As Dictate's History… opens it.", snaps: snap, door: HistoryDoor(filter: .transcripts))
         // A problem History owns: primary words with an orange symbol at the top of the page (#279).
         model.report("Workbench couldn’t move the recording for this synthetic interview to the Trash. The transcript is kept; try Remove again from its row.", on: .history)
-        try shot("error", "History, a removal that did not finish", "The page's own problem in primary words with an orange symbol; red stays for recording and removal.",
+        try shot("error", "History, a removal that did not finish", "The page's own problem in primary words with an orange symbol, in a card with its × to put it away; red stays for recording and removal.",
                  snaps: snap, door: HistoryDoor(filter: .transcripts))
+        // The note carries its × at the right of its row, level with its orange symbol, alone after
+        // the Spacer, as Dictate's and Meetings' banners do. Offscreen SwiftUI offers neither an
+        // accessibility tree to press nor a synthetic click it accepts, so the row is read instead:
+        // the rightmost mark must be glyph-sized with clear space before it, not the message's end.
+        do {
+            let window = offscreenWindow(size: size, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
+            window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
+            defer { window.contentViewController = nil; window.close() }
+            window.contentViewController = NSHostingController(rootView: WorkbenchHome(model: model, stage: stage, keyboard: keyboard, readback: readback, snap: snap))
+            window.setContentSize(size)
+            let frame = window.contentView?.superview ?? window.contentView!
+            settle(frame, seconds: 1)
+            let rep = try snapshot(frame)
+            guard let bytes = rep.bitmapData, rep.bitsPerSample == 8, rep.samplesPerPixel >= 3, !rep.isPlanar else {
+                throw VoiceError.message("History's render is not in a format the dismiss check can read.")
+            }
+            let scale = CGFloat(rep.pixelsWide) / frame.bounds.width, points = { (value: CGFloat) in Int(value * scale) }
+            func rgb(_ x: Int, _ y: Int) -> [Double] {
+                let pixel = bytes + y * rep.bytesPerRow + x * rep.samplesPerPixel
+                return (0..<3).map { Double(pixel[$0]) / 255 }
+            }
+            let orange = { (c: [Double]) in c[0] > 0.85 && c[1] > 0.35 && c[1] < 0.75 && c[2] < 0.35 }
+            guard let symbol = (0..<rep.pixelsHigh / 2).lazy.compactMap({ y in
+                (rep.pixelsWide / 6..<rep.pixelsWide).first { orange(rgb($0, y)) }.map { (x: $0, y: y) } }).first else {
+                throw VoiceError.message("History's problem note has no orange symbol to find its row by.")
+            }
+            let background = rgb(symbol.x - points(6), symbol.y + points(6))
+            let rows = max(0, symbol.y - points(8))..<min(rep.pixelsHigh, symbol.y + points(24))
+            let marked = { (x: Int) in rows.contains { y in zip(rgb(x, y), background).contains { abs($0 - $1) > 0.35 } } }
+            // The rightmost mark in the row at least a few points wide: a glyph, not an edge or a scroller.
+            var right = rep.pixelsWide - points(12), found: (left: Int, right: Int)?
+            while found == nil, right > symbol.x {
+                guard let end = stride(from: right, to: symbol.x, by: -1).first(where: marked) else { break }
+                var start = end
+                while start > symbol.x, (1...points(2)).contains(where: { marked(start - $0) }) { start -= 1 }
+                if end - start >= points(6) { found = (start, end) }
+                right = start - 1
+            }
+            guard let (left, end) = found, end - left <= points(16),
+                  !(max(symbol.x, left - points(24))..<left).contains(where: marked) else {
+                throw VoiceError.message("History's problem note has no × of its own at the right of its row.")
+            }
+        }
         model.dismissError()
         shots.append(try renderHistoryLargerText(to: output))
 
