@@ -626,7 +626,7 @@ private struct HistoryNativeAcceptanceView: View {
         // Home's first-dictation states come before History's, which add Hand off tasks to recent work.
         if let home = pages.firstIndex(where: { $0.route == "home" }) {
             pages[home].shots += try renderHomeStates(to: output) + renderHomeChrome(to: output)
-                + [try renderHomeLargerText(to: output)]
+                + [try renderHomeLargerText(to: output)] + renderPermissionNames(to: output)
         }
         let review = try checkHomeReview(to: output)
         if let history = pages.firstIndex(where: { $0.route == "history" }) {
@@ -2166,7 +2166,7 @@ private struct HistoryNativeAcceptanceView: View {
             }
         }
         pages[homeIndex].shots += try renderHomeChrome(to: output) + renderHomeStates(to: output)
-            + [renderHomeLargerText(to: output)]
+            + [renderHomeLargerText(to: output)] + renderPermissionNames(to: output)
         let review = try checkHomeReview(to: output)
         if let history = pages.firstIndex(where: { $0.route == "history" }) {
             pages[history].shots.append(review.shot)
@@ -2179,6 +2179,50 @@ private struct HistoryNativeAcceptanceView: View {
         return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: [], host: [], pickers: [], pickerHost: [],
             pages: pages, entries: entries(), menus: [], checks: try review.checks + checkToolbarVisibility() + [
                 "Home and History visits preserve the pending recording and its journal byte for byte; Retry and explicit Discard remain available on Dictate."])
+    }
+
+    /// Home's Permissions at the minimum window with the sidebar expanded, where its half column is
+    /// narrowest, for this pass's permissions and a work Mac's: every name must show whole, wrapped
+    /// if need be, since it is the word to find in Privacy & Security (#335).
+    func renderPermissionNames(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let kept = (page: model.page, reader: MacPermissionReader.current)
+        defer { model.page = kept.page; MacPermissionReader.current = kept.reader }
+        var shots: [SurfaceGallery.Shot] = []
+        for (id, reader) in [("pass", kept.reader), ("work-mac", Self.workMacPermissions)] {
+            MacPermissionReader.current = reader
+            final class Frames { var byID: [String: CGRect] = [:] }
+            let frames = Frames()
+            let window = homeWindow(size: SurfaceGallery.sizes[1].size) { name, frame in if name.hasPrefix("home.permissions.") { frames.byID[name] = frame } }
+            defer { window.contentViewController = nil; window.close() }
+            let (rep, drawn) = try renderPage("home", in: window)
+            let names = frames.byID.filter { $0.key.hasSuffix(".name") }
+            guard !names.isEmpty else { throw VoiceError.message("Home's Permissions reported no names at the minimum window (\(id)).") }
+            let clipped = Self.clippedPermissionNames(names)
+            guard clipped.isEmpty else { throw VoiceError.message("Home's Permissions clipped \(clipped.joined(separator: ", ")) at the minimum window (\(id)).") }
+            if id == "work-mac" {
+                shots.append(try save(rep, id: "state-work-mac-narrow", title: "Permissions on a work Mac, minimum window, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
+                    detail: "The half column at its narrowest: each name wraps whole, with its badge beside it or below it, and every action stays in place.",
+                    file: "page-home-state-work-mac-narrow-\(theme).png", to: output))
+            }
+        }
+        return shots
+    }
+
+    /// Permission names whose text, measured at the width it was given, needs more height than it
+    /// has, or whose longest word is wider than that width: either means the name was cut.
+    static func clippedPermissionNames(_ frames: [String: CGRect]) -> [String] {
+        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .semibold)
+        return frames.keys.sorted().compactMap { key in
+            let raw = key.replacingOccurrences(of: "home.permissions.", with: "").replacingOccurrences(of: ".name", with: "")
+            guard let permission = MacPermission(rawValue: raw), let frame = frames[key] else { return key }
+            func size(_ text: String, width: CGFloat) -> CGRect {
+                NSAttributedString(string: text, attributes: [.font: font])
+                    .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading])
+            }
+            let needed = size(permission.name, width: frame.width).height
+            let widestWord = permission.name.split(separator: " ").map { size(String($0), width: .greatestFiniteMagnitude).width }.max() ?? 0
+            return needed > frame.height + 1 || frame.width + 0.5 < widestWord ? "\(permission.name) in \(Int(frame.width)) × \(Int(frame.height)) pt" : nil
+        }
     }
 
     /// Both sidebar widths and the local-profile sheet, without ordering a window on screen,
