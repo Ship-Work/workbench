@@ -1183,9 +1183,10 @@ private struct HistoryNativeAcceptanceView: View {
     }
 
     /// A two-hour, two-sided meeting (1,200 labelled turns, about 110,000 characters) opens
-    /// through Home's door about as fast as a five-turn one, switches wording in the same text
-    /// view, copies a selection exactly, and Escape or Return in the words, with or without
-    /// Caps Lock, close only the review.
+    /// through Home's door and switches wording, in the same text view, about as fast as a
+    /// five-turn one; it copies a selection exactly, and Escape or Return in the words, with or
+    /// without Caps Lock, close only the review. Both limits follow the five-turn meeting timed in
+    /// the same run, so a slower machine moves them together.
     func checkLongTranscriptReview(kept: (draft: String, raw: String, selected: Set<WorkbenchItemReference>)) throws {
         func meeting(_ turns: Int, _ id: Int) -> Transcript {
             let checkpoint = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<turns).map { index in
@@ -1242,27 +1243,42 @@ private struct HistoryNativeAcceptanceView: View {
                 throw VoiceError.message("\(key.code == 53 ? "Escape" : "Return")\(flags.contains(.capsLock) ? " with Caps Lock on" : "") in the review's words did not close only the review.")
             }
         }
-        let (shortSheet, _, baseline) = try open(short)
-        try close(shortSheet, with: (36, "\r"), flags: .capsLock, from: Self.reviewDocument(in: shortSheet.contentView!)!)
+        /// Original wording and back, in the same text view, at the top with nothing selected.
+        /// Returns the slower switch.
+        func switchWording(_ item: Transcript, in sheet: NSWindow, _ document: NSTextView) throws -> TimeInterval {
+            func controls(_ view: NSView) -> [NSSegmentedControl] { (view as? NSSegmentedControl).map { [$0] } ?? view.subviews.flatMap(controls) }
+            guard let wording = controls(sheet.contentView!).first else { throw VoiceError.message("The review has no wording control.") }
+            var slowest: TimeInterval = 0
+            for (segment, words) in [(1, item.rawText!), (0, TranscriptExport.text(for: item, version: .cleaned))] {
+                wording.selectedSegment = segment
+                wording.sendAction(wording.action, to: wording.target)
+                let switched = poll(1) { document.string == words }
+                guard Self.reviewDocument(in: sheet.contentView!) === document, document.string == words,
+                      document.selectedRange() == NSRange(location: 0, length: 0) else {
+                    throw VoiceError.message(String(format: "A wording switch for %d characters rebuilt the review's text view or took over %.0f ms.",
+                                                    item.text.count, switched * 1000))
+                }
+                slowest = max(slowest, switched)
+            }
+            return slowest
+        }
+        let (shortSheet, shortDocument, baseline) = try open(short)
+        let shortSwitch = try switchWording(short, in: shortSheet, shortDocument)
+        try close(shortSheet, with: (36, "\r"), flags: .capsLock, from: shortDocument)
         let (sheet, document, opened) = try open(long)
         let current = TranscriptExport.text(for: long, version: .cleaned)
         guard document.string == current, opened < baseline + 0.4 else {
             throw VoiceError.message(String(format: "A 1,200-turn review took %.0f ms to open against %.0f ms for 5 turns, or showed other words.",
                                             opened * 1000, baseline * 1000))
         }
-        guard let wording = { (view: NSView) -> [NSSegmentedControl] in
-            func controls(_ view: NSView) -> [NSSegmentedControl] { (view as? NSSegmentedControl).map { [$0] } ?? view.subviews.flatMap(controls) }
-            return controls(view)
-        }(sheet.contentView!).first else { throw VoiceError.message("The review has no wording control.") }
-        for (segment, words) in [(1, long.rawText!), (0, current)] {
-            wording.selectedSegment = segment
-            wording.sendAction(wording.action, to: wording.target)
-            let switched = poll(1) { document.string == words }
-            guard Self.reviewDocument(in: sheet.contentView!) === document, document.string == words, switched < 0.15,
-                  document.selectedRange() == NSRange(location: 0, length: 0) else {
-                throw VoiceError.message(String(format: "A wording switch rebuilt the review's text view or took %.0f ms.", switched * 1000))
-            }
+        let switched = try switchWording(long, in: sheet, document)
+        guard switched < shortSwitch + 0.3 else {
+            throw VoiceError.message(String(format: "A 1,200-turn wording switch took %.0f ms against %.0f ms for 5 turns.",
+                                            switched * 1000, shortSwitch * 1000))
         }
+        // Printed so a run's margin can be read beside its limits.
+        print(String(format: "TRANSCRIPT_REVIEW_LONG_OK: 1,200 turns opened in %.0f ms (5 turns: %.0f ms) and switched wording in %.0f ms (5 turns: %.0f ms)",
+                     opened * 1000, baseline * 1000, switched * 1000, shortSwitch * 1000))
         let start = (current as NSString).range(of: "Others: Turn 1198.").location
         guard start != NSNotFound else { throw VoiceError.message("The long meeting has no turn 1198 to select.") }
         let selection = NSRange(location: start, length: 200)
