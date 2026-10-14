@@ -51,7 +51,9 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     @Published private(set) var postedNotice: StageNotice?
     /// The notice's words, as Draw's controls show them.
     var notice: String? { postedNotice?.text }
-    func post(_ text: String, on page: StageNoticePage) { postedNotice = StageNotice(text: text, page: page) }
+    func post(_ text: String, on page: StageNoticePage, tone: StageNotice.Tone = .problem) {
+        postedNotice = StageNotice(text: text, page: page, tone: tone)
+    }
     func clearNotice() { postedNotice = nil }
     @Published var launchAtLogin = false
     /// Adds or removes Workbench as a login item and returns what macOS decided. Checks replace it,
@@ -392,6 +394,14 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         return boards.count == 1 ? boards.keys.first : nil
     }
     var canExportBoard: Bool { exportableBoardID != nil && !boardExportInProgress }
+    /// Board export from Draw's menus, which stay reachable above a full-screen board: the Draw
+    /// page's export, and like every other menu action never during Screenshot, keyboard
+    /// practice or recording a shortcut (#31).
+    var canExportBoardFromMenu: Bool {
+        canExportBoard && !screenshotHandoffActive && !shortcutsSuspended && recordingAction == nil
+    }
+    /// Where Copy board puts the image; checks give it a private pasteboard.
+    var boardPasteboard: NSPasteboard = .general
     func boardImageExport() throws -> BoardImageExport {
         guard let id = exportableBoardID, let style = boards[id], let canvas = canvases[id],
               let history = history(for: id) else { throw BoardExportError.noBoard }
@@ -403,7 +413,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func copyBoard() {
         guard !boardExportInProgress else { return }
-        do { try boardImageExport().copy(); post("Board copied as an image.", on: .draw) }
+        do { try boardImageExport().copy(to: boardPasteboard); post("Board copied as an image.", on: .draw, tone: .done) }
         catch { post(error.localizedDescription, on: .draw) }
     }
     func saveBoardPNG() {
@@ -425,7 +435,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             boardSavePanel = nil; boardExportInProgress = false
             guard !shuttingDown else { return }
             if result == .OK, let url = panel.url {
-                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw) }
+                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw, tone: .done) }
                 catch { post("Board image could not be saved: \(error.localizedDescription)", on: .draw) }
             }
             refreshWindows(); refreshPalette(); refreshEffects()
@@ -457,8 +467,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             overlayHistory.values.forEach { $0.pauseFade(by: duration) }
         }
         screenshotHandoffActive = false
-        post(error.map { "Screenshot could not open: \($0.localizedDescription)" }
-            ?? "Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw)
+        if let error { post("Screenshot could not open: \(error.localizedDescription)", on: .draw) }
+        else { post("Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw, tone: .done) }
         for canvas in canvases.values { canvas.needsDisplay = true }
         refreshWindows(); refreshPalette(); refreshEffects(); updateStatus()
         if error != nil { showControls(tab: "Drawing", preservingCanvas: true) }
@@ -774,9 +784,13 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         let now = now ?? timerClock()
         let remaining = countdown.remaining(at: now)
         let text = Countdown.formatted(remaining)
+        // Each of these publishes, and the whole stage redraws on a publication, so only a change
+        // is assigned: about once a second while it runs, not on every update. The bar follows
+        // the shown second, so it steps with the digits.
         if text != timerText { timerText = text }
-        timerRunning = countdown.isRunning
-        timerProgress = min(1, remaining / max(1, countdown.duration))
+        if timerRunning != countdown.isRunning { timerRunning = countdown.isRunning }
+        let progress = min(1, ceil(remaining) / max(1, countdown.duration))
+        if progress != timerProgress { timerProgress = progress }
         if countdown.isRunning && remaining <= 0 {
             countdown.pause(now: now); timerRunning = false; timerFinished = true
             countdownTimer?.invalidate(); countdownTimer = nil

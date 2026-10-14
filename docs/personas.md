@@ -42,9 +42,11 @@ The Persona workspace uses the existing saved library and overlay session. Openi
 
 Present’s compact **Persona…** control sits beside the scene name above the preview. Add or change a card, set its size and position, or remove only its scene placement. A card placed in a scene is rendered into that presentation; a floating Persona is a separate window. Both use the same saved artwork without silently changing each other’s placements or live image snapshots.
 
+**Add persona…** and **Change persona…** open a chooser of every saved card in its current look, whatever group Persona has prepared: choose one and **Use in scene**, or **Cancel**. The chooser only selects. Browsing it never changes Persona's selection, prepared group or cards; making, editing and grouping cards happen on Persona, which **Open Persona…** opens after closing the chooser (#276).
+
 Present keeps one **Present** button and **Options** (Start full screen, Export image…) in a fixed footer below the editor. **Scene options**, folded under the preview, holds logo, crop, device-shape and hand adjustments. The phone's status sits under the preview, and **Can’t see your phone?** opens the help sheet with its QuickTime check and iPhone Mirroring. A persona placed in a scene changes nothing about device capture or the handoff to Apple apps.
 
-`StageKitController.personasView` supplies the standalone workspace. The host routes **Prepare Personas…** with `onOpenPersonas`; a host without that callback retains the existing preparation sheet. Scene-specific selection always uses its own sheet and keeps the original scene binding.
+`StageKitController.personasView` supplies the standalone workspace. The host routes **Prepare Personas…** with `onOpenPersonas`; a host without that callback retains the existing preparation sheet. Scene-specific selection always uses its own selection-only chooser and keeps the original scene binding; its **Open Persona…** takes the same `onOpenPersonas` route, or the preparation sheet without it.
 
 ## React to my voice
 

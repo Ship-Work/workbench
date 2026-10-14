@@ -224,7 +224,11 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         get { selection.primaryID }
         set { selection = SceneListSelection(ids: Set(newValue.map { [$0] } ?? []), primaryID: newValue); reconsiderCapture() }
     }
-    @Published var notice: String?
+    /// Every assignment is a problem; `confirm` reports something that worked.
+    @Published var notice: String? { didSet { if noticeIsDone { noticeIsDone = false } } }
+    /// Whether `notice` confirms something that worked, which stays on its own page (#134).
+    @Published private(set) var noticeIsDone = false
+    func confirm(_ text: String) { notice = text; noticeIsDone = true }
     @Published var choosingPersonas = false
     var personaSceneID: UUID?
     @Published private(set) var storageBlocked = false
@@ -491,12 +495,20 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         choosingPersonas = true
         show()
     }
+    /// Opens the host's Persona page; without one, Open Persona… opens the library sheet here.
+    var onOpenPersonas: (() -> Void)?
+    /// Open Persona… in Present's chooser: the chooser closes first, then Persona opens.
+    func openPersonasFromChooser() {
+        choosingPersonas = false
+        personaSceneID = nil
+        if let onOpenPersonas { onOpenPersonas() } else { showPersonas() }
+    }
     func saveMyDevice() {
         guard let scene = selected else { return }
         do {
             let profile = try (scene.viewport ?? .legacy).validated()
             try JSONEncoder().encode(profile).write(to: root.appendingPathComponent("my-device.json"), options: .atomic)
-            myDevice = profile; notice = "My device saved. Use it in any scene."
+            myDevice = profile; confirm("My device saved. Use it in any scene.")
         } catch { notice = error.localizedDescription }
     }
     func setStartsFullScreen(_ value: Bool) {
@@ -642,7 +654,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
             try persist(latest)
             imageCache.removeObject(forKey: filename as NSString)
             draft.cancel()
-            notice = "Backdrop saved. It will be used next time you present, export or apply this scene."
+            confirm("Backdrop saved. It will be used next time you present, export or apply this scene.")
         } catch {
             if let copied { try? FileManager.default.removeItem(at: copied) }
             throw error
@@ -674,7 +686,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         try image.data.write(to: destination, options: .withoutOverwriting)
         var scene = DemoScene(name: String(name.prefix(160)), background: filename)
         scene.viewport = myDevice ?? .phone
-        do { try persist(scenes + [scene]); query = ""; selectedID = scene.id; notice = "Scene saved. Choose Present when you are ready." }
+        do { try persist(scenes + [scene]); query = ""; selectedID = scene.id; confirm("Scene saved. Choose Present when you are ready.") }
         catch { try? FileManager.default.removeItem(at: destination); throw error }
     }
     private func copyImage(_ url: URL) throws -> String {
@@ -766,7 +778,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
                 }
                 try adapter.save(scene, card: authored, replacingCard: true)
             }
-            notice = "Persona saved as an independent scene copy."
+            confirm("Persona saved as an independent scene copy.")
         } catch {
             if let created { try? FileManager.default.removeItem(at: created) }
             notice = error.localizedDescription
@@ -969,7 +981,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
             do {
                 guard let self else { return }
                 try self.renderPNG(scene, image: image, size: size).write(to: url, options: .atomic)
-                self.notice = "Saved \(url.lastPathComponent)."
+                self.confirm("Saved \(url.lastPathComponent).")
             } catch { self?.notice = error.localizedDescription }
         }
     }

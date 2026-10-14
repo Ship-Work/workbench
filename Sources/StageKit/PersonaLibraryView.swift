@@ -43,7 +43,6 @@ struct PersonaLibraryLaunchState {
 
 struct PersonaLibraryView: View {
     @ObservedObject var library: PersonaLibrary
-    var onChoose: ((SavedPersona) -> Void)? = nil
     var mode: PersonaLibraryMode = .sheet
     var editProfile: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
@@ -103,10 +102,10 @@ struct PersonaLibraryView: View {
                 // the library of personas. Its summary sits 4 points under it in body text, as the page
                 // kit's header has it.
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(preparingPresentation ? "Arrange overlays" : onChoose != nil ? "Choose persona" : mode == .workspace ? "Persona" : "Personas")
+                    Text(preparingPresentation ? "Arrange overlays" : mode == .workspace ? "Persona" : "Personas")
                         .font(mode == .workspace && !preparingPresentation ? .title.weight(.semibold) : .title2.bold()).accessibilityAddTraits(.isHeader)
                     if !preparingPresentation {
-                        Text(onChoose == nil ? "Show My Profile, saved artwork or Live Camera over your apps." : "Choose a persona card to place in this scene.")
+                        Text("Show My Profile, saved artwork or Live Camera over your apps.")
                             .font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -129,24 +128,21 @@ struct PersonaLibraryView: View {
                         .menuStyle(.borderlessButton).fixedSize().disabled(library.isReadOnly)
                 }
                 if mode == .sheet || preparingPresentation {
-                    // Done means one thing on every sheet: Return, and Escape below. Choosing a persona
-                    // for a scene gives Return to Use in scene instead, so it never closes empty-handed.
-                    // Arranging overlays has label fields and its own Save layout, so there Return stays
-                    // in the field and only Escape is Done.
+                    // Done means one thing on every sheet: Return, and Escape below. Arranging overlays
+                    // has label fields and its own Save layout, so there Return stays in the field and
+                    // only Escape is Done.
                     Button("Done") { leavePreparation(dismissLibrary: mode == .sheet) }
-                        .keyboardShortcut(onChoose == nil && !preparingPresentation ? .defaultAction : nil)
+                        .keyboardShortcut(!preparingPresentation ? .defaultAction : nil)
                 }
             }
             if !preparingPresentation {
-                if onChoose == nil {
-                    overlayActions
-                    // One live slot, two sources. Choosing a source shows its own
-                    // preparation; only Show selected or Start camera starts anything.
-                    if library.sessionState.phase == .idle {
-                        liveSourceControl
-                        if source == .camera { PersonaCameraPanel(library: library, camera: library.camera) } else { shownPanel }
-                    } else { PersonaLiveSettings(library: library, generation: library.liveControlsGeneration) }
-                }
+                overlayActions
+                // One live slot, two sources. Choosing a source shows its own
+                // preparation; only Show selected or Start camera starts anything.
+                if library.sessionState.phase == .idle {
+                    liveSourceControl
+                    if source == .camera { PersonaCameraPanel(library: library, camera: library.camera) } else { shownPanel }
+                } else { PersonaLiveSettings(library: library, generation: library.liveControlsGeneration) }
                 // Groups and layouts wait until there is something to group (mac-foundation §1:
                 // not exposed to single-card first use), and a first visit has one empty state.
                 if !library.items.isEmpty {
@@ -217,13 +213,6 @@ struct PersonaLibraryView: View {
                                     }.disabled(library.isReadOnly)
                                         .help("Remove this library entry and its group memberships; retain artwork used by saved scenes")
                                 }
-                                HStack {
-                                    if let onChoose {
-                                        Button("Use in scene") { onChoose(selected); dismiss() }
-                                            .keyboardShortcut(.defaultAction)
-                                            .disabled(library.renderedImage(for: selected) == nil)
-                                    }
-                                }
                                 if let group = library.activeGroup, let index = group.personaIDs.firstIndex(of: selected.id) {
                                     HStack {
                                         Text("Group order \(index + 1) of \(group.personaIDs.count)").font(.caption).foregroundStyle(.secondary)
@@ -242,13 +231,13 @@ struct PersonaLibraryView: View {
                                 Text("Use the same saved image over your browser or inside a Present scene.")
                                     .font(.callout).foregroundStyle(.secondary)
                             }
-                            if onChoose == nil && (library.artworkVisible || library.sessionState.phase != .idle) {
+                            if library.artworkVisible || library.sessionState.phase != .idle {
                                 Button("Focus floating controls for keyboard") { library.focusOverlayControls() }
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                if onChoose == nil && !library.items.isEmpty {
+                if !library.items.isEmpty {
                     HStack {
                         Text("Need several overlays at once?").font(.callout).foregroundStyle(.secondary)
                         Spacer()
@@ -337,8 +326,7 @@ struct PersonaLibraryView: View {
                 .frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text("No saved personas yet").font(.callout.weight(.semibold))
-                Text(onChoose == nil ? "A persona is a picture of you to show over your apps or place in a Present scene. Start from a portrait, or import a card you already made."
-                     : "Saved personas appear here to place in this scene. Start from a portrait, or import a card you already made.")
+                Text("A persona is a picture of you to show over your apps or place in a Present scene. Start from a portrait, or import a card you already made.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Button("Add starter portrait…") { choosingStarter = true }.buttonStyle(.borderedProminent)
@@ -553,7 +541,18 @@ struct PersonaLibraryView: View {
         } else if dismissLibrary { dismiss() } else { preparingPresentation = false }
     }
 
-    @ViewBuilder private func thumbnail(_ persona: SavedPersona, width: CGFloat, height: CGFloat) -> some View {
+    private func thumbnail(_ persona: SavedPersona, width: CGFloat, height: CGFloat) -> some View {
+        PersonaThumbnail(library: library, persona: persona, width: width, height: height)
+    }
+}
+
+/// A saved card drawn in the look it is shown and placed with.
+private struct PersonaThumbnail: View {
+    @ObservedObject var library: PersonaLibrary
+    let persona: SavedPersona
+    let width: CGFloat
+    let height: CGFloat
+    var body: some View {
         if let image = library.renderedImage(for: persona) {
             Image(nsImage: image).resizable().scaledToFit().frame(width: width, height: height)
                 .accessibilityLabel(persona.name)
@@ -564,6 +563,76 @@ struct PersonaLibraryView: View {
             }.foregroundStyle(.secondary).frame(width: width, height: height)
                 .accessibilityLabel("Missing image: " + persona.name)
         }
+    }
+}
+
+/// Present's Add persona… (#276; mac-foundation §1): choose a saved card for this scene and
+/// nothing else. It lists every saved card, whatever group Persona has prepared, and keeps its
+/// selection to itself, so browsing here never changes Persona's selection, prepared group or
+/// cards. Making, editing and grouping cards stay on Persona, one link away.
+struct PersonaSceneChooser: View {
+    @ObservedObject var model: DemoScenes
+    @ObservedObject var library: PersonaLibrary
+    /// The scene the chosen card is placed in, captured when the chooser opened.
+    let sceneID: UUID
+    @State private var selectedID: UUID?
+
+    init(model: DemoScenes, sceneID: UUID) {
+        self.model = model
+        library = model.personas
+        self.sceneID = sceneID
+        // A read-only copy of Persona's selection to start from; nothing here writes it back.
+        let items = model.personas.items
+        _selectedID = State(initialValue: items.contains { $0.id == model.personas.selectedID } ? model.personas.selectedID : items.first?.id)
+    }
+
+    /// Every saved card, in the library's order, whatever group Persona has prepared.
+    var candidates: [SavedPersona] { library.items }
+    private var chosen: SavedPersona? { candidates.first { $0.id == selectedID } }
+
+    /// Use in scene: the card's frozen copy goes into the scene, and the chooser closes.
+    func use(_ persona: SavedPersona) {
+        model.usePersona(persona, in: sceneID)
+        model.choosingPersonas = false
+    }
+    func cancel() { model.choosingPersonas = false }
+    func openPersona() { model.openPersonasFromChooser() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Choose persona").font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                Text("The scene keeps its own copy of the card you choose.")
+                    .font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            if candidates.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No saved personas yet").font(.callout.weight(.semibold))
+                    Text("Make or import a persona on Persona, then place it in this scene.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }.padding(16).frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+                    .background(Workbench.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Workbench.border))
+            } else {
+                List(selection: $selectedID) {
+                    ForEach(candidates) { persona in
+                        HStack(spacing: 10) {
+                            PersonaThumbnail(library: library, persona: persona, width: 52, height: 54)
+                            Text(library.rowName(for: persona.id, name: persona.name)).lineLimit(2)
+                        }.padding(.vertical, 4).tag(persona.id)
+                    }
+                }.frame(height: 300)
+            }
+            HStack {
+                Button("Open Persona…") { openPersona() }.buttonStyle(.workbenchLink)
+                    .help("Make, edit or group personas on Persona")
+                Spacer()
+                Button("Cancel") { cancel() }.keyboardShortcut(.cancelAction)
+                Button("Use in scene") { if let chosen { use(chosen) } }.keyboardShortcut(.defaultAction)
+                    .disabled(chosen.flatMap { library.renderedImage(for: $0) } == nil || model.storageBlocked)
+            }
+        }.padding(24).frame(width: 480).background(Workbench.background).workbenchTheme()
+            .onExitCommand { cancel() }
     }
 }
 

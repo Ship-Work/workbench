@@ -303,7 +303,11 @@ final class PersonaLibrary: NSObject, ObservableObject {
         }
     }
     @Published var selectedID: UUID? { didSet { if !applyingArchive { select(previous: oldValue) } } }
-    @Published var notice: String?
+    /// Every assignment is a problem; `confirm` reports something that worked.
+    @Published var notice: String? { didSet { if noticeIsDone { noticeIsDone = false } } }
+    /// Whether `notice` confirms something that worked, which stays on its own page (#134).
+    @Published private(set) var noticeIsDone = false
+    func confirm(_ text: String) { notice = text; noticeIsDone = true }
     /// Live persona keys for help text, set by the shortcut owner.
     @Published var shortcutHint: String?
     /// Saved artwork on screen: the one floating card, or a prepared set's
@@ -704,7 +708,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
             try commit(next)
             // Scenes may still reference this file. Removing a library entry is
             // never permission to delete its image from the shared scene folder.
-            notice = "Removed from saved personas. Scenes using the image are unchanged."
+            confirm("Removed from saved personas. Scenes using the image are unchanged.")
         } catch { notice = error.localizedDescription }
     }
 
@@ -749,7 +753,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
         var next = archive; next.groups.removeAll { $0.id == id }
         next.preparedGroupIDs.removeAll { $0 == id }
         if activeGroupID == id { next.activeGroupID = nil; next.selectedID = nil }
-        do { try commit(next); notice = "Group removed. Its personas, images and scenes are kept." }
+        do { try commit(next); confirm("Group removed. Its personas, images and scenes are kept.") }
         catch { notice = error.localizedDescription }
     }
     func prepareGroup(_ id: UUID?) {
@@ -1334,7 +1338,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
         camera.end(handingOff: handingOff && camera.isLive)
         liveSource = .artwork
         publishLiveState()
-        if wasLive { notice = "Live Camera ended. Showing your saved artwork." }
+        if wasLive { confirm("Live Camera ended. Showing your saved artwork.") }
     }
     /// The camera's state changed: the one live slot follows it, the artwork it
     /// replaced is kept for Show again, and every door reads the new source.
