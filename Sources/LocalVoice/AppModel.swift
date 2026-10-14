@@ -381,7 +381,7 @@ final class AppModel: NSObject, ObservableObject {
                 if liveCapture === capture { liveCapture = nil }
                 let deliveryProblem = cancelLiveDictation()
                 if deliveryProblem == nil { _ = discardRecordingRecovery() }
-                else { canRetry = true; status = deliveryProblem! }
+                else { canRetry = true; reportLiveTextKept(deliveryProblem!) }
                 if phase == .cancelling { phase = .idle; onPhaseChange?() }
                 return
             }
@@ -409,7 +409,7 @@ final class AppModel: NSObject, ObservableObject {
             liveCapture = nil
             if recordingAttempt != attempt {
                 let deliveryProblem = cancelLiveDictation()
-                if deliveryProblem == nil { _ = discardRecordingRecovery() } else { canRetry = true }
+                if deliveryProblem == nil { _ = discardRecordingRecovery() } else { canRetry = true; reportLiveTextKept(deliveryProblem!) }
                 phase = .idle; voiceSession = LiveVoiceSnapshot(); status = deliveryProblem ?? "Recording cancelled."; onPhaseChange?(); return
             }
             voiceSession.phase = .recoverableFailure
@@ -439,7 +439,7 @@ final class AppModel: NSObject, ObservableObject {
                 if let checkpoint { self.voiceSession.segments = LiveVoiceTurns.group(checkpoint.orderedSegments) }
                 if Task.isCancelled || self.phase == .cancelling {
                     let deliveryProblem = self.cancelLiveDictation()
-                    if deliveryProblem == nil { _ = self.discardRecordingRecovery() } else { self.canRetry = true }
+                    if deliveryProblem == nil { _ = self.discardRecordingRecovery() } else { self.canRetry = true; self.reportLiveTextKept(deliveryProblem!) }
                     self.phase = .idle
                     self.voiceSession.phase = .idle; self.status = deliveryProblem ?? "Recording cancelled."; self.onPhaseChange?(); return
                 }
@@ -518,6 +518,7 @@ final class AppModel: NSObject, ObservableObject {
                 liveCapture?.requestStop(); status = "Cancelling…"; onPhaseChange?(); return
             }
             let deliveryProblem = cancelLiveDictation()
+            if let deliveryProblem { reportLiveTextKept(deliveryProblem) }
             shortcutRequest.cancel(); recordingAttempt = nil; phase = .idle; status = deliveryProblem ?? "Capture cancelled. Use the shortcut again when microphone permission is ready."; onPhaseChange?(); return
         }
         guard phase == .recording else { return }
@@ -531,7 +532,7 @@ final class AppModel: NSObject, ObservableObject {
                 self.liveCapture = nil
                 let deliveryProblem = self.cancelLiveDictation()
                 let discarded = deliveryProblem == nil && self.discardRecordingRecovery()
-                if deliveryProblem != nil { self.canRetry = true }
+                if let deliveryProblem { self.canRetry = true; self.reportLiveTextKept(deliveryProblem) }
                 self.phase = .idle; self.level = 0; self.voiceSession = LiveVoiceSnapshot()
                 self.status = deliveryProblem ?? (discarded ? "Recording discarded." : "Recording stopped. Recovery files are kept for review.")
                 self.onPhaseChange?()
@@ -543,7 +544,7 @@ final class AppModel: NSObject, ObservableObject {
         meter?.invalidate(); meter = nil
         let deliveryProblem = cancelLiveDictation()
         let discarded = deliveryProblem == nil && discardRecordingRecovery()
-        if deliveryProblem != nil { canRetry = true }
+        if let deliveryProblem { canRetry = true; reportLiveTextKept(deliveryProblem) }
         phase = .idle; level = 0
         status = deliveryProblem ?? (discarded ? "Recording discarded." : "Recording stopped. Recovery files could not be discarded; open Workbench to review them.")
         onPhaseChange?()
@@ -563,6 +564,13 @@ final class AppModel: NSObject, ObservableObject {
     private func cancelLiveDictation() -> String? {
         let owned = liveDictation; liveDictation = nil
         return owned?.cancel()
+    }
+    /// Cancel could not take back live words: the result says so where the person
+    /// acted, with Retry and Dismiss, not only in the status. Not fail(): each
+    /// caller still ends its own phase, after this so the toolbar shows the result.
+    private func reportLiveTextKept(_ problem: String) {
+        captureFailure = problem; status = problem
+        report(problem, on: .dictate, code: "dictate.cancel_live_text_kept")
     }
 
     func importAudio() {
@@ -708,7 +716,7 @@ final class AppModel: NSObject, ObservableObject {
                     if let shortcutID { shortcutRequest.finish(id: shortcutID, result: .failure(error)) }
                     let deliveryProblem = cancelLiveDictation()
                     let discarded = deliveryProblem == nil && (!temporary || discardRecordingRecovery())
-                    if deliveryProblem != nil { canRetry = temporary }
+                    if let deliveryProblem { canRetry = temporary; reportLiveTextKept(deliveryProblem) }
                     phase = .idle
                     status = deliveryProblem ?? (discarded ? "Transcription cancelled. No text was added." : "Transcription cancelled. Recovery files are still kept; open Workbench to review them.")
                     onPhaseChange?(); return

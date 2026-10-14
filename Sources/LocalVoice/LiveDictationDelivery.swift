@@ -133,7 +133,7 @@ final class LiveDictationDelivery {
         defer { end() }
         guard attempted else { return nil }
         guard replace(originalText, restoring: original.selection), system.read() == original else {
-            return "Recording cancelled. The field in \(name) was left as it is because its original state could not be restored safely. Recording audio is kept for review."
+            return "Cancelled. Words already written in \(name) were left there. The recording is kept."
         }
         return nil
     }
