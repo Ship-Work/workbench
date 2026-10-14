@@ -40,6 +40,8 @@ enum CleanupChecks {
         try check(!DictationCleanup.isFaithful("I want pears.", to: "I don't want pears."), "removed negation rejected")
         try check(!DictationCleanup.isFaithful("Call Jane at 7pm and Sam at 6pm.", to: "Call Jane at 6pm and Sam at 7pm."), "swapped facts rejected")
         try check(DictationCleanup.isFaithful("Hello, Sam. Bring apples!", to: "Hello Sam, bring apples."), "punctuation edits accepted")
+        try check(!DictationCleanup.isFaithful("The campus and staff met.", to: DictationCleanup.light("The UM campus and UH staff met.")), "Natural may not drop an acronym Light kept")
+        try check(DictationCleanup.light("Rename hmm_model and user_um now.") == "Rename hmm_model and user_um now.", "fillers inside snake_case names are kept")
         try check(DictationCleanup.chunks(clean) == [clean], "list line breaks retained during natural editing")
         let oldState = Data(#"{"draft":"old draft","speechText":"old reading","history":[],"replacements":[],"voice":"Karen","rate":180}"#.utf8)
         let decoded = try JSONDecoder().decode(SavedState.self, from: oldState)

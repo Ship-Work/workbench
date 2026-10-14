@@ -49,7 +49,7 @@ enum DictationCleanup {
         text = resolveAdjacentTimeCorrections(text)
         text = resolveExplicitCorrections(text)
         // Fillers match only their spoken forms, so acronyms (ERM, HMM) and hyphenated words (Uh-huh) survive.
-        text = replacing(text, #"(?-i)(?<![\p{L}\p{N}-])(?:[Uu]u*m+|[Uu]u*h+|[Ee]e*rm+|[Hh]mm+)(?![\p{L}\p{N}-])[,\s]*"#, "")
+        text = replacing(text, #"(?-i)(?<![\p{L}\p{N}_-])(?:[Uu]u*m+|[Uu]u*h+|[Ee]e*rm+|[Hh]mm+)(?![\p{L}\p{N}_-])[,\s]*"#, "")
         text = replacing(text, #"^(?:okay|ok)[,\s]+(?:so[,\s]+)?(?:to\s+)?(?=hello\b|I\b|we\b|the\b)"#, "")
         text = replacing(text, #"\b(I|we|the|a|to|and)(?:,\s*|\s+)\1\b"#, "$1")
         text = replacing(text, #"\brock\s+melon\b"#, "rockmelon")
@@ -164,7 +164,9 @@ enum DictationCleanup {
         // Small models sometimes flatten a list without changing the word sequence.
         // Preserve each existing item on its own line as well as its factual tokens.
         if !originalItems.isEmpty && bulletItems(candidate) != originalItems { return false }
-        let ignored: Set<String> = ["okay", "ok", "um", "uh", "erm", "hmm"]
+        // Light has already removed spoken fillers from the source, so an um, uh, erm or hmm left
+        // there is a word someone meant (UM, ERM, HMM): Natural may not drop it.
+        let ignored: Set<String> = ["okay", "ok"]
         // Keep factual tokens in order. A bag-of-words check would accept swapped
         // names or times even though their meaning changed. Prefer light fallback.
         return before.filter { !ignored.contains($0) } == after.filter { !ignored.contains($0) }
