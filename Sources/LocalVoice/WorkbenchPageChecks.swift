@@ -26,6 +26,9 @@ enum WorkbenchPageChecks {
             try check(Set(sections.map(\.title)).count == sections.count, "\(page)'s sections have one name each")
         }
         for section in WorkbenchHome.sections {
+            // A section without a summary moves the switcher when it is chosen (docs/desktop.md § Section summaries).
+            let summary = WorkbenchHome.sectionSummaries[section.id] ?? ""
+            try check(!summary.isEmpty && !summary.contains("\n"), "\(section.id) has a one-line summary above the switcher")
             let landing = WorkbenchHome.destination(section.id)
             try check(landing.page == section.page && landing.section == section.id, "\(section.id) opens \(section.page) on \(section.title)")
         }

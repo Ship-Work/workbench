@@ -440,7 +440,8 @@ struct WorkbenchHome: View {
     }
 
     /// A page with sections: its name from the page record, then its switcher, where every
-    /// other page has its title (#134). Each section keeps its own summary below.
+    /// other page has its title (#134). Each section's summary sits in the header above the
+    /// switcher, so the switcher stays in one place across sections.
     private func sectionedHeader(_ page: String, selection: String) -> some View {
         VStack(alignment: .leading, spacing: Workbench.sectionSpacing) {
             WorkbenchPageHeader(page, summary: Self.sectionSummaries[selection])
@@ -460,7 +461,10 @@ struct WorkbenchHome: View {
     /// A section's one-line summary, in the page header above the switcher where every other page
     /// has its own; the section's view does not repeat it.
     static let sectionSummaries: [String: String] = [
+        "settings": "How Workbench looks, starts and updates.",
         "shortcuts": "One set of shortcuts for speaking, drawing and presenting.",
+        "models": "The models that hear and tidy your words on this Mac.",
+        "connections": "Assistants that can take work you hand off from History.",
         "library": "Keep useful prompts, links and files together.",
         "packs": "Reusable skills, scenes, personas and resources."]
 
