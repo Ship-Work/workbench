@@ -58,18 +58,25 @@ final class PromptInsertion: ObservableObject {
 
     func cancel() { task?.cancel() }
 
-    func insert(_ text: String, title: String, into target: TextDelivery.Target?) {
+    func insert(_ text: String, title: String, into target: TextDelivery.Target?, receipts: ClipboardReceiptModel) {
         guard !running else { return }
         let destinationName = target?.app.localizedName ?? "Selected app"
+        // The picker has closed, so an ending other than a confirmed insertion also shows as the
+        // toolbar's delivery cue; the picker's line keeps the full reason.
+        func finish(_ result: String, paste: TextDelivery.Outcome? = nil) {
+            let attempt = PromptAttempt(prompt: title, destination: destinationName, result: result)
+            lastAttempt = attempt
+            if let cue = Self.cue(for: attempt, paste: paste) {
+                receipts.record(outcome: cue, wordCount: TextRules.wordCount(text), source: .prompt)
+            }
+        }
         guard !text.isEmpty, text.count <= 50_000 else {
-            lastAttempt = PromptAttempt(prompt: title, destination: destinationName,
-                                        result: "Use a saved prompt between 1 and 50,000 characters. Nothing was inserted.")
+            finish("Use a saved prompt between 1 and 50,000 characters. Nothing was inserted.")
             return
         }
         guard let target, let element = target.element, let value = target.value, let selection = target.selection,
               PromptInsertionPlan(value: value, selection: selection, text: text) != nil else {
-            lastAttempt = PromptAttempt(prompt: title, destination: destinationName,
-                                        result: "Choose a readable destination text field, then open Prompts again. Nothing was inserted.")
+            finish("Choose a readable destination text field, then open Prompts again. Nothing was inserted.")
             return
         }
         operationIdentity = UUID()
@@ -93,6 +100,7 @@ final class PromptInsertion: ObservableObject {
             // Escape, Stop and shortcut editing end the wait as they end insertion.
             _ = await PromptFieldReturn.wait(until: { !self.mayInsert() || TextDelivery.eligible(target) })
             let destination = PromptInsertionRunner.Snapshot(value: value, selection: selection)
+            var pasted: TextDelivery.Outcome?
             @MainActor func unchanged() -> Bool {
                 !Task.isCancelled && mayInsert() && TextDelivery.eligible(target)
                     && TextDelivery.string(element, kAXValueAttribute) == value
@@ -113,13 +121,28 @@ final class PromptInsertion: ObservableObject {
                 },
                 waitForConfirmation: { try await Task.sleep(nanoseconds: 45_000_000) },
                 paste: { text, expected in
-                    Self.describe(await TextDelivery.deliver(text, target: target, mode: .paste, restoreClipboard: true,
+                    let outcome = await TextDelivery.deliver(text, target: target, mode: .paste, restoreClipboard: true,
                                                              validateTarget: unchanged, expectedValue: expected.value,
-                                                             expectedSelection: expected.selection))
+                                                             expectedSelection: expected.selection)
+                    pasted = outcome
+                    return Self.describe(outcome)
                 })
             let result = await PromptInsertionRunner.run(text: text, destination: destination, driver: driver)
-            lastAttempt = PromptAttempt(prompt: title, destination: destinationName, result: result)
+            finish(result, paste: pasted)
         }
+    }
+
+    static let inserted = "Prompt inserted. Nothing was submitted."
+
+    /// What the toolbar's delivery cue records when a prompt delivery ends, or nil to stay quiet.
+    /// The paste fallback keeps its own outcome in the prompt's words, so a prompt it left on the
+    /// clipboard is accounted for and a confirmed paste stays quiet. Any other ending but a
+    /// confirmed insertion is Delivery stopped with the short reason, and claims no clipboard.
+    static func cue(for attempt: PromptAttempt, paste: TextDelivery.Outcome?) -> TextDelivery.Outcome? {
+        if var paste { paste.message = describe(paste); return paste }
+        guard attempt.result != inserted else { return nil }
+        return TextDelivery.Outcome(message: attempt.summary, clipboardChangeCount: nil, wasPasted: false,
+                                    destinationName: nil, failure: .cancelled)
     }
 
     /// Copy prompt: the action when a prompt cannot be typed into a field.

@@ -99,7 +99,11 @@ final class ClipboardReceiptModel: ObservableObject {
             symbol = "arrow.up.right"
         } else if outcome.failure == .pasteUnconfirmed {
             title = "Paste unconfirmed"
-            detail = ownsClipboard ? "Check the destination before pasting again. The transcript is still copied." : "Check the destination. The transcript is available in Workbench."
+            switch source {
+            case .prompt: detail = ownsClipboard ? "Check the destination before pasting again. The prompt is still copied." : "Check the destination. Copy the prompt again from Library."
+            case .result: detail = ownsClipboard ? "Check the destination before pasting again. The result is still copied." : "Check the destination. Copy the saved result again from History."
+            case .transcript: detail = ownsClipboard ? "Check the destination before pasting again. The transcript is still copied." : "Check the destination. The transcript is available in Workbench."
+            }
             symbol = "questionmark.circle"
         } else if outcome.failure == .cancelled {
             title = "Delivery stopped"; detail = outcome.message; symbol = "pause.circle"

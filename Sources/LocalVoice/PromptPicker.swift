@@ -536,7 +536,7 @@ final class PromptPickerController: NSObject, NSWindowDelegate {
         }
         var action: PromptPickerAction {
             PromptPickerAction(mode: PromptPickerMode.resolve(trusted: trusted, destination: destination),
-                insert: { text, title in delivery.insert(text, title: title, into: destination) },
+                insert: { text, title in delivery.insert(text, title: title, into: destination, receipts: receipts) },
                 copy: { prompt in
                     if let copyPrompt { copyPrompt(prompt) }
                     else { delivery.copy(prompt.content, title: prompt.pickerTitle, receipts: receipts) }

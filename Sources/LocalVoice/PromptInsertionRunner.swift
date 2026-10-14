@@ -50,6 +50,6 @@ enum PromptInsertionRunner {
             }
             plan = expected
         }
-        return "Prompt inserted. Nothing was submitted."
+        return PromptInsertion.inserted
     }
 }
