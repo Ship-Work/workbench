@@ -127,7 +127,7 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
         }
         #endif
     }
-    /// Copy build details' four-second “Copied”, beside the Settings button; from the app menu,
+    /// Copy build details' four-second “Copied”, under the Settings button's row; from the app menu,
     /// VoiceOver hears it, or why the copy failed. Checks give it their own clock.
     var copyFeedback = TranscriptReviewFeedback()
     /// Where the details go. Checks write to a private pasteboard, or refuse.
@@ -317,7 +317,6 @@ struct WorkbenchUpdateSettings: View {
             HStack {
                 Button(updates.buttonTitle) { updates.checkForUpdates() }.disabled(!updates.canCheck)
                 Button("Copy build details") { updates.copyDetails() }
-                ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"])
                 Button("Release notes and downloads") { NSWorkspace.shared.open(URL(string: "https://github.com/Ship-Work/workbench/releases")!) }
                     .buttonStyle(.workbenchLink)
             }
@@ -325,7 +324,12 @@ struct WorkbenchUpdateSettings: View {
                 // A refusal from the app menu while Settings was closed was heard then; a visit starts clear.
                 if copyFeedback.problem != nil { copyFeedback.finish(nil) }
             }
-            if let problem = copyFeedback.problem { WorkbenchNote(problem, font: .caption) }
+            // Confirmed under its control, in space kept for it, so the row never shifts (Fit rule 7).
+            if let problem = copyFeedback.problem {
+                WorkbenchNote(problem, font: .caption)
+            } else {
+                ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"])
+            }
         }
     }
 }

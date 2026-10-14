@@ -25,7 +25,8 @@ enum FeedbackChecks {
         try checkUnresolvedDelivery(check)
         try checkShortcutConfirmation(check)
         try checkCopyConfirmation(check)
-        print("FEEDBACK_CHECKS_OK: \(count) checks; one lifetime, the coach's host seam, a resting pointer, the hold lesson, undelivered results that survive quit, and Saved and Copied confirmations VoiceOver hears")
+        try checkHistoryCopy(check)
+        print("FEEDBACK_CHECKS_OK: \(count) checks; one lifetime, the coach's host seam, a resting pointer, the hold lesson, undelivered results that survive quit, and Saved and Copied confirmations VoiceOver hears, in History too")
     }
 
     typealias Check = (@autoclosure () throws -> Bool, String) throws -> Void
@@ -539,5 +540,73 @@ enum FeedbackChecks {
         refuse = false; updates.copyDetails()
         try check(feedback.confirmation?.kind == "Copied" && feedback.problem == nil && heard.count == 5 && heard.last == "Copied",
                   "the next real copy confirms and clears the reason")
+    }
+
+    /// History's Copy and Copy result (#338), through the glue its rows call: one page-owned
+    /// confirmation, keyed to the transcript or task copied, judged by what the copy wrote.
+    /// Copy result runs HistoryResultReuse.copy itself. A transcript's write keeps
+    /// AppModel.copyCapture's contract, which test-capture-persistence.py checks on that exact
+    /// method: no outcome for empty words, while its status still says the last copy's words.
+    private static func checkHistoryCopy(_ check: Check) throws {
+        var clock: TimeInterval = 9_000
+        var heard: [String] = []
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        var refuse = false
+        let feedback = TranscriptReviewFeedback(clock: { clock }, announce: { heard.append($0) })
+        let receipts = ClipboardReceiptModel(clipboardChangeCount: { board.changeCount }, automaticallySchedules: false)
+        let transcript = UUID(), other = UUID(), empty = UUID(), job = UUID()
+        let words = "Synthetic words copied again from History."
+        func copyTranscript(_ text: String) -> TextDelivery.Outcome? {
+            guard !text.isEmpty else { return nil }
+            let count = refuse ? nil : TextDelivery.copy(text, to: board)
+            return TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage,
+                clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
+        }
+        // HistoryView's own keying: the item the glue names holds the label or the problem.
+        var copied: UUID?
+        func copy(_ id: UUID, _ write: () -> TextDelivery.Outcome?) {
+            if let id = HistoryCopy.confirm(id, in: feedback, copy: write) { copied = id }
+        }
+        func label(_ id: UUID) -> String? { HistoryCopy.shown(id, copied: copied, in: feedback).confirmation }
+        func problem(_ id: UUID) -> String? { HistoryCopy.shown(id, copied: copied, in: feedback).problem }
+
+        copy(transcript) { copyTranscript(words) }
+        try check(board.string(forType: .string) == words && label(transcript) == "Copied" && label(other) == nil && label(job) == nil
+                  && problem(transcript) == nil, "a transcript's Copy, writing as copyCapture does, puts down its exact words, then confirms Copied beside that row only")
+        try check(heard == ["Copied"], "VoiceOver hears History's Copy once")
+        let first = feedback.confirmation!.lifetime.event
+        clock += 3.9; feedback.expire(first)
+        try check(label(transcript) == "Copied", "the confirmation is still there at 3.9 seconds")
+        clock += 0.1; feedback.expire(first)
+        try check(label(transcript) == nil && board.string(forType: .string) == words, "it is gone at four seconds; the copied words stay")
+
+        copy(transcript) { copyTranscript(words) }
+        let again = feedback.confirmation!.lifetime.event
+        clock += 2
+        copy(job) { HistoryResultReuse.copy("Synthetic follow-up result.", jobID: job, receipts: receipts, pasteboard: board) }
+        try check(board.string(forType: .string) == "Synthetic follow-up result." && label(job) == "Copied" && label(transcript) == nil
+                  && heard == ["Copied", "Copied", "Copied"], "Copy result two seconds later moves the label to its task, and is heard")
+        try check(receipts.receipt?.source == .result(job) && receipts.receipt?.title == "Copied" && receipts.receipt?.canSuggestPaste == true,
+                  "Copy result still issues the existing receipt with the exact result identity")
+        clock += 2; feedback.expire(again)
+        try check(label(job) == "Copied", "the transcript copy's four seconds cannot end the result's confirmation")
+        clock += 2; feedback.expire(feedback.confirmation!.lifetime.event)
+        try check(label(job) == nil, "the result's confirmation lasts its own four seconds")
+
+        refuse = true; copy(other) { copyTranscript(words) }; refuse = false
+        try check(label(other) == nil && problem(other) == "Could not copy the transcript." && problem(job) == nil
+                  && heard.last == "Could not copy the transcript." && heard.count == 4,
+                  "a refused write confirms nothing, keeps its reason beside that row and is heard as the reason")
+        copy(job) { HistoryResultReuse.copy("", jobID: job, receipts: receipts, pasteboard: board) }
+        try check(label(job) == nil && problem(job) == "Could not copy the saved result." && problem(other) == nil && heard.count == 5,
+                  "a refused Copy result keeps its reason beside that task, and moves it from the row")
+
+        copy(transcript) { copyTranscript(words) }
+        let shown = feedback.confirmation!.lifetime.event
+        copy(empty) { copyTranscript("") }
+        try check(label(empty) == nil && problem(empty) == nil && label(transcript) == "Copied"
+                  && feedback.confirmation?.lifetime.event == shown && heard.count == 6,
+                  "an empty transcript right after a copy attempts nothing: no confirmation, nothing heard, the earlier one undisturbed")
     }
 }

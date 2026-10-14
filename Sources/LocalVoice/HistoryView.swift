@@ -263,14 +263,30 @@ struct HistoryView: View {
     @State private var details: Transcript?
     @State private var removal: TranscriptRemoval?
     @State private var recording: Transcript?
+    /// The one confirmation of Copy and Copy result, and the transcript or task it belongs to.
+    /// Rows sit in a lazy list and can leave it, so the page holds it, not a row.
+    @StateObject private var copyFeedback: TranscriptReviewFeedback
+    @State private var copied: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil, applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
+    /// The surface gallery passes a confirmation already showing and a result already open; the
+    /// app starts with neither.
+    init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil,
+         copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil, expandedResult: UUID? = nil,
+         applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
         self.model = model; self.snap = snap
         self.library = model.historyLibrary; self.jobs = model.handoffJobs
         self.applySuggestedMetadata = applySuggestedMetadata
         self.openSnapTalkSessions = openSnapTalkSessions
         _filter = State(initialValue: model.historyDoor?.filter ?? .all)
+        _copyFeedback = StateObject(wrappedValue: copyFeedback ?? TranscriptReviewFeedback())
+        _copied = State(initialValue: copied)
+        _expandedResult = State(initialValue: expandedResult)
+    }
+
+    /// Copy and Copy result, confirmed beside the control pressed by what was written.
+    private func copy(_ id: UUID, _ write: () -> TextDelivery.Outcome?) {
+        if let id = HistoryCopy.confirm(id, in: copyFeedback, copy: write) { copied = id }
     }
 
     private struct JobStamp: Equatable { var id: UUID; var updated: Date }
@@ -430,9 +446,12 @@ struct HistoryView: View {
                     ForEach(entries) { entry in
                         switch entry {
                         case .transcript(let item):
+                            let shown = HistoryCopy.shown(item.id, copied: copied, in: copyFeedback)
                             TranscriptHistoryRow(model: model, library: library, item: item,
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
+                                copy: { copy(item.id) { model.copyCapture(item) } },
+                                copyConfirmation: shown.confirmation, copyProblem: shown.problem,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):
                             HistorySnapRow(snap: snap, library: library, item: item, images: images,
@@ -445,7 +464,8 @@ struct HistoryView: View {
                             HandoffJobCard(jobs: jobs, job: job, expanded: $expandedResult, revealed: target?.task,
                                            focus: $focusedTask, voiceOverFocus: $voiceOverTask,
                                            applySuggestedMetadata: applySuggestedMetadata, query: appliedQuery,
-                                           copyResult: { model.copySavedResult($1, jobID: $0.id) }) {
+                                           copyResult: { task, text in copy(task.id) { model.copySavedResult(text, jobID: task.id) } },
+                                           copyShown: { HistoryCopy.shown($0, copied: copied, in: copyFeedback) }) {
                                 HistoryMadeFrom(jobs: jobs, job: job) {
                                     HistoryList.availability(of: $0, transcripts: stores.transcripts, snaps: stores.snaps)
                                 }

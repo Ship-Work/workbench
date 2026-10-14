@@ -231,6 +231,8 @@ struct HandoffJobCard<MadeFrom: View>: View {
     var applySuggestedMetadata: ((HandoffJob, String) -> Void)?
     var query = ""
     var copyResult: (HandoffJob, String) -> Void = { _, _ in }
+    /// What a task's Copy result shows of History's one copy confirmation, asked by task id.
+    var copyShown: (UUID) -> (confirmation: String?, problem: String?) = { _ in (nil, nil) }
     @ViewBuilder var madeFrom: MadeFrom
     @State private var showingOthers = false
 
@@ -361,7 +363,9 @@ struct HandoffJobCard<MadeFrom: View>: View {
         // value. No file read can replace the words between review and reuse.
         if let files = jobs.files(task) {
             if let result = files.resultText {
+                let shown = copyShown(task.id)
                 HandoffResultPreview(text: result, context: Self.context(task),
+                    confirmation: shown.confirmation, problem: shown.problem,
                     copyText: { copyResult(task, result) })
                 if let applySuggestedMetadata, jobs.isMetadataSuggestion(task) {
                     Button("Review suggested details…") { applySuggestedMetadata(task, result) }
@@ -395,6 +399,9 @@ struct HandoffJobCard<MadeFrom: View>: View {
 struct HandoffResultPreview: View {
     let text: String
     let context: String
+    /// Copy result's confirmation, or why it could not copy.
+    var confirmation: String? = nil
+    var problem: String? = nil
     var copyText: () -> Void
 
     var body: some View {
@@ -405,8 +412,12 @@ struct HandoffResultPreview: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 .background(Workbench.background, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Workbench.border))
-            Button("Copy result", action: copyText).accessibilityLabel("Copy result, " + context)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            HStack(spacing: 12) {
+                Button("Copy result", action: copyText).accessibilityLabel("Copy result, " + context)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                ConfirmationLabel(text: confirmation, reserving: ["Copied"])
+            }
+            if let problem { WorkbenchNote(problem, font: .caption) }
         }
     }
 }

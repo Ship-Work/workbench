@@ -868,15 +868,20 @@ final class AppModel: NSObject, ObservableObject {
     }
     /// What the shelf shows of the undelivered result, judged against those records now.
     var unresolvedDelivery: UnresolvedDelivery? { undelivered.shown(in: deliveryRecords) }
-    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference) {
-        guard !text.isEmpty else { return }
+    /// What the copy wrote, so a page can confirm it in place; nil when there were no words to
+    /// copy and nothing was attempted, which leaves `status` saying whatever it said before.
+    @discardableResult
+    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference,
+                                     pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        guard !text.isEmpty else { return nil }
         captureFailure = nil; dismissCaptureCue()
-        let count = TextDelivery.copy(text)
+        let count = TextDelivery.copy(text, to: pasteboard)
         let outcome = TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage, clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
         status = outcome.message
         clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(text))
         // Copying the same words from anywhere resolves an undelivered result.
         undelivered.note(outcome, text: text, from: reference, in: deliveryRecords)
+        return outcome
     }
     /// Copy again, for a result whose copy failed or was never pasted: the
     /// words its record holds now, never whatever the draft became.
@@ -906,7 +911,10 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
     func savePrompt(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; showLibrary(); library.newPrompt(text) }
-    func copyCapture(_ item: Transcript) { copyTextWithReceipt(item.text, of: .transcript(item.id)) }
+    @discardableResult
+    func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        copyTextWithReceipt(item.text, of: .transcript(item.id), pasteboard: pasteboard)
+    }
     func showPanelPreview() {
         guard phase == .idle else { return }
         captureUsesHoldShortcut = false

@@ -73,6 +73,11 @@ struct TranscriptHistoryRow: View {
     @Binding var details: Transcript?
     @Binding var removal: TranscriptRemoval?
     @Binding var recording: Transcript?
+    /// Copy and the context menu's Copy, which History confirms; the confirmation and any
+    /// problem show here only while they belong to this transcript.
+    let copy: () -> Void
+    var copyConfirmation: String?
+    var copyProblem: String?
     /// A door asked History to show this transcript (#134): its heading line is then a focus stop
     /// that takes keyboard and VoiceOver focus, as a revealed task's heading does. Focus is not
     /// selection; the checkbox and the shared selection are untouched.
@@ -125,7 +130,7 @@ struct TranscriptHistoryRow: View {
                 // than the links beside it. Review transcript's Wording switch shows the original
                 // words, so the row needs no separate Original link.
                 HStack(spacing: 12) {
-                    Button("Copy") { model.copyCapture(item) }.accessibilityLabel(CaptureHistoryAccessibility.label("Copy", context: context))
+                    Button("Copy", action: copy).accessibilityLabel(CaptureHistoryAccessibility.label("Copy", context: context))
                     Button("Review transcript") { review = TranscriptReview(transcript: item) }
                         .accessibilityLabel(CaptureHistoryAccessibility.label("Review transcript", context: context))
                     Button("Details…") { details = item }.accessibilityLabel(CaptureHistoryAccessibility.label("Details", context: context))
@@ -133,6 +138,8 @@ struct TranscriptHistoryRow: View {
                         moreActions
                     } label: { Text("More").font(.callout) }
                         .menuStyle(.borderlessButton).fixedSize().accessibilityLabel(CaptureHistoryAccessibility.label("More transcript actions", context: context))
+                    // Kept after More, where the Spacer absorbs its width while nothing shows (Fit rule 7).
+                    ConfirmationLabel(text: copyConfirmation, reserving: ["Copied"])
                     Spacer()
                     Button {
                         removal = TranscriptRemoval(transcript: item, includesRecording: model.meetings.hasRecording(for: item.id))
@@ -140,11 +147,12 @@ struct TranscriptHistoryRow: View {
                         .accessibilityLabel(CaptureHistoryAccessibility.label("Remove transcript", context: context))
                         .help("Remove transcript…")
                 }.buttonStyle(.borderless).font(.callout)
+                if let copyProblem { WorkbenchNote(copyProblem, font: .caption) }
             }
         }.workbenchCard(outlined: shown)
             // The row's whole action set, where a Mac person looks for it first.
             .contextMenu {
-                Button("Copy") { model.copyCapture(item) }
+                Button("Copy", action: copy)
                 Button("Review transcript") { review = TranscriptReview(transcript: item) }
                 Button("Details…") { details = item }
                 if hasRecording { Button("Review recording") { recording = item } }
