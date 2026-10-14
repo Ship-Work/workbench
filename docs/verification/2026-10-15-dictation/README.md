@@ -1,6 +1,6 @@
 # Dictation: every outcome copies or explains
 
-Branch `claude/dictation-outcomes` from `main` at `edc15df`; the checks below ran on the source at `d246071`. Synthetic data only: fixture fields and owners, temporary recovery stores, synthetic WAV bytes and the surface gallery's isolated home. No installed app, real field, clipboard, microphone, model download or privacy setting was used.
+Branch `claude/dictation-outcomes` from `main` at `edc15df`; the checks below ran on the final source, after the review follow-ups. Synthetic data only: fixture fields and owners, temporary recovery stores, synthetic WAV bytes and the surface gallery's isolated home. No installed app, real field, clipboard, microphone, model download or privacy setting was used.
 
 ## What changed
 
@@ -33,18 +33,20 @@ Items 1 to 3 change runtime text and state with no gallery fixture.
 | `.build/debug/LocalVoice --check-providers` | `RECOGNITION_LIFECYCLE_CHECKS_OK`: 47 checks | Yes: with `main`'s `RecognitionReadiness.swift`, the stalled-download classification fails. |
 | `.build/debug/LocalVoice --check-live-dictation-delivery` | 40 checks passed | |
 | `.build/debug/LocalVoice --check-core` | Passed | |
+| `.build/debug/LocalVoice --check-bug-report docs/bug-reporting-schema.md` | `BUG_REPORT_CHECK_OK`: 7 groups | |
 | `python3 scripts/check-surfaces.py` | 682 entries OK | Yes: with `main`'s `CapturePanel.swift` against this registry, it reports the renamed door as unregistered and stale. |
 | `python3 scripts/test-check-surfaces.py` | 58 tests OK | |
 | `bash scripts/test.sh harnesses` | Passed | |
 | `.build/debug/LocalVoice --render-surfaces` | 350 renders, 163 entries, 0 flags | Yes, for items 4 and 6, in a bounded pass: with `main`'s `Views.swift` the Dictate problem render fails ("does not offer Retry transcription"); without the Dictate-only gate it fails on Your dictionary; with `main`'s `HistoryView.swift` the History error pass fails ("no × of its own"). |
 
-The gallery cannot press SwiftUI controls offscreen: the hosting view exposes no accessibility children without an assistive client, and it ignored a synthetic click on the History ×. So the Dictate check compares the banner band with Retry available and unavailable, and the History check reads the note's row for an isolated glyph-sized mark at its right. Neither presses the button; the actions are the existing `retryTranscription()` and `dismissError()`.
+The gallery cannot press SwiftUI controls offscreen: the hosting view exposes no accessibility children without an assistive client, and it ignored a synthetic click on the History ×. So the Dictate check compares the page's top band with Retry available and unavailable, between two renders without Retry that must match, so a band that changes by itself fails as that rather than as Retry present or absent. The History check reads the note's row for an isolated glyph-sized mark at its right. Neither reads a label or presses the button; the actions are the existing `retryTranscription()` and `dismissError()`.
 
 ## Not verified natively
 
 On a signed Preview, by the integration owner or Ethan:
 
-- ⌥V into TextEdit with Paste automatically, click in another app mid-dictation, then Stop: expect "Copied · The field changed, so nothing was pasted. Paste with ⌘V when ready." and the words on the clipboard.
-- Live words written into a real field, then a click in that field and Cancel: expect Dictation stopped with Retry transcription and Dismiss at the toolbar, and the same reason on Dictate and in the panel.
+- Nothing written yet: ⌥V into TextEdit with Paste automatically, click Finder before any words appear in TextEdit, speak, then ⌥V to stop. Expect "Copied · The field changed, so nothing was pasted. Paste with ⌘V when ready.", the words on the clipboard and nothing new in Saved recordings.
+- Live words written: ⌥V into TextEdit, speak until words appear in TextEdit, click Finder, then ⌥V to stop. Expect "Paste unconfirmed · Check the destination before pasting again. The transcript is still copied.", the complete transcript on the clipboard and the recording in Saved recordings.
+- Cancel after live words: ⌥V into TextEdit, speak until words appear in TextEdit, click inside the TextEdit text, then choose Cancel on the floating toolbar. Expect the words left in TextEdit, Dictation stopped with "Cancelled. Words already written in TextEdit were left there. The recording is kept.", Retry transcription and Dismiss at the toolbar, and the same reason on Dictate's banner and the panel's recovery row.
 - A real stalled or rate-limited Parakeet download (not reproducible tonight).
 - Pressing the Dictate banner's Retry transcription, the failure card's Open Dictate… and History's × with a pointer and with VoiceOver.
