@@ -38,4 +38,10 @@ enum HistoryCopy {
         if outcome.failure == nil { feedback.finish("Copied") } else { feedback.fail(heard: outcome.message) }
         return id
     }
+
+    /// What one transcript or task shows: the page's label or problem only when it holds them,
+    /// so one copy never confirms on every row.
+    static func shown(_ id: UUID, copied: UUID?, in feedback: TranscriptReviewFeedback) -> (confirmation: String?, problem: String?) {
+        copied == id ? (feedback.confirmation?.kind, feedback.problem) : (nil, nil)
+    }
 }

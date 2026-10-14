@@ -444,12 +444,12 @@ struct HistoryView: View {
                     ForEach(entries) { entry in
                         switch entry {
                         case .transcript(let item):
+                            let shown = HistoryCopy.shown(item.id, copied: copied, in: copyFeedback)
                             TranscriptHistoryRow(model: model, library: library, item: item,
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
                                 copy: { copy(item.id) { model.copyCapture(item) } },
-                                copyConfirmation: copied == item.id ? copyFeedback.confirmation?.kind : nil,
-                                copyProblem: copied == item.id ? copyFeedback.problem : nil,
+                                copyConfirmation: shown.confirmation, copyProblem: shown.problem,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):
                             HistorySnapRow(snap: snap, library: library, item: item, images: images,
@@ -463,7 +463,7 @@ struct HistoryView: View {
                                            focus: $focusedTask, voiceOverFocus: $voiceOverTask,
                                            applySuggestedMetadata: applySuggestedMetadata, query: appliedQuery,
                                            copyResult: { task, text in copy(task.id) { model.copySavedResult(text, jobID: task.id) } },
-                                           copied: copied.map { (id: $0, confirmation: copyFeedback.confirmation?.kind, problem: copyFeedback.problem) }) {
+                                           copyShown: { HistoryCopy.shown($0, copied: copied, in: copyFeedback) }) {
                                 HistoryMadeFrom(jobs: jobs, job: job) {
                                     HistoryList.availability(of: $0, transcripts: stores.transcripts, snaps: stores.snaps)
                                 }

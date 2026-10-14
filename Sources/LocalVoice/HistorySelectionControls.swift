@@ -231,8 +231,8 @@ struct HandoffJobCard<MadeFrom: View>: View {
     var applySuggestedMetadata: ((HandoffJob, String) -> Void)?
     var query = ""
     var copyResult: (HandoffJob, String) -> Void = { _, _ in }
-    /// History's one copy confirmation and the item it belongs to, shown beside that task's Copy result.
-    var copied: (id: UUID, confirmation: String?, problem: String?)? = nil
+    /// What a task's Copy result shows of History's one copy confirmation, asked by task id.
+    var copyShown: (UUID) -> (confirmation: String?, problem: String?) = { _ in (nil, nil) }
     @ViewBuilder var madeFrom: MadeFrom
     @State private var showingOthers = false
 
@@ -363,9 +363,9 @@ struct HandoffJobCard<MadeFrom: View>: View {
         // value. No file read can replace the words between review and reuse.
         if let files = jobs.files(task) {
             if let result = files.resultText {
-                let shown = copied?.id == task.id ? copied : nil
+                let shown = copyShown(task.id)
                 HandoffResultPreview(text: result, context: Self.context(task),
-                    confirmation: shown?.confirmation, problem: shown?.problem,
+                    confirmation: shown.confirmation, problem: shown.problem,
                     copyText: { copyResult(task, result) })
                 if let applySuggestedMetadata, jobs.isMetadataSuggestion(task) {
                     Button("Review suggested details…") { applySuggestedMetadata(task, result) }

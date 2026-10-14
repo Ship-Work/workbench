@@ -563,17 +563,17 @@ enum FeedbackChecks {
             return TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage,
                 clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
         }
-        // As HistoryView keys its rows: the item the glue names holds the label or the problem.
+        // HistoryView's own keying: the item the glue names holds the label or the problem.
         var copied: UUID?
         func copy(_ id: UUID, _ write: () -> TextDelivery.Outcome?) {
             if let id = HistoryCopy.confirm(id, in: feedback, copy: write) { copied = id }
         }
-        func label(_ id: UUID) -> String? { copied == id ? feedback.confirmation?.kind : nil }
-        func problem(_ id: UUID) -> String? { copied == id ? feedback.problem : nil }
+        func label(_ id: UUID) -> String? { HistoryCopy.shown(id, copied: copied, in: feedback).confirmation }
+        func problem(_ id: UUID) -> String? { HistoryCopy.shown(id, copied: copied, in: feedback).problem }
 
         copy(transcript) { copyTranscript(words) }
         try check(board.string(forType: .string) == words && label(transcript) == "Copied" && label(other) == nil && label(job) == nil
-                  && problem(transcript) == nil, "a transcript's Copy writes its exact words, then confirms Copied beside that row only")
+                  && problem(transcript) == nil, "a transcript's Copy, writing as copyCapture does, puts down its exact words, then confirms Copied beside that row only")
         try check(heard == ["Copied"], "VoiceOver hears History's Copy once")
         let first = feedback.confirmation!.lifetime.event
         clock += 3.9; feedback.expire(first)
