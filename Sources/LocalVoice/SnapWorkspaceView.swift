@@ -97,9 +97,9 @@ struct SnapWorkspaceView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    let reservesTagLine = model.visibleItems.contains { !$0.tags.isEmpty }
+                    let items = model.visibleItems, reservesTagLine = items.contains { !$0.tags.isEmpty }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 205, maximum: 310), spacing: 12, alignment: .top)], spacing: 12) {
-                        ForEach(model.visibleItems) { item in card(item, reservesTagLine: reservesTagLine) }
+                        ForEach(items) { item in card(item, reservesTagLine: reservesTagLine) }
                     }.padding(.vertical, 4)
                 }
             }
