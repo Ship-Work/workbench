@@ -105,6 +105,34 @@ test('production copy names Workbench and makes the Mac focus and separate data 
   assert.throws(() => renderPublishedRelease('{{UNKNOWN_RELEASE}}', production), /Unknown release placeholder/);
 });
 
+test('install and update copy matches what the app does, on the home page and in the guide', async () => {
+  const pages = {
+    index: await readFile(new URL('../index.html', import.meta.url), 'utf8'),
+    guide: await readFile(new URL('../guide/index.html', import.meta.url), 'utf8')
+  };
+  const feedPreview = { ...preview, feed_url: 'https://workbench-mac.vercel.app/updates/preview.xml', feed_sha256: 'c'.repeat(64) };
+  const forbidden = ['Signed by Apple', 'about a minute', 'minute away', 'in a minute', 'compact links',
+    'when you open a session', 'In Preview:', 'Everything else works without it', '{{'];
+  const required = {
+    // Snap & Talk narration is transcribed by the same speech model as Dictate and Meetings.
+    index: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder', 'Request capture access',
+      'Snap &amp; Talk narration turn speech into text'],
+    guide: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder']
+  };
+  for (const record of [production, feedPreview]) {
+    for (const [name, html] of Object.entries(pages)) {
+      const result = renderPublishedRelease(html, record);
+      for (const phrase of forbidden) assert.ok(!result.includes(phrase), `${name} (${record.tag}) still says ${phrase}`);
+      for (const phrase of required[name]) assert.ok(result.includes(phrase), `${name} (${record.tag}) lacks ${phrase}`);
+      // 2.3.0 through 2.4.1 have the old heading (2.4.0 and 2.4.1 are on the production feed),
+      // so the only mention is the one that names every version before 2.5.0.
+      const old = [...result.matchAll(/Workbench updates/g)].map(match => result.slice(match.index, match.index + 32));
+      assert.ok(old.every(text => text.includes('before 2.5.0')), `${name} (${record.tag}) names the old heading without its versions`);
+    }
+  }
+  assert.ok(renderPublishedRelease(pages.index, preview).includes('no automatic updater'));
+});
+
 test('feedback never substitutes website version for the installed build', async () => {
   const js = await readFile(new URL('../app.mjs', import.meta.url), 'utf8');
   assert.ok(!js.includes("getElementById('version').value = apps"));

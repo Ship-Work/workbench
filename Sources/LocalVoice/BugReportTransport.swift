@@ -7,7 +7,7 @@ import Network
 // simply tried again later.
 //
 //   waiting / sending  --POST envelope, 200 without a feedback limit-->  sent
-//   200 limiting only attachments  -->  sent, words only  (Send attachments again: new event ID)
+//   2xx or 429 limiting only attachments  -->  sent, words only  (Send attachments again: new event ID)
 //   sent  --verifier: received-->  received   (local copy dropped, receipt kept)
 //   sent  --verifier: mismatch or not_found-->  unconfirmed  (Send again: new event ID, only when chosen)
 //   sent  --pending or any other answer-->  stays sent, never downgraded; checked for about
@@ -278,8 +278,9 @@ final class BugReportTransport: ObservableObject {
                                                     retryAfter: response.value(forHTTPHeaderField: "Retry-After"), now: time)
             current.status = status
             switch status {
-            case 200..<300 where limit?.attachmentsOnly == true:
-                // The words arrived without their files. Nothing is checked or sent again by itself:
+            case 200..<300 where limit?.attachmentsOnly == true, 429 where limit?.attachmentsOnly == true:
+                // The words arrived without their files: Relay answers 429 once it dropped any item,
+                // even after queueing the rest. Nothing is checked or sent again by itself:
                 // Send attachments again is the person's choice, under a new event ID.
                 current.state = .sent; current.wordsOnly = true; current.problem = nil; current.status = nil
                 current.sentAt = time; current.nextAttemptAt = nil; current.verifyAtLaunch = false
