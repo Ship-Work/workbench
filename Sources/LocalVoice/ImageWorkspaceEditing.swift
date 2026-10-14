@@ -85,6 +85,9 @@ final class ImageWorkspaceEditing: ObservableObject {
     @Published var showingOriginal = false
     @Published var showingDetails = true
     @Published var percent = 100
+    /// Raised only by the toolbar's Text. The inspector puts the new caption's field first with
+    /// its whole caption selected, so the first keystroke replaces "Your text", then clears it.
+    @Published var captionFocusRequest: UUID?
     @Published private(set) var undoStack: [SnapEdit] = []
     @Published private(set) var redoStack: [SnapEdit] = []
     /// The mark and property an inspector run is changing. Typing a caption or dragging a
@@ -139,17 +142,21 @@ final class ImageWorkspaceEditing: ObservableObject {
         mutate { $0.rotation = ($0.quarterTurns + 1) % 4 }
         aspect = .free
     }
-    func addText(at point: SnapPoint? = nil) {
+    func addText() {
         let crop = draft.edit.crop
         let sideways = draft.edit.quarterTurns % 2 != 0
         let w = crop.width * (sideways ? 0.25 : 0.6), h = crop.height * (sideways ? 0.6 : 0.25)
-        let x = min(1 - w, max(0, point?.x ?? (crop.x + (crop.width - w) / 2)))
-        let y = min(1 - h, max(0, point?.y ?? (crop.y + (crop.height - h) / 2)))
+        let x = min(1 - w, max(0, crop.x + (crop.width - w) / 2))
+        let y = min(1 - h, max(0, crop.y + (crop.height - h) / 2))
         let mark = SnapMark(kind: .text, points: [.init(x: x, y: y), .init(x: x + w, y: y + h)],
                             colour: background == "black" ? "white" : "black", text: "Your text", fontSize: fontSize,
                             background: background, textRotation: (4 - draft.edit.quarterTurns) % 4)
         mutate { $0.marks.append(mark) }; select(mark.id); tool = .select; showingDetails = true
     }
+    /// The toolbar's Text: a new box ready to type into. The gallery and checks call addText()
+    /// on its own, so their renders keep an unfocused field. A box the mark limit refuses raises
+    /// no request, since no field would appear to clear it.
+    func addTextForTyping() { addText(); if selectedMark?.kind == .text { captionFocusRequest = UUID() } }
     func zoom(_ command: CaptureImagePreviewModel.Command) {
         switch command { case .fit: canvas?.fit(); case .actualSize: canvas?.zoom(to: 1)
         case .zoomIn: canvas?.zoom(to: (canvas?.magnification ?? 1) * 1.25)

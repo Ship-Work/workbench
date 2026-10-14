@@ -31,7 +31,7 @@ struct SnapEditorView: View {
                 ForEach(ImageWorkspaceTool.allCases) { tool in
                     Button {
                         editing.showingOriginal = false
-                        if tool == .text { editing.addText(); textFocused = true }
+                        if tool == .text { editing.addTextForTyping(); textFocused = true }
                         else { editing.tool = tool; editing.selected = nil }
                     } label: { Label(tool.title, systemImage: tool.symbol).font(.callout) }
                     .buttonStyle(.bordered)
@@ -94,6 +94,7 @@ struct SnapEditorView: View {
                     TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected("text") { $0.text = String(value.prefix(10_000)) } }))
                         .font(.body).frame(height: 120).focused($textFocused)
                         .onChange(of: textFocused) { _, focused in if !focused { editing.endEditRun() } }
+                        .background(CaptionFocus(request: editing.captionFocusRequest) { editing.captionFocusRequest = nil })
                         .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Text on image")
                     Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected("background") { $0.background = value } })) {
@@ -107,8 +108,7 @@ struct SnapEditorView: View {
                 }
                 colourPicker(selected: true)
                 if mark.kind != .text {
-                    Slider(value: Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }), in: 0.001...0.02)
-                        .accessibilityLabel("Line width")
+                    lineWidth(Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }))
                 }
                 Text("Drag to move. Drag a corner to resize. Arrow keys nudge; Shift moves ten pixels.").font(.caption).foregroundStyle(.secondary)
                 Button("Delete mark", role: .destructive) { editing.removeSelected() }
@@ -116,7 +116,7 @@ struct SnapEditorView: View {
             } else if [.pen, .arrow, .rectangle].contains(editing.tool) {
                 Text("Mark style").font(.headline)
                 colourPicker(selected: false)
-                Slider(value: $editing.lineWidth, in: 0.001...0.02).accessibilityLabel("Line width")
+                lineWidth($editing.lineWidth)
                 Divider()
             } else {
                 Text("Make it clear").font(.headline)
@@ -135,12 +135,62 @@ struct SnapEditorView: View {
             Text("Notes stay with this Snap. Text boxes appear in the copied or exported image.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
+    /// Captioned like Text size, in the pixels the saved image draws (SnapRendering.draw).
+    private func lineWidth(_ width: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Line width · \(Int(max(1, width.wrappedValue * min(editing.imageSize.width, editing.imageSize.height)))) px").font(.caption)
+            Slider(value: width, in: 0.001...0.02).accessibilityLabel("Line width")
+        }
+    }
     private func colourPicker(selected: Bool) -> some View {
         Picker("Colour", selection: Binding(get: { editing.colour }, set: { value in
             editing.colour = value; if selected { editing.updateSelected("colour") { $0.colour = value } }
         })) { ForEach(["red", "yellow", "blue", "white", "black"], id: \.self) { Text($0.capitalized).tag($0) } }
             // Native popup labels can retain their previous colour when appearance changes.
             .id(appearance.colorScheme)
+    }
+}
+
+/// Puts the caption field first with its whole caption selected when the toolbar's Text asks.
+/// FocusState alone cannot select text, and may not reach a field mounted by the same update,
+/// so this finds the AppKit text view of the TextEditor it sits behind.
+private struct CaptionFocus: NSViewRepresentable {
+    let request: UUID?
+    let done: () -> Void
+    final class Coordinator { var handled: UUID? }
+    /// Sits behind the field and never takes its clicks.
+    final class Hook: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { Hook() }
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let request, request != context.coordinator.handled else { return }
+        context.coordinator.handled = request
+        focus(behind: view, attempts: 20)
+    }
+    /// Runs after this update, once the text view shows the new caption. A field still mounting
+    /// gets a few more tries; the request is cleared either way, so it never fires later.
+    private func focus(behind view: NSView, attempts: Int, after delay: TimeInterval = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard let window = view.window, let textView = Self.textView(behind: view, in: window) else {
+                if attempts > 0 { focus(behind: view, attempts: attempts - 1, after: 0.02) } else { done() }
+                return
+            }
+            window.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
+            done()
+        }
+    }
+    private static func textView(behind view: NSView, in window: NSWindow) -> NSTextView? {
+        let centre = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        func search(_ candidate: NSView) -> NSTextView? {
+            if let text = candidate as? NSTextView, text.isEditable {
+                let frame = text.enclosingScrollView ?? text
+                if frame.convert(frame.bounds, to: nil).contains(centre) { return text }
+            }
+            for subview in candidate.subviews { if let found = search(subview) { return found } }
+            return nil
+        }
+        return window.contentView.flatMap(search)
     }
 }
 

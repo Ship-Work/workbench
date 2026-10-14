@@ -91,6 +91,12 @@ enum ImageWorkspaceChecks {
                 preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
                 try await settle(preview)
                 try render(preview.panel!, to: output.appendingPathComponent("image-workspace-" + theme + ".png"))
+                // An arrow selected shows the Pen, Arrow and Box inspector. It is added and removed outside
+                // Undo, then the text box is selected again, so the shots after it stay as they were.
+                let arrow = SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+                editor.draft.edit.marks.append(arrow); editor.select(arrow.id); try await settle(preview)
+                try render(preview.panel!, to: output.appendingPathComponent("image-workspace-arrow-" + theme + ".png"))
+                editor.draft.edit.marks.removeAll { $0.id == arrow.id }; editor.select(textID); try await settle(preview)
                 owner.contentView = NSHostingView(rootView: SnapWorkspaceView(model: snap, selectedIDs: .constant([]))
                     .frame(width: 1180, height: 780))
                 owner.setContentSize(NSSize(width: 1180, height: 780))
@@ -110,9 +116,12 @@ enum ImageWorkspaceChecks {
             try render(preview.panel!, to: output.appendingPathComponent("image-workspace-small.png"))
             preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
         }
+        // "pricing," and a Tags field typed in then cleared leave empty pieces; Save keeps only real tags.
+        editor.draft.tags = ["pricing", ""]
         preview.saveEditing(copy: false); try await settle(preview)
         let saved = try store.snapshot(first.id)
         try check(preview.editing == nil && snap.draft == nil && preview.panel === originalPanel, "Save returns to viewing in the same window")
+        try check(saved.item.tags == ["pricing"], "Save drops the empty tag a trailing comma leaves")
         try check(saved.originalPNG == png && saved.item.edit.marks.first?.kind == .text && saved.item.formatVersion == 2, "saved text is reopenable and original remains exact")
         preview.step(1); try await settle(preview); preview.step(-1); try await settle(preview)
         preview.beginEditing(); try await settle(preview)
@@ -121,8 +130,9 @@ enum ImageWorkspaceChecks {
         let source = root.appendingPathComponent("Frozen session image.png"); try png.write(to: source)
         preview.show(.savedCopy(title: "Frozen input", url: source)); try await settle(preview); preview.beginEditing(); try await settle(preview)
         try check(preview.editing?.draft.existing == nil && preview.editing?.draft.originalPNG == (try SnapRendering.png(png)), "frozen source edits become new full-resolution Snaps")
-        preview.editing?.addText(); preview.saveEditing(copy: false); try await settle(preview)
+        preview.editing?.addText(); preview.editing?.draft.tags = [""]; preview.saveEditing(copy: false); try await settle(preview)
         try check(try Data(contentsOf: source) == png && store.load().items.count == 3, "saving a copy leaves frozen input unchanged")
+        try check(try store.load().items.contains { $0.title == "Saved image for Frozen input" && $0.tags.isEmpty }, "Save of a cleared Tags field stores no tags")
         if case .snap(let savedRoot, let savedID) = preview.model?.item.source {
             try check(savedRoot == store.root && (try store.read(savedID)).edit.marks.first?.kind == .text,
                       "Save a copy returns to the newly edited image in the same workspace")
@@ -334,6 +344,41 @@ enum ImageWorkspaceChecks {
         try check(runs.undoStack.count == steps + 1 && runs.redoStack.isEmpty, "an edit after Undo starts a new step and clears Redo")
         runs.undo()
         try check(runs.draft.edit == restored, "the state Undo restored stays reachable after the next edit")
+        // The toolbar's Text puts the new caption's field first with "Your text" selected, so the
+        // first keystroke replaces it, both when the field is still to appear and when a caption has focus.
+        preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
+        preview.beginEditing(); try await settle(preview)
+        if let typing = preview.editing, let typingPanel = preview.panel {
+            func addCaption() async throws -> NSTextView? {
+                typing.addTextForTyping(); try await settle(preview)
+                return typingPanel.firstResponder as? NSTextView
+            }
+            let whole = NSRange(location: 0, length: 9)
+            let first = try await addCaption(), firstID = typing.selected
+            try check(first?.string == "Your text" && first?.selectedRange() == whole && first?.isFieldEditor == false && typing.captionFocusRequest == nil,
+                      "Text puts the new caption's field first with its whole caption selected")
+            first?.insertText("Login", replacementRange: first?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Login", "the first keystroke replaces Your text")
+            typing.undo()
+            try check(typing.selectedMark?.text == "Your text" && typing.selected == firstID, "one Undo returns Your text with its box selected")
+            let captionHadFocus = first != nil && typingPanel.firstResponder === first
+            let second = try await addCaption()
+            try check(captionHadFocus && second?.string == "Your text" && second?.selectedRange() == whole && typing.selected != firstID,
+                      "Text while a caption has focus selects the new box's whole caption")
+            second?.insertText("Sign up", replacementRange: second?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Sign up" && typing.draft.edit.marks.first { $0.id == firstID }?.text == "Your text",
+                      "typing replaces only the new caption")
+            // At the mark limit Text adds nothing, so no request is left to seize a caption selected later.
+            let kept = typing.draft.edit.marks
+            typing.draft.edit.marks += (kept.count..<1_000).map { _ in
+                SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+            }
+            typing.addTextForTyping(); try await settle(preview)
+            try check(typing.draft.edit.marks.count == 1_000 && typing.captionFocusRequest == nil,
+                      "Text refused at the mark limit leaves no caption request behind")
+            typing.draft.edit.marks = kept
+        } else { try check(false, "the editor opens for the caption focus checks") }
+        preview.approveDiscard = { true }; preview.cancelEditing(); try await settle(preview)
         preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
         preview.beginEditing(); try await settle(preview); preview.editing?.addText()
         let openEditor = preview.editing, openPanel = preview.panel

@@ -63,7 +63,7 @@ struct SnapWorkspaceView: View {
             }
             Divider()
             HStack {
-                TextField("Search titles, notes and tags", text: $model.search).textFieldStyle(.roundedBorder)
+                TextField("Search titles, notes, tags and image text", text: $model.search).textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Search Snaps")
                 Picker("Show", selection: $model.showingArchived) { Text("Snaps").tag(false); Text("Archived").tag(true) }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 175)
@@ -97,8 +97,9 @@ struct SnapWorkspaceView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
+                    let items = model.visibleItems, reservesTagLine = items.contains { !$0.tags.isEmpty }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 205, maximum: 310), spacing: 12, alignment: .top)], spacing: 12) {
-                        ForEach(model.visibleItems) { item in card(item) }
+                        ForEach(items) { item in card(item, reservesTagLine: reservesTagLine) }
                     }.padding(.vertical, 4)
                 }
             }
@@ -149,7 +150,7 @@ struct SnapWorkspaceView: View {
         return model.showingArchived ? "Nothing archived" : "Your Snaps start here"
     }
     private var emptyDetail: String {
-        if !model.search.isEmpty { return "Try another title, note or tag. Your selection is kept." }
+        if !model.search.isEmpty { return "Try another title, note, tag or words shown in the image. Your selection is kept." }
         if model.showingArchived { return "Archived Snaps stay here until you restore them." }
         if model.draft != nil { return "Review your unfinished Snap, then save it to History." }
         return "Choose Region, Window or Screen, then save your capture here."
@@ -191,7 +192,7 @@ struct SnapWorkspaceView: View {
                 .help(model.draft != nil ? "Save or discard the unfinished Snap first" : "")
         }
     }
-    private func card(_ item: SnapItem) -> some View {
+    private func card(_ item: SnapItem, reservesTagLine: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("Select \(item.title)", isOn: Binding(get: { selectedIDs.contains(item.id) }, set: { value in
@@ -209,7 +210,13 @@ struct SnapWorkspaceView: View {
             Text(item.title).font(.callout.weight(.semibold)).lineLimit(2, reservesSpace: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("\(item.source.title) · \(item.createdAt.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if !item.tags.isEmpty { Text(item.tags.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            // Like the title's two lines, the tag line is held on every card once any visible Snap has
+            // tags, so a row's actions stay level; a grid without tags shows no empty line. An empty
+            // Text reserves a point more than a caption line, so an untagged card holds a space.
+            if reservesTagLine {
+                Text(item.tags.isEmpty ? " " : item.tags.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1, reservesSpace: true).accessibilityHidden(item.tags.isEmpty)
+            }
             HStack {
                 Button("Copy") { model.copy(item.id) }.controlSize(.small)
                 if item.archivedAt == nil {
