@@ -441,6 +441,8 @@ struct HandoffReviewView: View {
     @State private var showingPreviousReview = false
     @State private var initialized = false
     @State private var selectedProvider: SubscriptionProvider = .codex
+    /// Set once the person picks Run with themselves; until then it follows the set-up runner.
+    @State private var providerChosen = false
     @State private var loadedSkill: ReadbackSkillPackSnapshot?
     @State private var skillProblem: String?
     @StateObject private var evidencePicker = TranscriptHandoffRunner()
@@ -522,7 +524,8 @@ struct HandoffReviewView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
                     HStack {
-                        Picker("Run with", selection: $selectedProvider) {
+                        Picker("Run with", selection: Binding(get: { selectedProvider },
+                                                              set: { selectedProvider = $0; providerChosen = true })) {
                             ForEach(SubscriptionProvider.allCases) { Text($0.title).tag($0) }
                         }
                         Button("Check again") { Task { await jobs.refresh() } }.disabled(jobs.refreshing)
@@ -556,6 +559,7 @@ struct HandoffReviewView: View {
                 task = initialTask ?? TranscriptHandoffSkill.followUp.defaultTask ?? ""
                 if let preferredSkillID, skills.contains(where: { $0.id == preferredSkillID }) { skillID = preferredSkillID }
                 evidenceURL = initialEvidenceURL
+                selectedProvider = HandoffRunReadiness.defaultProvider(enabled: { jobs.enabled($0) }, jobs: jobs.jobs)
                 loadSkill()
                 refreshSources()
                 Task { await jobs.refresh() }
@@ -564,7 +568,12 @@ struct HandoffReviewView: View {
                 HandoffConnectionsSheet(jobs: jobs, backTitle: "Back to handoff") { showingConnections = false }
             }
             .onChange(of: showingConnections) { _, shown in
-                if !shown { Task { await jobs.refresh() } }
+                guard !shown else { return }
+                // A runner switched on in Connections becomes the one shown, unless the person chose.
+                if !providerChosen {
+                    selectedProvider = HandoffRunReadiness.defaultProvider(enabled: { jobs.enabled($0) }, jobs: jobs.jobs)
+                }
+                Task { await jobs.refresh() }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task { await jobs.refresh() }
