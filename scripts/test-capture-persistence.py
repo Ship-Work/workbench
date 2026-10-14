@@ -97,7 +97,8 @@ assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery
     'launch restores the undelivered result after capture recovery'
 labels = model.extract(['retryCaptureLabel', 'retryCaptureHelp', 'hasCaptureRecovery', 'canRecordAgain',
                         'hasSavedRecordings', 'canDiscardCaptureRecovery'])
-request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest'])
+# Import audio opens the chosen file through the same plain-words helper the shortcut uses (#337).
+request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest', 'ImportedAudio'])
 # Exercise the actual shell callback that Persona, Draw, Present and Timer share.
 shell = SwiftFile(PROJECT / 'Sources/LocalVoice/main.swift').type('AppDelegate')
 assert re.search(r'stage\.onBeginActivity\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.beginStageActivity\(\)\s*\}',
@@ -416,11 +417,11 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         func folder(_ name: String) -> URL { root.appendingPathComponent(name, isDirectory: true) }
-        func wave() -> Data {
-            var data = Data()
+        func wave(rate: UInt32 = 16000, seconds: UInt32 = 1) -> Data {
+            var data = Data(), bytes = rate * seconds * 2
             func tag(_ string: String) { data.append(contentsOf: string.utf8) }
             func le<T: FixedWidthInteger>(_ value: T) { var value = value.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) } }
-            tag("RIFF"); le(UInt32(32036)); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(UInt32(16000)); le(UInt32(32000)); le(UInt16(2)); le(UInt16(16)); tag("data"); le(UInt32(32000)); data.append(Data(repeating: 0, count: 32000)); return data
+            tag("RIFF"); le(36 + bytes); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(rate); le(rate * 2); le(UInt16(2)); le(UInt16(16)); tag("data"); le(bytes); data.append(Data(repeating: 0, count: Int(bytes))); return data
         }
         let wav = wave()
         let observed = CaptureHarness(directory: folder("opaque-lifecycle"))
@@ -629,6 +630,15 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         let invalidImport = root.appendingPathComponent("invalid.wav"); try Data("not audio".utf8).write(to: invalidImport)
         importing.importAudio(invalidImport)
         try check(importing.captureRecovery.pending?.id == importRecoveryID && FileManager.default.fileExists(atPath: importRecoveryURL.path), "Invalid audio import leaves current retry audio in place")
+        // Each refusal is one plain sentence (#337): an unreadable file says so with formats to try,
+        // and a readable one over 30 minutes says only that it is too long.
+        try check(importing.attention == Attention(message: ImportedAudio.unreadable, page: .dictate, code: "dictate.audio_unreadable"),
+                  "An unreadable import says why in words: \(String(describing: importing.attention?.message))")
+        let longImport = root.appendingPathComponent("over-thirty-minutes.wav"); try wave(rate: 1000, seconds: 1801).write(to: longImport)
+        importing.importAudio(longImport)
+        try check(importing.attention == Attention(message: "Choose an audio file between 1 second and 30 minutes long.", page: .dictate, code: "dictate.audio_unreadable")
+                  && importing.captureRecovery.pending?.id == importRecoveryID && importing.engine.calls == 0,
+                  "A recording over 30 minutes is refused as too long, not unreadable: \(String(describing: importing.attention?.message))")
         importing.importAudio(importRecoveryURL); await finish(importing)
         try check(importing.history.count == 1 && importing.history.first?.id == importRecoveryID && !importing.hasCaptureRecovery, "Importing the current recovery transcribes with its owned identity and never moves the URL first")
         let cancelled = CaptureHarness(directory: folder("cancelled"))

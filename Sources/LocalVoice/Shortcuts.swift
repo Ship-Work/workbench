@@ -1,6 +1,17 @@
 import AppIntents
+import AVFoundation
 import Foundation
 import UniformTypeIdentifiers
+
+/// A recording someone chose, from Import audio or a shortcut. A file macOS can't open says so with
+/// the next step, never Core Audio's error number, which has no words of its own (#337).
+enum ImportedAudio {
+    static let unreadable = "Workbench can’t read this file as audio. It may be incomplete or in a format macOS can’t open, such as WMA. Try an M4A, MP3 or WAV recording."
+    static func open(_ url: URL) throws -> AVAudioFile {
+        do { return try AVAudioFile(forReading: url) }
+        catch { throw VoiceError.message(unreadable) }
+    }
+}
 
 /// IntentFile may supply only Data. Give that private copy its actual audio extension;
 /// providers and decoders must never receive the old generic `input.audio` name.

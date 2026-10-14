@@ -17,7 +17,7 @@ final class AppModel: NSObject, ObservableObject {
         guard phase == .idle else { throw VoiceError.message("Workbench is busy. Finish the current recording first.") }
         guard !meetings.isBusy else { throw VoiceError.message("Finish the meeting recording or transcription first.") }
         guard !captureRecovery.hasRecovery else { throw CaptureRecoveryError.pending }
-        let file = try AVAudioFile(forReading: url)
+        let file = try ImportedAudio.open(url)
         let duration = Double(file.length) / file.processingFormat.sampleRate
         guard duration > 0, duration <= 1800 else { throw VoiceError.message("Choose an audio recording up to 30 minutes long.") }
         return try await withTaskCancellationHandler {
@@ -587,7 +587,7 @@ final class AppModel: NSObject, ObservableObject {
         guard !meetings.isBusy else { report("Finish the meeting recording or transcription first.", on: .dictate); return }
         guard phase == .idle, ready else { return }
         do {
-            let file = try AVAudioFile(forReading: url)
+            let file = try ImportedAudio.open(url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
             guard duration > 0, duration <= 1800 else { throw VoiceError.message("Choose an audio file between 1 second and 30 minutes long.") }
             // Importing the current recovery is a retry, not a new capture whose
@@ -597,7 +597,7 @@ final class AppModel: NSObject, ObservableObject {
             }
             guard admitNewCapture() else { return }
             destination = nil; transcribe(url, duration: duration, temporary: false)
-        } catch { fail("Could not read this audio file. \(error.localizedDescription)", code: "dictate.audio_unreadable") }
+        } catch { fail(error.localizedDescription, code: "dictate.audio_unreadable") }
     }
     func retryTranscription() {
         guard phase == .idle else { return }

@@ -89,6 +89,23 @@ enum IntegrationChecks {
             catch { rejected = true }
             try check(rejected, "empty and oversized IntentFile data rejected before staging")
         }
+        // Import audio and the shortcut say plainly why a file can't be read, never Core Audio's
+        // error number (#337): a damaged download and an empty file, then a playable recording.
+        let damaged = folder.appendingPathComponent("damaged.m4a"), empty = folder.appendingPathComponent("empty.wav")
+        try Data((0..<4096).map { UInt8(truncatingIfNeeded: ($0 &* 1_103_515_245 &+ 12_345) >> 16) }).write(to: damaged)
+        try Data().write(to: empty)
+        for url in [damaged, empty] {
+            var message = ""
+            do { _ = try ImportedAudio.open(url) } catch { message = error.localizedDescription }
+            try check(message == ImportedAudio.unreadable && !message.contains("com.apple") && !message.contains("couldn’t be completed")
+                      && message.contains("M4A"), "an unreadable .\(url.pathExtension) says why in words, with formats to try")
+        }
+        let caf = folder.appendingPathComponent("two-seconds.caf")
+        do {
+            let output = try AVAudioFile(forWriting: caf, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            try output.write(from: buffer); try output.write(from: buffer)
+        }
+        try check(try ImportedAudio.open(caf).length == 48000, "a playable two-second CAF still opens")
         print("INTEGRATIONS_OK: \(count) checks (synthetic; no network or credentials)")
     }
 }
