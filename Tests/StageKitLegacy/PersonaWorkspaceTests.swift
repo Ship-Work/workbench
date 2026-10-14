@@ -287,8 +287,11 @@ final class PersonaWorkspaceTests {
             try FileManager.default.createDirectory(at: chooserRoot, withIntermediateDirectories: true)
             let (chooserScenes, chooserScene, _, _) = try chooserFixture(in: chooserRoot)
             defer { chooserScenes.shutdown() }
+            // A sheet takes its content's height, so render at that height rather than inside a
+            // taller frame whose spare space would draw no background.
+            let chooserHeight = ceil(NSHostingView(rootView: PersonaSceneChooser(model: chooserScenes, sceneID: chooserScene)).fittingSize.height)
             for (name, appearance) in [("present-persona-chooser-light", NSAppearance.Name.aqua), ("present-persona-chooser-dark", .darkAqua)] {
-                try render(PersonaSceneChooser(model: chooserScenes, sceneID: chooserScene), size: CGSize(width: 480, height: 470),
+                try render(PersonaSceneChooser(model: chooserScenes, sceneID: chooserScene), size: CGSize(width: 480, height: chooserHeight),
                            to: directory.appendingPathComponent(name + ".png"), appearance: NSAppearance(named: appearance))
             }
             library.usesSharedControls = true
