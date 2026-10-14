@@ -42,11 +42,22 @@ enum HomeMeetings {
     /// Where a meeting's Review leads: History on All, showing that transcript. Nothing is
     /// selected, and Dictate's draft is never replaced.
     static func review(_ id: UUID) -> HistoryDoor { HistoryDoor(transcript: id) }
-    /// The newest Hand off task made from this transcript, from History's own task inputs.
-    static func followUp(for id: UUID, in jobs: [HandoffJob], inputs: (HandoffJob) -> [WorkbenchItemReference]) -> HandoffJob? {
+    /// The newest Hand off task made from this transcript, from History's own task inputs. The
+    /// tile excludes details suggestions, which are about the meeting rather than a follow-up.
+    static func followUp(for id: UUID, in jobs: [HandoffJob], inputs: (HandoffJob) -> [WorkbenchItemReference],
+                         excluding: (HandoffJob) -> Bool = { _ in false }) -> HandoffJob? {
         let reference = WorkbenchItemReference(kind: .transcript, id: id)
-        return jobs.filter { inputs($0).contains(reference) }.max { $0.createdAt < $1.createdAt }
+        return jobs.filter { !excluding($0) && inputs($0).contains(reference) }.max { $0.createdAt < $1.createdAt }
     }
+    /// A follow-up with no recap yet. A prepared one may already be in the person's own assistant
+    /// through Copy instructions, so it claims only that Workbench has no result; the others read
+    /// as History's badges do.
+    static func followUpState(_ status: HandoffJobStatus) -> String {
+        status == .ready ? "Follow-up prepared, no result yet" : "Follow-up " + status.title.lowercased()
+    }
+    /// What the tile's task files follow: a run that finishes changes its task's time, not the list.
+    struct TaskStamp: Equatable { let id: UUID; let updated: Date }
+    static func taskStamps(_ jobs: [HandoffJob]) -> [TaskStamp] { jobs.map { TaskStamp(id: $0.id, updated: $0.updatedAt) } }
     /// A follow-up's opening words as plain lines: Markdown markers and blank lines dropped, so
     /// the recap reads as sentences.
     static func recap(_ result: String, limit: Int = 400) -> String {
@@ -94,7 +105,11 @@ struct HomeMeetingTile: View {
                 }
             }
         }
-        .task(id: jobs.jobs.map(\.id)) { await jobs.loadTaskFiles(jobs.visibleJobs) }
+        .task(id: HomeMeetings.taskStamps(jobs.jobs)) { await jobs.loadTaskFiles(jobs.visibleJobs) }
+        // As History does: a result written while Workbench was in the background is read on return.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await jobs.loadTaskFiles(jobs.visibleJobs) }
+        }
         .onAppear(perform: pick)
         .onReceive(model.$history.dropFirst()) { _ in DispatchQueue.main.async(execute: pick) }
         .onReceive(library.objectWillChange) { _ in DispatchQueue.main.async(execute: pick) }
@@ -104,7 +119,9 @@ struct HomeMeetingTile: View {
     /// The newest meeting, open: its names, date and length, its first words, and what to do with
     /// it. A follow-up already made from it replaces Prepare follow-up… with the way to it.
     @ViewBuilder private func newest(_ last: HomeMeetings.Summary) -> some View {
-        let followUp = HomeMeetings.followUp(for: last.id, in: jobs.visibleJobs) { jobs.files($0)?.inputs.items.map(\.reference) ?? [] }
+        let followUp = HomeMeetings.followUp(for: last.id, in: jobs.visibleJobs,
+                                             inputs: { jobs.files($0)?.inputs.items.map(\.reference) ?? [] },
+                                             excluding: { jobs.isMetadataSuggestion($0) })
         let recap = followUp.flatMap { jobs.files($0)?.resultText }.map { HomeMeetings.recap($0) }.flatMap { $0.isEmpty ? nil : $0 }
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -122,7 +139,7 @@ struct HomeMeetingTile: View {
                 Text(last.excerpt).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 if let followUp {
-                    Text("Follow-up " + followUp.status.title.lowercased()).font(.caption).foregroundStyle(.secondary)
+                    Text(HomeMeetings.followUpState(followUp.status)).font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

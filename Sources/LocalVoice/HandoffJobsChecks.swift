@@ -310,6 +310,21 @@ enum HandoffJobsChecks {
         try check(detailsPrompt.contains("Recording limitations are preserved separately")
             && !detailsPrompt.contains("preserve these qualifications in your result"),
             "details task retains recording limitations without forcing them into the JSON proposal")
+        // Home's recap: a details suggestion made after the follow-up, from the same meeting, is
+        // not shown as the follow-up; with only the suggestion, Prepare follow-up… stays.
+        let recaps = HandoffJobsModel(directory: root.appendingPathComponent("home-recap"), switches: ({ _ in false }, { _, _ in }))
+        var recapClock = Date(timeIntervalSince1970: 1_000)
+        recaps.clock = { recapClock.addTimeInterval(1); return recapClock }
+        let meetingFollowUp = try recaps.prepare(sources: [sources[0]], task: MeetingFollowUp.task, skill: skill)
+        let laterDetails = try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task, skill: skill)
+        await recaps.loadTaskFiles(recaps.jobs)
+        let recapInputs = { (job: HandoffJob) in recaps.files(job)?.inputs.items.map(\.reference) ?? [] }
+        try check(laterDetails.createdAt > meetingFollowUp.createdAt && recaps.isMetadataSuggestion(laterDetails)
+                  && HomeMeetings.followUp(for: id, in: recaps.visibleJobs, inputs: recapInputs, excluding: { recaps.isMetadataSuggestion($0) })?.id == meetingFollowUp.id,
+                  "Home's recap names the meeting's follow-up, not a newer details suggestion")
+        try check(HomeMeetings.followUp(for: id, in: recaps.visibleJobs.filter { $0.id == laterDetails.id }, inputs: recapInputs,
+                                        excluding: { recaps.isMetadataSuggestion($0) }) == nil,
+                  "a meeting with only a details suggestion still offers Prepare follow-up…")
 
         let snaps = SnapStore(root: root.appendingPathComponent("review-snaps"))
         let snap = try snaps.insert(originalPNG: image, width: 1, height: 1, title: "User-reviewed name", source: .screen)
