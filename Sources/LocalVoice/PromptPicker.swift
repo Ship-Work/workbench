@@ -307,7 +307,8 @@ struct PromptPickerView: View {
                     }
                 }
                 .pickerStyle(.menu).labelsHidden().font(.system(size: 12 * scale))
-                .frame(maxWidth: model.width * 0.38)
+                // Capped so a long category truncates; trailing, so the pop-up ends on the inset the list and footer share.
+                .frame(maxWidth: model.width * 0.38, alignment: .trailing)
                 .help("Show one product's or persona's prompts")
             }
         }.padding(10 * scale)
