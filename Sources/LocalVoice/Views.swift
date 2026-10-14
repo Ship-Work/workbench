@@ -231,7 +231,8 @@ struct ContentView: View {
                 } else if model.preparing || [.transcribing, .cleaning, .delivering, .cancelling].contains(model.phase) {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text(model.preparing ? "Preparing your speech engine" : model.phase == .cancelling ? "Waiting for the speech engine to stop" : model.phase == .delivering ? "Checking the destination" : model.captureProcessingLabel)
+                        Text(Self.progressCaption(preparing: model.preparing, phase: model.phase, modelMessage: model.modelMessage, processing: model.captureProcessingLabel))
+                            .fixedSize(horizontal: false, vertical: true)
                         if model.canCancelCurrentCapture { Button("Cancel") { model.cancelCurrentCapture() } }
                         if model.preparing { Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling) }
                     }.font(.caption).foregroundStyle(.secondary)
@@ -270,6 +271,17 @@ struct ContentView: View {
             }
         } else if model.phase == .idle {
             Button("Models…") { model.page = "models" }.buttonStyle(.workbenchLink).font(.caption)
+        }
+    }
+
+    /// The line beside the spinner while dictation prepares or finishes its work. Setup shows the
+    /// speech model's own line, so its download progress reads here as on Home and in the panel (#15).
+    nonisolated static func progressCaption(preparing: Bool, phase: AppModel.Phase, modelMessage: String, processing: String) -> String {
+        if preparing { return modelMessage }
+        switch phase {
+        case .cancelling: return "Waiting for the speech engine to stop"
+        case .delivering: return "Checking the destination"
+        default: return processing
         }
     }
 
