@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CoreAudio
 import Foundation
@@ -462,6 +463,21 @@ enum MeetingChecks {
         review.toggle()
         await waitUntil { review.playing }
         try expect(review.playing, "explicit Play starts the reviewed recording")
+        _ = NSApplication.shared
+        let home = WorkbenchHomeWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled], backing: .buffered, defer: true)
+        home.isReleasedWhenClosed = false
+        var hides = 0
+        home.onHide = { hides += 1; review.pause() }
+        NotificationCenter.default.post(name: NSApplication.willHideNotification, object: NSApplication.shared)
+        await Task.yield()
+        try expect(hides == 1 && !review.playing, "hiding Workbench (⌘H) pauses recording review once")
+        NotificationCenter.default.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
+        await Task.yield()
+        try expect(hides == 1 && !review.playing, "unhiding Workbench never resumes recording review")
+        home.onHide = nil; home.close()
+        review.toggle()
+        await waitUntil { review.playing }
+        try expect(review.playing, "Play resumes the reviewed recording only when asked")
         var admitted = false
         model.mayPlayRecording = { admitted }
         model.updateRecordingPlaybackAdmission()

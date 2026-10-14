@@ -78,10 +78,23 @@ final class DemoResourcePreviewAccess {
     deinit { release() }
 }
 
-/// All Home hide paths (Stage activity, browser switching and the close button)
-/// end its transient preview, including the library's security-scoped access.
+/// All Home hide paths (Stage activity, browser switching, the close button, minimizing
+/// and Hide Workbench ⌘H) end its transient preview, including the library's
+/// security-scoped access, and pause recording review. Unhiding resumes nothing.
 final class WorkbenchHomeWindow: NSWindow {
-    var onHide: (() -> Void)?
+    var onHide: (() -> Void)? {
+        didSet {
+            // Hiding the app orders no window out, so it is observed once here.
+            guard appHideObserver == nil else { return }
+            appHideObserver = NotificationCenter.default.addObserver(forName: NSApplication.willHideNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.onHide?() }
+            }
+        }
+    }
+    /// Removed in deinit; checks create Home windows of their own.
+    nonisolated(unsafe) private var appHideObserver: NSObjectProtocol?
+
+    deinit { if let appHideObserver { NotificationCenter.default.removeObserver(appHideObserver) } }
 
     override func orderOut(_ sender: Any?) {
         onHide?()
