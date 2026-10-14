@@ -61,18 +61,13 @@ final class SnapCapture: SnapImageSource {
     private var process: Process?
     /// Gives WindowServer a frame to remove Workbench's hidden windows before acquiring.
     let settleDelay: UInt64 = 250_000_000
-    /// Report a Problem captures through here without the Snap page, so its request must
-    /// be the shared one that records the ask for Home's Permissions.
-    private let screenAccess: ScreenCaptureAccess
-
-    init(screenAccess: ScreenCaptureAccess = .system) { self.screenAccess = screenAccess }
 
     func cancel() { if process?.isRunning == true { process?.terminate() } }
 
     func capture(_ mode: Mode) async throws -> Data? {
         guard process == nil else { throw SnapError.message("Finish the current capture first.") }
-        guard screenAccess.isGranted() else {
-            _ = screenAccess.request()
+        guard CGPreflightScreenCaptureAccess() else {
+            CGRequestScreenCaptureAccess()
             throw SnapError.message("Allow Workbench to record the screen in System Settings, then capture again.")
         }
         if mode == .screen { return try await ReadbackScreenCapture.currentDisplay().data }

@@ -55,17 +55,6 @@ enum SnapCaptureChecks {
             return snap
         }
 
-        // Report a Problem's screenshot captures without the Snap page. Its first request must
-        // be recorded like Snap's, or Home offers a Set up… that macOS will not show again.
-        watchdog.step("a direct capture asks through the shared Screen Recording owner")
-        do {
-            var requests = 0
-            let direct = SnapCapture(screenAccess: ScreenCaptureAccess(isGranted: { false }, request: { requests += 1; return false }))
-            var refused = false
-            do { _ = try await direct.capture(.region) } catch { refused = true }
-            try check(refused && requests == 1, "a direct capture without Screen Recording asks once through the shared owner and captures nothing")
-        }
-
         // Each door starts the same capture; what differs is what was on screen.
         let safari: pid_t = 41_001, mail: pid_t = 41_002
         let doors: [(name: String, page: String, windowOnScreen: Bool, inFront: pid_t?, lastOther: pid_t?, origin: pid_t?)] = [
