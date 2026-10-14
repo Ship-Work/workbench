@@ -69,13 +69,13 @@ export function renderPublishedRelease(html, record = currentRelease) {
       ? 'After checking that your saved work is available in Workbench Preview, you can remove older Voice and StageMark apps from Applications. Keep their saved-data folders.'
       : 'Keep your Preview installation and saved-data folders until you have checked the work you need in Workbench. Replacing the app preserves this edition’s saved work.',
     UPDATE_INSTALL_NOTE: value.feed_url
-      ? 'After this one-time manual installation, Settings → Workbench updates keeps this edition current. An update waits to restart until your active work finishes.'
+      ? 'After this one-time manual installation, updates come to you: when a new version is ready, the sidebar shows Update to and its version number. An update waits to restart until your active work finishes.'
       : 'Future Preview updates keep that copy.',
     UPDATE_QUICK_START: value.feed_url
-      ? 'Open Settings → Workbench updates in the app to review the next update. Your saved work stays with you. Versions without the updater need one manual replacement first.'
+      ? 'When a new version is ready, the app’s sidebar shows Update to and its version number; choose it once. Settings › General › Updates checks now and holds the automatic options (Settings › Workbench updates in 2.4.1). Your saved work stays with you. Versions without the updater need one manual replacement first.'
       : 'This version has no automatic updater. Quit the app and replace it in the same Applications folder with the next Preview download.',
     UPDATE_DETAILS: value.feed_url
-      ? 'Use Settings → Workbench updates to check for a new version. Automatic checks and background downloads are on by default; both can be changed in Settings, and existing choices are retained. A downloaded update can install on normal Quit or when you explicitly restart an idle app. Active work defers an update-triggered restart. Versions without the updater need one manual replacement first.'
+      ? 'The sidebar’s Update to installs a ready version; Settings › General › Updates checks for one. Automatic checks and background downloads are on by default; both can be changed in Settings, and existing choices are retained. A downloaded update can install on normal Quit or when you explicitly restart an idle app. Active work defers an update-triggered restart. Versions without the updater need one manual replacement first.'
       : 'This published version has no automatic updater. To update, quit Workbench Preview and replace the existing app in the same Applications folder with the next Preview download.',
     // Temporary aliases keep independently edited guide pages compatible.
     PREVIEW_TAG: value.tag,

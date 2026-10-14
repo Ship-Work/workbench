@@ -31,7 +31,7 @@ These surfaces share the same underlying jobs and saved resources. Starting or a
 2. Open **Settings → Models** to prepare the default local Parakeet recognizer, then try Dictate with a disposable sentence. The first model download can take several minutes.
 3. Use the menu bar for quick actions and the floating toolbar while working. Open the desktop app for preparation and review.
 4. Open **Settings → Keyboard** to see, change or practise shortcuts. Recording a shortcut temporarily suspends Workbench's global shortcuts.
-5. Use **Settings → Workbench updates** for updates and **Copy build details** when reporting a problem.
+5. Choose **Update to [version]** in the sidebar when an update is ready; **Settings › General › Updates** checks and holds the automatic options. Use **Copy build details** when reporting a problem.
 
 Closing the desktop window leaves Workbench available. Quit Workbench stops the app. Open at login is optional. Older releases without the updater need one manual upgrade; see [installation and updates](docs/updating.md).
 
