@@ -291,6 +291,49 @@ enum ImageWorkspaceChecks {
                 try check(crop.isValid && abs((crop.width * 1600) / (crop.height * 1000) - ratio) < 0.00001, "aspect drag respects bounds and rotation")
             }
         }
+        // The inspector's controls change a mark on every keystroke or slider tick, through the
+        // same keyed calls SnapEditorView makes. Each run is one Undo step, so earlier edits stay reachable.
+        let runs = try ImageWorkspaceEditing(draft: SnapDraft(originalPNG: png, source: .imported, title: "Undo runs", notes: "", tags: [], edit: .init()))
+        runs.setAspect(.widescreen); runs.addText()
+        let runText = runs.selected, typedCrop = runs.draft.edit.crop, base = runs.undoStack.count
+        func typing(_ count: Int, from start: Int = 1) {
+            for length in start..<(start + count) { runs.updateSelected("text") { $0.text = String(repeating: "a", count: length) } }
+        }
+        func sizing(_ count: Int) { for step in 0..<count { runs.updateSelected("fontSize") { $0.fontSize = 0.02 + Double(step) * 0.001 } } }
+        typing(150)
+        let typed = runs.draft.edit
+        try check(runs.undoStack.count == base + 1 && runs.selectedMark?.text?.count == 150, "150 keystrokes in a caption are one Undo step")
+        runs.undo()
+        try check(runs.selectedMark?.text == "Your text" && runs.selected == runText, "Undo restores the caption before typing and keeps its mark selected")
+        runs.undo()
+        try check(runs.draft.edit.marks.isEmpty && runs.selected == nil && runs.draft.edit.crop == typedCrop, "the next Undo removes the text box and keeps the crop")
+        runs.undo()
+        try check(runs.draft.edit.crop == .full && runs.undoStack.isEmpty, "the crop before the caption is still reachable")
+        runs.redo(); runs.redo(); runs.redo()
+        try check(runs.draft.edit == typed && runs.redoStack.isEmpty, "Redo returns through the crop, the text box and the whole caption")
+        runs.select(runText)
+        var steps = runs.undoStack.count
+        sizing(40)
+        try check(runs.undoStack.count == steps + 1, "dragging Text size is one Undo step")
+        steps = runs.undoStack.count
+        typing(5, from: 151); sizing(5)
+        try check(runs.undoStack.count == steps + 2, "typing then sizing are two steps")
+        steps = runs.undoStack.count
+        typing(5, from: 156); runs.select(nil); runs.select(runText); typing(5, from: 161)
+        try check(runs.undoStack.count == steps + 2, "selecting the mark again starts a new step")
+        runs.select(runText); steps = runs.undoStack.count
+        typing(5, from: 166); runs.updateSelected { $0 = ImageWorkspaceGeometry.moved($0, dx: 0.01, dy: 0) }; typing(5, from: 171)
+        try check(runs.undoStack.count == steps + 3, "an unkeyed edit between runs splits them")
+        runs.select(runText); steps = runs.undoStack.count
+        typing(5, from: 176); runs.endEditRun(); typing(5, from: 181)
+        try check(runs.undoStack.count == steps + 2, "leaving the text box ends its run")
+        runs.undo()
+        let restored = runs.draft.edit
+        steps = runs.undoStack.count
+        typing(1, from: 200)
+        try check(runs.undoStack.count == steps + 1 && runs.redoStack.isEmpty, "an edit after Undo starts a new step and clears Redo")
+        runs.undo()
+        try check(runs.draft.edit == restored, "the state Undo restored stays reachable after the next edit")
         preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
         preview.beginEditing(); try await settle(preview); preview.editing?.addText()
         let openEditor = preview.editing, openPanel = preview.panel
