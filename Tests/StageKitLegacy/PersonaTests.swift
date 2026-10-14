@@ -251,14 +251,22 @@ final class PersonaTests {
         XCTAssertFalse(message(members).contains("ends"))
         XCTAssertEqual(library.groups, groups); XCTAssertEqual(library.liveSelection, live)
         XCTAssertEqual(try Data(contentsOf: store.appendingPathComponent("persona-library.json")), saved, "Asking writes nothing")
+        // Hidden, nothing from it is on screen, but the card kept for Show again goes.
+        library.hideArtwork()
+        XCTAssertTrue(library.hasHiddenCard)
+        XCTAssertTrue(message(arranged).hasSuffix(" What is kept from this group for Show again ends."))
+        XCTAssertFalse(message(arranged).contains("What is shown"), "A hidden card is not called shown")
         library.endOverlaySession()
         XCTAssertFalse(message(arranged).contains("ends"), "Nothing shown, nothing ends")
 
-        // So does a prepared set running from it.
+        // So does a prepared set running from it, shown or paused.
         try library.startOverlaySession(groupIDs: [arranged], initialGroupID: arranged)
         XCTAssertTrue(library.sessionState.phase != .idle)
-        XCTAssertTrue(message(arranged).contains("ends"))
+        XCTAssertTrue(message(arranged).hasSuffix(" What is shown from this group ends."))
         XCTAssertFalse(message(members).contains("ends"))
+        library.pauseOverlaySession()
+        XCTAssertEqual(library.sessionState.phase, .paused)
+        XCTAssertTrue(message(arranged).hasSuffix(" What is kept from this group for Show again ends."))
         library.endOverlaySession()
         XCTAssertFalse(message(arranged).contains("ends"))
         XCTAssertEqual(library.groups.map(\.id), [members, arranged], "Only Remove removes")

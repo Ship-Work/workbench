@@ -756,8 +756,8 @@ final class PersonaLibrary: NSObject, ObservableObject {
         do { try commit(next); notice = nil } catch { notice = error.localizedDescription }
     }
     /// What Remove group… takes, for its confirmation: the member list always, a saved
-    /// layout or public label only when the group has one, and what is on screen from it.
-    /// The personas stay. It reads state and changes nothing.
+    /// layout or public label only when the group has one, and what is shown from it or
+    /// kept for Show again. The personas stay. It reads state and changes nothing.
     func groupRemovalMessage(_ group: PersonaGroup?) -> String {
         let group = group.flatMap { asked in groups.first { $0.id == asked.id } } ?? group
         var parts = ["member list"]
@@ -765,8 +765,10 @@ final class PersonaLibrary: NSObject, ObservableObject {
         if group?.publicLabel?.isEmpty == false { parts.append("public label") }
         let named = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
         var message = "Its \(named) will be removed. Its personas, images and scenes stay in your library."
+        // A hidden card, one the camera took the slot from, or a paused set is off the
+        // screen but kept for Show again, so it is named as kept, not shown.
         if let id = group?.id, liveSelection?.groupID == id || (sessionState.phase != .idle && sessionState.currentGroupID == id) {
-            message += " What is shown from this group ends."
+            message += artworkVisible ? " What is shown from this group ends." : " What is kept from this group for Show again ends."
         }
         return message
     }
