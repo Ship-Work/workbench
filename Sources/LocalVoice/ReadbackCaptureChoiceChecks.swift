@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import SwiftUI
 
 /// The real new-section path with synthetic images and denied microphone before recorder
 /// construction. No screen, audio device, live session, clipboard or permission prompt is used.
@@ -31,7 +32,7 @@ enum ReadbackCaptureChoiceChecks {
         let image = bitmap.representation(using: .png, properties: [:])!
 
         // Replace screenshot and Redo use the page's Capture area on a section with known files.
-        let corrections = ["replace-region", "replace-escape", "replace-close", "replace-no-screen", "replace-screen", "redo-escape", "redo-mic-denied", "redo-recorder-fails"]
+        let corrections = ["replace-area", "replace-region", "replace-escape", "replace-close", "replace-no-screen", "replace-screen", "redo-escape", "redo-mic-denied", "redo-recorder-fails"]
         let originalScreen = Data("Original synthetic screen".utf8)
         for scenario in ["cancel", "permission", "late-denial", "close", "replace", "shutdown", "shutdown-settle", "task-cancel", "commit"] + corrections {
             let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.CaptureChoices.\(UUID().uuidString)").path
@@ -138,6 +139,29 @@ enum ReadbackCaptureChoiceChecks {
                 model.onHideForEditorCapture = { [weak model] in hides += 1; model?.shutdown() }
                 await model.captureNewSection(fromEditor: true, mode: .region)
                 try check(source.modes.isEmpty && restores == 1, "shutdown during settling never opens a selector afterwards")
+            case "replace-area":
+                // Leaving the page rebuilds its view, never the model, so the chosen area survives the visit (#358).
+                try check(model.captureArea == .screen, "a fresh session page starts on Screen")
+                let page = try HostedPage(model)
+                try check(page.captureArea?.label(forSegment: page.captureArea?.selectedSegment ?? -1) == "Screen", "the page shows Screen at first")
+                page.choose("Region")
+                try check(model.captureArea == .region, "choosing Region on the page sets the session page's Capture area")
+                page.close()
+                let revisit = try HostedPage(model)
+                defer { revisit.close() }
+                try check(revisit.captureArea?.label(forSegment: revisit.captureArea?.selectedSegment ?? -1) == "Region",
+                    "returning to the page shows the Region chosen before leaving")
+                let relaunched = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                    captureDisplay: { throw ReadbackError.message("A relaunched model never captures here.") },
+                    skillPacks: ReadbackSkillPackStore(root: directory.appendingPathComponent("Packs")),
+                    screenAccess: .init(isGranted: { screenGranted }, request: { fatalError("No permission request in checks") }),
+                    captureSelection: Source(), microphoneAccess: { .denied },
+                    makeNarrationRecorder: { _, _ in throw ReadbackError.message("Capture choice checks never record.") })
+                let relaunchArea = relaunched.captureArea
+                relaunched.shutdown()
+                try check(relaunchArea == .screen, "the choice lasts for this run only: a relaunch starts on Screen")
+                await model.replaceScreenshot(sectionID, mode: model.captureArea)
+                try check(source.modes == [.region] && screenCalls == 0, "Replace follows the kept area through its selector, not the screen")
             case "replace-region":
                 await model.replaceScreenshot(sectionID, mode: .region)
                 let replaced = try Data(contentsOf: root.appendingPathComponent(sectionDirectory + "/screen.png"))
@@ -208,12 +232,54 @@ enum ReadbackCaptureChoiceChecks {
             }
             try check(!model.isCapturing && !model.isRecording && !model.blocksDictation, "\(scenario) releases capture without starting a recorder")
             try check(hides == restores, "\(scenario) restores every hidden editor")
-            if !["commit", "replace-region", "replace-screen", "redo-recorder-fails"].contains(scenario) {
+            if !["commit", "replace-area", "replace-region", "replace-screen", "redo-recorder-fails"].contains(scenario) {
                 let after = try Data(contentsOf: manifestURL)
                 try check(after == expected && saves == 0, "\(scenario) preserves session bytes and saves no new Snap")
             }
             source.acquire = { nil }
         }
         print("READBACK_CAPTURE_CHOICE_CHECKS_OK: \(passed) checks")
+    }
+
+    /// The Snap & Talk page hosted as the window hosts it, in a window kept off every display.
+    @MainActor private final class HostedPage {
+        private let window: NSWindow
+        private static var launched = false
+        init(_ model: ReadbackModel) throws {
+            if !Self.launched {
+                // As the surface gallery does, which renders windows reliably on the CI runners.
+                _ = NSApplication.shared
+                NSApp.setActivationPolicy(.prohibited); NSApp.finishLaunching()
+                Self.launched = true
+            }
+            window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 900, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.contentViewController = NSHostingController(rootView: ReadbackView(model: model))
+            settle()
+            guard captureArea != nil else { throw ReadbackError.message("READBACK_CAPTURE_CHOICE_CHECK_FAILED: the hosted page has no Capture area") }
+        }
+        /// Its labels are hidden, so the control is the one offering exactly the capture areas.
+        var captureArea: NSSegmentedControl? {
+            func find(_ view: NSView) -> NSSegmentedControl? {
+                if let control = view as? NSSegmentedControl,
+                   (0..<control.segmentCount).map({ control.label(forSegment: $0) ?? "" }) == SnapCapture.Mode.allCases.map(\.title) { return control }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return window.contentView.flatMap(find)
+        }
+        /// Clicks a segment as the person would, through the control's own action.
+        func choose(_ title: String) {
+            guard let control = captureArea,
+                  let index = (0..<control.segmentCount).first(where: { control.label(forSegment: $0) == title }) else { return }
+            control.selectedSegment = index
+            _ = control.sendAction(control.action, to: control.target)
+            settle()
+        }
+        func close() { window.contentViewController = nil; window.close() }
+        private func settle() {
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
     }
 }

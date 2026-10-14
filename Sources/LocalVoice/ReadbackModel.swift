@@ -474,6 +474,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
     /// The take that "Discard this narration?" asks about, from the page's Cancel or the toolbar's.
     @Published var pendingCancelNarration: String?
+    /// The page's Capture area for Capture & narrate, Replace and Redo. It outlives the page, so leaving
+    /// and returning keeps it, but only for this run: a relaunch starts on Screen. Toolbar, shortcut
+    /// and panel captures pass their own source and never change it.
+    @Published var captureArea: SnapCapture.Mode = .screen
     private var handoffFeedbackGeneration = UUID()
     // Platform seams let checks exercise this action without the global clipboard,
     // Finder or LaunchServices. Production keeps the existing local handoff path.
@@ -994,13 +998,18 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         guard let root = sessionURL, let sessionID = manifest?.id else {
             notice = "Create or open a Snap & Talk session, then add your selected Snaps."; stateChanged(); return
         }
+        // History lists newest first; a narrated session runs in the order the screens were captured.
+        let ordered = snapshots.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
         do {
-            let result = try SnapReadback.importSnapshots(snapshots, at: root, expectedSessionID: sessionID)
+            let result = try SnapReadback.importSnapshots(ordered, at: root, expectedSessionID: sessionID)
             publish(result.manifest, for: root)
-            if result.added > 0, let added = activeSections.last { reviewSection(added.id) }
+            // The batch's first step opens for narration, not its last.
+            if result.added > 0, let first = activeSections.suffix(result.added).first { reviewSection(first.id) }
+            let added = result.added == 1 ? "Added 1 Snap." : "Added \(result.added) Snaps."
+            let skipped = result.alreadyAdded == 1 ? " 1 already present was skipped." : " \(result.alreadyAdded) already present were skipped."
             notice = result.warning ?? (result.added == 0
-                ? "These Snaps are already in this session, including Recently Deleted. Restore a deleted section there."
-                : "Added \(result.added) Snaps. Narration is optional; type notes or choose Record narration." + (result.alreadyAdded > 0 ? " \(result.alreadyAdded) already present were skipped." : ""))
+                ? (result.alreadyAdded == 1 ? "This Snap is" : "These Snaps are") + " already in this session, including Recently Deleted. Restore a deleted section there."
+                : added + " Narration is optional; type notes or choose Record narration." + (result.alreadyAdded > 0 ? skipped : ""))
         } catch { notice = "Snaps could not be added. \(error.localizedDescription)" }
         stateChanged()
     }
