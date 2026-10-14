@@ -534,7 +534,7 @@ private struct HistoryNativeAcceptanceView: View {
         if ProcessInfo.processInfo.environment["WORKBENCH_SNAPTALK_GALLERY_ONLY"] == "1" {
             return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: [], host: [], pickers: [], pickerHost: [],
                 pages: [.init(route: "readback", title: "Snap & Talk", fallsThrough: false,
-                    shots: try renderSnapTalkStates(to: output, states: ["review", "access-off", "access-pending", "settings"]))],
+                    shots: try renderSnapTalkStates(to: output, states: ["review", "access-off", "access-pending", "settings", "settings-shortcut-off"]))],
                 entries: [], menus: [], placement: [])
         }
         if ProcessInfo.processInfo.environment["WORKBENCH_MEETINGS_GALLERY_ONLY"] == "1" { return try renderMeetingsRecovery(to: output) }
@@ -2879,7 +2879,7 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// Valid portable media and a long session exercise the real review layout. No device,
     /// live data or provider runs. Recording is a presentation-only override in the same view.
-    func renderSnapTalkStates(to output: URL, states: [String] = ["review", "processing", "recovery", "unavailable", "unsaved", "recording", "settings", "sessions", "deleted", "narration", "narration-not-ready", "needs-narration", "access-off", "access-pending"]) throws -> [SurfaceGallery.Shot] {
+    func renderSnapTalkStates(to output: URL, states: [String] = ["review", "processing", "recovery", "unavailable", "unsaved", "recording", "settings", "settings-shortcut-off", "sessions", "deleted", "narration", "narration-not-ready", "needs-narration", "access-off", "access-pending"]) throws -> [SurfaceGallery.Shot] {
         var shots: [SurfaceGallery.Shot] = []
         for state in states {
             let base = home.appendingPathComponent("SnapTalk gallery \(theme) \(state)")
@@ -2909,6 +2909,12 @@ private struct HistoryNativeAcceptanceView: View {
             try ReadbackStore.save(manifest, at: root)
             let defaults = try SurfaceGallery.isolatedDefaults("SnapTalk \(state)", home: home)
             defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            // Options with the Snap & Talk shortcut off say so, never "Off captures the display" (#342).
+            if state == "settings-shortcut-off" {
+                var preferences = VoicePreferences.load(from: defaults), off = VoicePreferences.defaultReadbackShortcut
+                off.enabled = false; preferences.readbackShortcut = off
+                guard preferences.save(to: defaults) else { throw VoiceError.message("The gallery could not turn the Snap & Talk shortcut off.") }
+            }
             let lacksAccess = state.hasPrefix("access-")
             var permissionReply: CheckedContinuation<Bool, Never>?
             let session = ReadbackModel(engine: model.engine, defaults: defaults,
@@ -2945,7 +2951,7 @@ private struct HistoryNativeAcceptanceView: View {
                 final class Frames { var capture: CGRect? }
                 let frames = Frames()
                 let measure: (String, CGRect) -> Void = { if $0 == "readback.capture-controls" { frames.capture = $1 } }
-                let sheet: ReadbackView.Sheet? = state == "settings" ? .settings : state == "sessions" ? .sessions : state == "deleted" ? .deleted : nil
+                let sheet: ReadbackView.Sheet? = state.hasPrefix("settings") ? .settings : state == "sessions" ? .sessions : state == "deleted" ? .deleted : nil
                 let window = offscreenWindow(size: size, styleMask: [.titled, .closable, .fullSizeContentView], hostsSheets: sheet != nil)
                 window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
                 model.page = "readback"
@@ -2972,6 +2978,16 @@ private struct HistoryNativeAcceptanceView: View {
                 if sheet != nil {
                     guard let content = window.attachedSheet?.contentView else { throw VoiceError.message("Snap & Talk \(state) did not attach its native sheet.") }
                     target = content; settle(content)
+                    if state == "settings-shortcut-off" {
+                        // The Keyboard shortcut line ends the options: scroll the sheet to its foot.
+                        func scrolls(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrolls) }
+                        for scroll in scrolls(content) {
+                            guard let document = scroll.documentView else { continue }
+                            let foot = document.isFlipped ? max(0, document.frame.height - scroll.contentView.bounds.height) : 0
+                            scroll.contentView.scroll(to: NSPoint(x: 0, y: foot)); scroll.reflectScrolledClipView(scroll.contentView)
+                        }
+                        settle(content)
+                    }
                 } else { target = frame }
                 shots.append(try save(try snapshot(target), id: "session-\(state)-\(name)", title: "Snap & Talk · \(state) · \(name)",
                     detail: "39 sections with valid synthetic PNG and WAV files. Selected section and drafts belong to the real session model; recording is visual state only, with no recorder.",
@@ -4174,6 +4190,59 @@ private struct HistoryNativeAcceptanceView: View {
             plain.accessory(plain.live) == nil ? nil : "Snap & Talk offers an accessory with no session open",
             review == .review ? nil : "the open session offers \(review.map(\.title) ?? "nothing"), not Review",
             routes == ["readback"] ? nil : "Review opened \(routes), not the session's review"])
+        checkChooserCancelNarration(toolbar: toolbar, routes: { routes }, clearRoutes: { routes.removeAll() }, expect: expect)
+    }
+
+    /// The chooser's Cancel narration follows the page's rule (#342). Past ten seconds it keeps the
+    /// take and opens Snap & Talk with the page's own question; a short take is discarded at once.
+    /// A synthetic recorder stands in for the microphone, and its meter is moved, not waited for.
+    func checkChooserCancelNarration(toolbar: (ReadbackModel) -> FloatingToolbar, routes: () -> [String], clearRoutes: () -> Void,
+                                     expect: (String, [String?]) -> Void) {
+        let title = "Snap & Talk's Cancel narration in the chooser"
+        do {
+            let root = home.appendingPathComponent("Snap & Talk cancel \(theme)", isDirectory: true)
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic narration")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+            try ReadbackStore.save(manifest, at: root)
+            let defaults = try SurfaceGallery.isolatedDefaults("SnapTalkCancel", home: home)
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            var take: ReadbackChecks.SyntheticNarrationRecorder?
+            let narrating = ReadbackModel(engine: model.engine, defaults: defaults,
+                captureDisplay: { throw ReadbackError.message("The surface gallery never captures the screen.") },
+                transcribeAudio: { _ in throw ReadbackError.message("The surface gallery never transcribes audio.") },
+                screenAccess: .fixed(true), microphoneAccess: { .authorized },
+                makeNarrationRecorder: { url, _ in
+                    let recorder = ReadbackChecks.SyntheticNarrationRecorder(url: url, seconds: 1, peak: -10); take = recorder; return recorder
+                })
+            defer { narrating.shutdown() }
+            /// Starts a take whose meter reads `seconds`, chooses Cancel narration in the chooser and
+            /// returns the take it acted on.
+            func cancel(at seconds: Double) -> (take: String, file: URL)? {
+                narrating.startNarration(for: id)
+                guard narrating.isRecording, let identity = narrating.narrationIdentity, let file = URL(string: identity) else { return nil }
+                take?.reportedTime = seconds
+                let deadline = Date().addingTimeInterval(5)
+                while narrating.recordingElapsed != seconds && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+                clearRoutes()
+                toolbar(narrating).chooserCommands.first { $0.value.id == "snap-talk.cancel" }?.run()
+                return (identity, file)
+            }
+            guard let long = cancel(at: 74) else { return expect(title, ["the synthetic take did not start"]) }
+            let asked = narrating.isRecording && narrating.pendingCancelNarration == long.take && FileManager.default.fileExists(atPath: long.file.path)
+            let openedPage = routes() == ["readback"]
+            narrating.confirmCancelNarration(long.take)
+            guard let short = cancel(at: 5) else { return expect(title, ["the second synthetic take did not start"]) }
+            expect(title, [
+                asked ? nil : "at 74 s Cancel narration did not keep the take and ask about it",
+                openedPage ? nil : "at 74 s Cancel narration did not open Snap & Talk",
+                !narrating.isRecording && !FileManager.default.fileExists(atPath: short.file.path) && narrating.pendingCancelNarration == nil
+                    ? nil : "at 5 s Cancel narration did not discard the take at once",
+                routes().isEmpty ? nil : "at 5 s Cancel narration opened \(routes())"])
+        } catch { expect(title, ["the synthetic session could not be prepared: \(error.localizedDescription)"]) }
     }
 
     /// One Home window per size, set up like AppDelegate's. As in the app, pages change inside it

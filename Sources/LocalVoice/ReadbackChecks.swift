@@ -575,6 +575,9 @@ enum ReadbackChecks {
         try check(reconciled.sections[1].status == .needsNarration && reconciled.sections[1].failure?.contains("interrupted") == true, "only an orphaned recording is marked interrupted")
         print("READBACK_RECOVERY_CHECKS_OK: \(passed) checks")
         try await runQuitChecks()
+        try await runRetakeChecks()
+        try await runCancelChecks()
+        try await runShortcutNoticeChecks()
     }
 
     /// With the microphone off, a section that needs narration is finished by typing a note.
@@ -643,13 +646,16 @@ enum ReadbackChecks {
         print("READBACK_TYPED_NOTE_CHECKS_OK: \(passed) checks")
     }
 
-    /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it.
+    /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it. The surface
+    /// gallery's toolbar checks use it too, so a chooser command can act on a take with no microphone.
     @MainActor
-    private final class SyntheticNarrationRecorder: NarrationRecording {
+    final class SyntheticNarrationRecorder: NarrationRecording {
         let url: URL, seconds: Double, peak: Float
         private(set) var written: Data?
+        /// The meter's elapsed time, when a check moves the take along without writing longer audio.
+        var reportedTime: TimeInterval?
         init(url: URL, seconds: Double, peak: Float) { self.url = url; self.seconds = seconds; self.peak = peak }
-        var currentTime: TimeInterval { written == nil ? 0 : seconds }
+        var currentTime: TimeInterval { reportedTime ?? (written == nil ? 0 : seconds) }
         func prepareToRecord() -> Bool { true }
         func record() -> Bool {
             let rate = 16_000, count = Int(Double(rate) * seconds), amplitude = Double(Int16.max) * pow(10, Double(peak) / 20)
@@ -750,6 +756,309 @@ enum ReadbackChecks {
         }
         passed += try await runWaitForSpeechChecks()
         print("READBACK_QUIT_CHECKS_OK: \(passed) checks")
+    }
+
+    /// A retake that passes Stop's quiet screen but transcribes to no words keeps the section's
+    /// earlier notes or narration and offers no retry (#342); words replace them, and a real
+    /// engine failure keeps Retry transcription with the earlier text still on disk.
+    @MainActor
+    private static func runRetakeChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_RETAKE_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        func waitFor(_ message: String, _ ready: () -> Bool) async throws {
+            for _ in 0..<500 {
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_RETAKE_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        let fm = FileManager.default
+        let fixture = fm.temporaryDirectory.appendingPathComponent("Workbench-retake-\(UUID().uuidString)")
+        var domains: [String] = []
+        defer {
+            for domain in domains { UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain) }
+            try? fm.removeItem(at: fixture)
+        }
+        struct Outcome { let root: URL; let directory: String; let section: ReadbackSection; let notice: String?; let draft: String?; let history: [String] }
+        /// Records a clear synthetic take over a section, stops it and ends recognition with `finish`.
+        func retake(_ name: String, status: ReadbackSectionStatus, audio: Bool, original: String?, edited: String?,
+                    finish: (ControlledTranscriber) -> Void) async throws -> Outcome {
+            let root = fixture.appendingPathComponent(name)
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic retake")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            if audio { try ReadbackStore.writePrivate(Data("Synthetic earlier audio".utf8), to: root.appendingPathComponent(directory + "/narration.wav")) }
+            if let original { try ReadbackStore.writePrivate(Data(original.utf8), to: root.appendingPathComponent(directory + "/narration-original.txt")) }
+            if let edited { try ReadbackStore.writePrivate(Data(edited.utf8), to: root.appendingPathComponent(directory + "/narration.txt")) }
+            manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: audio ? directory + "/narration.wav" : nil, originalTranscript: original == nil ? nil : directory + "/narration-original.txt",
+                transcript: edited == nil ? nil : directory + "/narration.txt", status: status, failure: nil, deletedAt: nil)]
+            try ReadbackStore.save(manifest, at: root)
+            let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.Retake.\(UUID().uuidString)").path
+            domains.append(domain)
+            let defaults = UserDefaults(suiteName: domain)!
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            let transcriber = ControlledTranscriber()
+            let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+                makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+            defer { model.shutdown(); transcriber.cancel() }
+            model.startNarration(for: id)
+            try check(model.isRecording, "\(name): the retake starts on the synthetic recorder")
+            try await waitFor("\(name) meter tick") { model.recordingElapsed > 0 }
+            model.stopNarration()
+            try await waitFor("\(name) recognition") { transcriber.calls == 1 }
+            let queued = try ReadbackStore.load(from: root).sections[0]
+            try check(queued.audio == directory + "/narration.wav" && queued.originalTranscript == nil,
+                "\(name): Stop sets aside only the earlier audio and its original")
+            if let edited {
+                try check(queued.transcript == directory + "/narration.txt"
+                    && ReadbackStore.readText(root: root, relative: queued.transcript) == edited
+                    && (model.transcriptDrafts[id] ?? "") == edited,
+                    "\(name): Stop keeps the earlier text linked and in the page's draft while the take transcribes")
+            }
+            finish(transcriber)
+            try await waitFor("\(name) recognition to end") {
+                (try? ReadbackStore.load(from: root).sections[0].status).map { ![.queued, .transcribing].contains($0) } ?? false
+            }
+            let history = (try? fm.contentsOfDirectory(atPath: root.appendingPathComponent(directory + "/history").path)) ?? []
+            return Outcome(root: root, directory: directory, section: try ReadbackStore.load(from: root).sections[0],
+                           notice: model.notice, draft: model.transcriptDrafts[id], history: history)
+        }
+        func offersNoRetry(_ outcome: Outcome) -> Bool {
+            outcome.section.status != .failed && outcome.notice?.localizedCaseInsensitiveContains("retry") != true
+                && outcome.section.failure?.localizedCaseInsensitiveContains("retry") != true
+        }
+        let kept = "No speech heard. The screenshot and any earlier narration were kept."
+
+        // 1. Imported notes: the notes stay, the silent take goes to history, and nothing offers a retry.
+        let notes = try await retake("notes", status: .ready, audio: false, original: nil, edited: "My notes") { $0.complete("") }
+        try check(notes.section.status == .ready && notes.section.failure == nil && notes.section.audio == nil,
+            "notes: an empty result leaves the section ready with no audio to retry")
+        try check(ReadbackStore.readText(root: notes.root, relative: notes.section.transcript) == "My notes" && notes.draft == "My notes",
+            "notes: the notes stay on disk and in the page")
+        try check(notes.history.filter { $0.hasSuffix("-audio.wav") }.count == 1, "notes: the silent take is kept in history, never deleted")
+        try check(offersNoRetry(notes) && notes.notice == kept, "notes: no retry is offered and the notice says what was kept")
+
+        // 2. Narrated section: the edited narration stays; the earlier audio and original are in history.
+        let narrated = try await retake("narrated", status: .ready, audio: true, original: "Earlier words", edited: "Earlier words, edited") { $0.complete("") }
+        try check(narrated.section.status == .ready && narrated.section.audio == nil && offersNoRetry(narrated)
+            && ReadbackStore.readText(root: narrated.root, relative: narrated.section.transcript) == "Earlier words, edited",
+            "narrated: an empty result keeps the edited narration, ready")
+        try check(narrated.history.filter { $0.hasSuffix("-audio.wav") }.count == 2 && narrated.history.contains { $0.hasSuffix("-original-transcript.txt") },
+            "narrated: the earlier audio and original, and the silent take, are in history")
+
+        // 3. Fresh capture: its empty linked note keeps it ready, not stranded at a retry.
+        let fresh = try await retake("fresh", status: .ready, audio: false, original: nil, edited: "") { $0.complete(" \n") }
+        try check(fresh.section.status == .ready && fresh.section.audio == nil && offersNoRetry(fresh), "fresh: an empty result leaves a fresh capture ready")
+
+        // 4. Nothing linked: the section still needs narration and says to record again.
+        let bare = try await retake("bare", status: .needsNarration, audio: false, original: nil, edited: nil) { $0.complete("") }
+        try check(bare.section.status == .needsNarration && bare.section.failure == "No speech was heard. Record the narration again."
+            && bare.section.audio == nil && offersNoRetry(bare), "bare: an empty result asks to record again, not to retry")
+
+        // 5. A real engine failure keeps Retry transcription; the earlier notes stay linked on disk.
+        let failed = try await retake("engine-failure", status: .ready, audio: false, original: nil, edited: "My notes") {
+            $0.fail(ReadbackError.message("Synthetic engine failure."))
+        }
+        try check(failed.section.status == .failed && failed.section.audio != nil && failed.notice?.contains("kept for retry") == true,
+            "engine failure: the take fails with its audio kept for Retry transcription")
+        try check(ReadbackStore.readText(root: failed.root, relative: failed.section.transcript) == "My notes",
+            "engine failure: the earlier notes are still on disk and linked")
+
+        // 6. Words replace the earlier text, which moves to history.
+        let words = try await retake("words", status: .ready, audio: true, original: "Earlier words", edited: "Earlier words, edited") { $0.complete("New words") }
+        try check(words.section.status == .ready && words.section.audio == words.directory + "/narration.wav"
+            && ReadbackStore.readText(root: words.root, relative: words.section.transcript) == "New words"
+            && ReadbackStore.readText(root: words.root, relative: words.section.originalTranscript) == "New words",
+            "words: the new narration is the section's text and original")
+        let archived = try words.history.filter { $0.hasSuffix("-edited-transcript.txt") }
+            .map { try String(contentsOf: words.root.appendingPathComponent(words.directory + "/history/" + $0), encoding: .utf8) }
+        try check(archived == ["Earlier words, edited"], "words: the earlier edited narration is archived, not overwritten")
+
+        // 7. An empty result that lands while the next section records leaves that take's notice,
+        // which says how to stop it; the first section keeps its notes.
+        let next = fixture.appendingPathComponent("next-section")
+        var manifest = try ReadbackStore.create(at: next, title: "Synthetic retake")
+        for _ in 0..<2 {
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(next.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: next.appendingPathComponent(directory + "/screen.png"))
+            try ReadbackStore.writePrivate(Data("My notes".utf8), to: next.appendingPathComponent(directory + "/narration.txt"))
+            manifest.sections.append(ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: nil, originalTranscript: nil, transcript: directory + "/narration.txt", status: .ready, failure: nil, deletedAt: nil))
+        }
+        try ReadbackStore.save(manifest, at: next)
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.Retake.\(UUID().uuidString)").path
+        domains.append(domain)
+        let defaults = UserDefaults(suiteName: domain)!
+        defaults.set([next.path], forKey: "readback.recentSessionPaths.v1")
+        let transcriber = ControlledTranscriber()
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+            makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+        defer { model.shutdown(); transcriber.cancel() }
+        let (first, second) = (manifest.sections[0], manifest.sections[1])
+        model.startNarration(for: first.id)
+        try await waitFor("next-section meter tick") { model.recordingElapsed > 0 }
+        model.stopNarration()
+        try await waitFor("next-section recognition") { transcriber.calls == 1 }
+        model.startNarration(for: second.id)
+        let narrating = model.notice
+        try check(model.isRecording && narrating?.hasPrefix("Narrating section 2.") == true, "next section: section 2 records while section 1 transcribes")
+        transcriber.complete("")
+        try await waitFor("section 1 to finish") { (try? ReadbackStore.load(from: next).sections[0].status) == .ready }
+        try check(model.isRecording && model.notice == narrating, "next section: section 1's empty result leaves section 2's narrating notice")
+        let settled = try ReadbackStore.load(from: next).sections[0]
+        try check(settled.audio == nil && ReadbackStore.readText(root: next, relative: settled.transcript) == "My notes", "next section: section 1 keeps its notes")
+        model.cancelNarration()
+        print("READBACK_RETAKE_CHECKS_OK: \(passed) checks")
+    }
+
+    /// Cancel follows one rule from the page and the toolbar: a long take asks the page's
+    /// question and keeps recording, Discard answers only for that take, and the question
+    /// ends with the take, including at the 300 s auto-stop.
+    @MainActor
+    private static func runCancelChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_CANCEL_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        func waitFor(_ message: String, _ ready: () -> Bool) async throws {
+            for _ in 0..<500 {
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_CANCEL_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("Workbench-cancel-narration-\(UUID().uuidString)")
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.CancelNarration.\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain); try? fm.removeItem(at: root) }
+        var manifest = try ReadbackStore.create(at: root, title: "Synthetic cancel")
+        let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+        try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+        try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+        manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+            audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+        try ReadbackStore.save(manifest, at: root)
+        defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+        var take: SyntheticNarrationRecorder?
+        let transcriber = ControlledTranscriber()
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+            makeNarrationRecorder: { url, _ in
+                let recorder = SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10); take = recorder; return recorder
+            })
+        defer { model.shutdown(); transcriber.cancel() }
+        /// Starts a take and lets the meter read `seconds`; returns its identity and pending file.
+        func record(for seconds: Double) async throws -> (String, URL) {
+            model.startNarration(for: id)
+            try check(model.isRecording, "a take starts on the synthetic recorder")
+            take?.reportedTime = seconds
+            try await waitFor("the meter to read \(seconds) s") { model.recordingElapsed == seconds }
+            let identity = model.narrationIdentity ?? ""
+            return (identity, URL(string: identity)!)
+        }
+
+        try check(!ReadbackModel.cancelAsksFirst(elapsed: 10) && ReadbackModel.cancelAsksFirst(elapsed: 10.1), "one rule: Cancel asks first past ten seconds")
+
+        // A long take asks, keeps recording and keeps its audio; Keep recording carries on.
+        let (long, longFile) = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration == long && model.isRecording && fm.fileExists(atPath: longFile.path),
+            "at 74 s Cancel asks about this take and keeps the file")
+        model.pendingCancelNarration = nil
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try check(model.isRecording && model.narrationIdentity == long && fm.fileExists(atPath: longFile.path), "Keep recording keeps the take running")
+
+        // Discard answers only for the take it asked about.
+        try check(model.requestCancelNarration(), "the question can be asked again")
+        model.confirmCancelNarration("file:///synthetic/narration-pending-stale.wav")
+        try check(model.isRecording && fm.fileExists(atPath: longFile.path) && model.pendingCancelNarration == nil, "a stale Discard leaves the take recording")
+        try check(model.requestCancelNarration(), "the question is asked once more")
+        model.confirmCancelNarration(long)
+        try check(!model.isRecording && !fm.fileExists(atPath: longFile.path) && model.pendingCancelNarration == nil
+            && (try? ReadbackStore.load(from: root))?.sections[0].status == .needsNarration, "Discard removes the take it asked about and restores the section")
+
+        // A short take is discarded at once, as before.
+        let (_, shortFile) = try await record(for: 5)
+        try check(!model.requestCancelNarration() && !model.isRecording && !fm.fileExists(atPath: shortFile.path) && model.pendingCancelNarration == nil,
+            "at 5 s Cancel discards at once without asking")
+
+        // Stop ends the question with the take it kept.
+        _ = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration != nil, "a long take asks before Stop")
+        model.stopNarration()
+        try check(!model.isRecording && model.pendingCancelNarration == nil, "Stop clears the question")
+        try await waitFor("the kept take to transcribe") { transcriber.calls == 1 }
+        transcriber.complete("Synthetic kept words")
+        try await waitFor("the kept take to be ready") { (try? ReadbackStore.load(from: root).sections[0].status) == .ready }
+
+        // So does the 300 s auto-stop.
+        _ = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration != nil, "a long take asks before the auto-stop")
+        take?.reportedTime = 300
+        try await waitFor("the auto-stop") { !model.isRecording }
+        try check(model.pendingCancelNarration == nil, "the 300 s auto-stop clears the question")
+        print("READBACK_CANCEL_CHECKS_OK: \(passed) checks")
+    }
+
+    /// The narration notice names Snap & Talk's key only while it is on and registered; otherwise
+    /// it points to Stop narration, never to a key called "Off" or one another app holds (#342).
+    @MainActor
+    private static func runShortcutNoticeChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_SHORTCUT_NOTICE_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        let keyed = ReadbackModel.narrationNotice(section: 2, shortcut: "⌥C")
+        try check(keyed == "Narrating section 2. Use ⌥C again to stop.", "with a usable key the notice names it")
+        let keyless = ReadbackModel.narrationNotice(section: 2, shortcut: nil)
+        try check(keyless == "Narrating section 2. Use Stop narration to finish." && !keyless.contains("Off") && !keyless.contains("again to stop"),
+            "without a usable key the notice names Stop narration")
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("Workbench-shortcut-notice-\(UUID().uuidString)")
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.ShortcutNotice.\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain); try? fm.removeItem(at: root) }
+        var manifest = try ReadbackStore.create(at: root, title: "Synthetic shortcut notice")
+        let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+        try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+        try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+        manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+            audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+        try ReadbackStore.save(manifest, at: root)
+        defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+        var preferences = VoicePreferences.load(from: defaults)
+        var off = VoicePreferences.defaultReadbackShortcut; off.enabled = false
+        preferences.readbackShortcut = off
+        try check(preferences.save(to: defaults), "the scratch suite saves a disabled Snap & Talk shortcut")
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            microphoneAccess: { .authorized }, makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+        defer { model.shutdown() }
+        try check(model.usableShortcutLabel == nil, "a disabled shortcut has no usable label")
+        model.startNarration(for: id)
+        try check(model.isRecording && model.notice == "Narrating section 1. Use Stop narration to finish.", "narrating with the shortcut off says to use Stop narration")
+        model.cancelNarration()
+
+        preferences.readbackShortcut = VoicePreferences.defaultReadbackShortcut
+        try check(preferences.save(to: defaults), "the scratch suite saves the default shortcut")
+        let label = VoicePreferences.defaultReadbackShortcut.label
+        try check(model.usableShortcutLabel == label && label.hasPrefix("⌥") && label != "Off", "an enabled, registered shortcut names its key")
+        model.setShortcutFailure("⌥C is in use. Choose a different shortcut.")
+        try check(model.usableShortcutLabel == nil, "a shortcut that failed to register has no usable label")
+        model.startNarration(for: id)
+        try check(model.notice?.hasSuffix("Use Stop narration to finish.") == true, "narrating with a failed shortcut says to use Stop narration")
+        model.cancelNarration()
+        print("READBACK_SHORTCUT_NOTICE_CHECKS_OK: \(passed) checks")
     }
 
     /// The next launch meets the real engine while Parakeet still loads: its admission refuses
@@ -880,6 +1189,7 @@ enum ReadbackChecks {
         }
 
         func complete(_ result: String) { pending.removeFirst().resume(returning: result) }
+        func fail(_ error: Error) { pending.removeFirst().resume(throwing: error) }
         func cancel() {
             let continuations = pending; pending = []
             for continuation in continuations { continuation.resume(throwing: CancellationError()) }
