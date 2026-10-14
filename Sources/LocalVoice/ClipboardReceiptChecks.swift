@@ -106,6 +106,11 @@ enum ClipboardReceiptChecks {
                                                  wasPasted: false, destinationName: "Notes", failure: .pasteUnconfirmed), wordCount: 2)
         try check(model.receipt?.title == "Paste unconfirmed" && model.receipt?.wasPasted == false && model.receipt?.canSuggestPaste == false,
                   "unconfirmed paste remains distinct from confirmed insertion")
+        model.record(outcome: TextDelivery.Outcome(message: "Paste sent.", clipboardChangeCount: 12,
+                                                 wasPasted: false, destinationName: "Notes", failure: .pasteUnconfirmed), wordCount: 2, source: .prompt)
+        try check(model.receipt?.title == "Paste unconfirmed" && model.receipt?.detail.contains("The prompt is still copied.") == true
+                  && model.receipt?.detail.contains("transcript") == false && model.receipt?.canSuggestPaste == false,
+                  "an unconfirmed prompt paste names the prompt, not a transcript")
         model.record(outcome: TextDelivery.Outcome(message: "Paste sent before cancellation.", clipboardChangeCount: 12,
                                                  wasPasted: false, destinationName: "Notes", failure: .cancelled,
                                                  pasteWasAttempted: true), wordCount: 2)

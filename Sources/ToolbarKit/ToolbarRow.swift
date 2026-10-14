@@ -505,6 +505,8 @@ private struct ToolbarPrimary: NSViewRepresentable {
         override var acceptsFirstResponder: Bool { true }
         override func keyDown(with event: NSEvent) {
             if keyCycle?.handle(event, from: self) == true { return }
+            // NSButton clicks on every Space key-down, repeats too: a held key acts once, as on the launcher.
+            if event.isARepeat, [36, 49, 76, 125].contains(event.keyCode) { return }
             super.keyDown(with: event)
         }
         /// The operation is latched as the button goes down; the click acts on it only if it
