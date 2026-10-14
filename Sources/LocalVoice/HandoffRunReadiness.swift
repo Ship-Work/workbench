@@ -32,6 +32,16 @@ struct HandoffRunReadiness: Equatable {
         return .init(state: .ready, detail: provider.title + " is ready. Start task sends only this reviewed selection and request; the result returns to History. Nothing starts until you choose Start task.")
     }
 
+    /// The runner a review opens on: among the enabled runners (or every runner when none
+    /// is), the one that ran the newest task, else the first in Run with's order. It is only
+    /// where the picker starts; nothing is saved and nothing starts.
+    static func defaultProvider(enabled: (SubscriptionProvider) -> Bool, jobs: [HandoffJob]) -> SubscriptionProvider {
+        let on = SubscriptionProvider.allCases.filter(enabled)
+        let candidates = on.isEmpty ? SubscriptionProvider.allCases : on
+        // Tasks are kept newest first.
+        return jobs.lazy.compactMap(\.provider).first(where: candidates.contains) ?? candidates[0]
+    }
+
     static func inputProblem(provider: SubscriptionProvider, prompt: String, imageBytes: [Int]) -> String? {
         let manual = " Choose fewer items or use Copy instructions."
         if prompt.count > SubscriptionCLILimits.maximumPromptCharacters {
