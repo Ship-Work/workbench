@@ -17,7 +17,6 @@ struct ReadbackView: View {
     var onRetryModel: () -> Void = {}
     @State private var sheet: Sheet?
     @State private var afterSheet: (() -> Void)?
-    @State private var captureMode: SnapCapture.Mode = .screen
     @State private var confirmEmptyTrash = false
     @State private var discardEdit: UUID?
     @State private var copyResult: String?
@@ -264,12 +263,12 @@ struct ReadbackView: View {
                 Spacer()
                 Button("Cancel capture") { model.cancelCapture() }
             } else {
-                Picker("Capture area", selection: $captureMode) {
+                Picker("Capture area", selection: $model.captureArea) {
                     ForEach(SnapCapture.Mode.allCases) { Text($0.title).tag($0) }
                 // Its natural width, so the control starts on the page's column rather than centred in a frame.
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
                 Button {
-                    Task { await model.captureNewSection(fromEditor: true, mode: captureMode) }
+                    Task { await model.captureNewSection(fromEditor: true, mode: model.captureArea) }
                 } label: { Label("Capture & narrate", systemImage: "camera.viewfinder") }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.permissionsReady || model.currentSessionProblem != nil)
@@ -415,10 +414,10 @@ struct ReadbackView: View {
                         Button("Save image to Library…") { imageResult = onSaveImageToLibrary(preview(section, number: number)) }
                     }
                     Divider()
-                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id, mode: captureMode) } }.disabled(changing)
+                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id, mode: model.captureArea) } }.disabled(changing)
                     Button(section.audio == nil ? "Record narration" : "Re-record narration") { model.startNarration(for: section.id) }
                         .disabled(changing || model.microphonePermission != .authorized)
-                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id, mode: captureMode) } }.disabled(changing)
+                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id, mode: model.captureArea) } }.disabled(changing)
                     Divider()
                     Button("Move to Recently Deleted") { model.deleteSection(section.id) }.disabled(changing)
                 } label: { Image(systemName: "ellipsis.circle") }

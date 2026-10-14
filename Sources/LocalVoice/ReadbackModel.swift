@@ -474,6 +474,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
     /// The take that "Discard this narration?" asks about, from the page's Cancel or the toolbar's.
     @Published var pendingCancelNarration: String?
+    /// The page's Capture area for Capture & narrate, Replace and Redo. It outlives the page, so leaving
+    /// and returning keeps it, but only for this run: a relaunch starts on Screen. Toolbar, shortcut
+    /// and panel captures pass their own source and never change it.
+    @Published var captureArea: SnapCapture.Mode = .screen
     private var handoffFeedbackGeneration = UUID()
     // Platform seams let checks exercise this action without the global clipboard,
     // Finder or LaunchServices. Production keeps the existing local handoff path.
