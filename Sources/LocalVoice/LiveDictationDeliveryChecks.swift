@@ -82,7 +82,8 @@ enum LiveDictationDeliveryChecks {
                    "focus changes permanently stop writes and final paste")
         try expect(moved.copies == ["Two."] && stopped.clipboardChangeCount != nil && stopped.failure == .pasteUnconfirmed,
                    "a stopped writer copies the words as dictated even when the clipboard would be restored")
-        try expect(movedOwner.cancel() != nil && moved.state.value == "prefix one suffix", "invalidated cancel never rewrites destination")
+        try expect(movedOwner.cancel() == LiveDictationDelivery.wordsLeftMessage(in: "Fixture") && moved.state.value == "prefix one suffix",
+                   "invalidated cancel never rewrites destination and says the words remain")
 
         let typed = Field(); let typedOwner = typed.owner()!
         typedOwner.preview("spoken"); let spokenState = typed.state
