@@ -1184,7 +1184,8 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// A two-hour, two-sided meeting (1,200 labelled turns, about 110,000 characters) opens
     /// through Home's door about as fast as a five-turn one, switches wording in the same text
-    /// view, copies a selection exactly, and Escape or Return in the words close only the review.
+    /// view, copies a selection exactly, and Escape or Return in the words, with or without
+    /// Caps Lock, close only the review.
     func checkLongTranscriptReview(kept: (draft: String, raw: String, selected: Set<WorkbenchItemReference>)) throws {
         func meeting(_ turns: Int, _ id: Int) -> Transcript {
             let checkpoint = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<turns).map { index in
@@ -1228,21 +1229,21 @@ private struct HistoryNativeAcceptanceView: View {
             }
             return (sheet, document, elapsed)
         }
-        func close(_ sheet: NSWindow, with key: (code: UInt16, text: String), from document: NSTextView) throws {
+        func close(_ sheet: NSWindow, with key: (code: UInt16, text: String), flags: NSEvent.ModifierFlags = [], from document: NSTextView) throws {
             guard sheet.makeFirstResponder(document), sheet.firstResponder === document else {
                 throw VoiceError.message("The review's words could not take keyboard focus.")
             }
-            sheet.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            sheet.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber, context: nil,
                 characters: key.text, charactersIgnoringModifiers: key.text, isARepeat: false, keyCode: key.code)!)
             _ = poll(3) { window.attachedSheet == nil }
             guard window.attachedSheet == nil, model.transcript == kept.draft, model.rawTranscript == kept.raw,
                   model.historyLibrary.selected == kept.selected, model.phase == .recording else {
-                throw VoiceError.message("\(key.code == 53 ? "Escape" : "Return") in the review's words did not close only the review.")
+                throw VoiceError.message("\(key.code == 53 ? "Escape" : "Return")\(flags.contains(.capsLock) ? " with Caps Lock on" : "") in the review's words did not close only the review.")
             }
         }
         let (shortSheet, _, baseline) = try open(short)
-        try close(shortSheet, with: (53, "\u{1b}"), from: Self.reviewDocument(in: shortSheet.contentView!)!)
+        try close(shortSheet, with: (36, "\r"), flags: .capsLock, from: Self.reviewDocument(in: shortSheet.contentView!)!)
         let (sheet, document, opened) = try open(long)
         let current = TranscriptExport.text(for: long, version: .cleaned)
         guard document.string == current, opened < baseline + 0.4 else {

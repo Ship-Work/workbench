@@ -199,9 +199,10 @@ private final class TranscriptDocumentTextView: NSTextView {
     }
 
     /// Read-only words have no use for Return, so it stays the review's Done while the
-    /// text has focus instead of a beep. Escape already reaches Done through the responder chain.
+    /// text has focus instead of a beep, Caps Lock or not. Escape already reaches Done
+    /// through the responder chain.
     override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function]).isEmpty,
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock]).isEmpty,
            event.keyCode == 36 || event.keyCode == 76, window?.performKeyEquivalent(with: event) == true { return }
         super.keyDown(with: event)
     }
