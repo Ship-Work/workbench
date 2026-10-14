@@ -859,7 +859,8 @@ struct WorkbenchHomePage: View {
                 Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])).font(.callout).foregroundStyle(.secondary)
                 if !model.transcript.isEmpty {
                     Text(model.transcript).lineLimit(6).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16).background(Workbench.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(Workbench.tilePadding).background(Workbench.surface, in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
+                        .overlay(RoundedRectangle(cornerRadius: Workbench.tileRadius).strokeBorder(Workbench.border))
                         .accessibilityLabel("Your words")
                     HStack(spacing: 12) {
                         Button { model.copyTranscript() } label: { Label("Copy text", systemImage: "doc.on.doc") }
