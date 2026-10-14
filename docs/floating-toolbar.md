@@ -67,7 +67,7 @@ tick; in the last ten seconds before the 5-minute limit, the accessible status n
 details.
 
 A technical failure keeps its recovery view: dictation has its reason, Retry,
-Record again or Open Workbench and Dismiss. These commands and their workspace doors also stay in the chooser. Retry belongs only to an existing failure. Saved failures do not put
+Record again or Open Dictate… and Dismiss. These commands and their workspace doors also stay in the chooser. Retry belongs only to an existing failure. Saved failures do not put
 warnings on the compact pill, the recording trace or Switch tool. A failure
 waiting before input-consuming work began cannot replace that work's revealed
 controls. Revealing, collapsing or choosing a tool does not acknowledge or retry
