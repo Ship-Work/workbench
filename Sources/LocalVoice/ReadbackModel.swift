@@ -531,6 +531,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     var shortcutLabel: String { VoicePreferences.load().shortcut(5).label }
 
     private let transcribeAudio: @MainActor (URL) async throws -> String
+    /// True while the speech model loads or downloads; queued takes wait for it.
+    private let speechPreparing: @MainActor () async -> Bool
     private let screenAccess: ScreenCaptureAccess
     /// Back from Screen Recording settings with access still off: macOS may
     /// need Workbench to reopen before a grant applies.
@@ -569,6 +571,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
          makeNarrationRecorder: ((URL, [String: Any]) throws -> NarrationRecording)? = nil) {
         self.screenAccess = screenAccess
         self.transcribeAudio = transcribeAudio ?? { try await engine.transcribe($0) }
+        self.speechPreparing = { await engine.snapshot().isPreparing }
         self.defaults = defaults
         self.skillPacks = skillPacks ?? ReadbackSkillPackStore(root: Workbench.supportDirectory(component: "SnapTalkSkillPacks"))
         self.captureDisplay = captureDisplay
@@ -1381,6 +1384,9 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     private func drainQueue() async {
         while !Task.isCancelled, !queue.isEmpty {
+            // A take kept at Quit, or stopped while the model loads, waits for speech and
+            // then transcribes; a model that could not be prepared still fails it with its reason.
+            if await speechPreparing() { try? await Task.sleep(nanoseconds: 500_000_000); continue }
             let job = queue.removeFirst(); activeJob = job; updateQueueCount()
             await process(job)
             activeJob = nil; updateQueueCount()
@@ -1411,6 +1417,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if sessionURL?.standardizedFileURL == job.root.standardizedFileURL { transcriptDrafts[job.sectionID] = result; notice = "Narration transcribed. The section is ready for slides." }
         } catch {
             if Task.isCancelled { markQueued(job); return }
+            // Preparation began after the queue last looked: wait with the queue instead of failing.
+            if (error as? RecognitionFailure)?.kind == .missingAssets, await speechPreparing() {
+                markQueued(job); queue.insert(job, at: 0); return
+            }
             if error.localizedDescription.localizedCaseInsensitiveContains("already running") {
                 markQueued(job); queue.append(job); updateQueueCount()
                 try? await Task.sleep(nanoseconds: 800_000_000)
