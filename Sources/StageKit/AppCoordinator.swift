@@ -774,9 +774,13 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         let now = now ?? timerClock()
         let remaining = countdown.remaining(at: now)
         let text = Countdown.formatted(remaining)
+        // Each of these publishes, and the whole stage redraws on a publication, so only a change
+        // is assigned: about once a second while it runs, not on every update. The bar follows
+        // the shown second, so it steps with the digits.
         if text != timerText { timerText = text }
-        timerRunning = countdown.isRunning
-        timerProgress = min(1, remaining / max(1, countdown.duration))
+        if timerRunning != countdown.isRunning { timerRunning = countdown.isRunning }
+        let progress = min(1, ceil(remaining) / max(1, countdown.duration))
+        if progress != timerProgress { timerProgress = progress }
         if countdown.isRunning && remaining <= 0 {
             countdown.pause(now: now); timerRunning = false; timerFinished = true
             countdownTimer?.invalidate(); countdownTimer = nil

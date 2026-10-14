@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// The break timer's one transport state, driven through the coordinator that
 /// owns it. Every global shortcut is off, so none is registered; the chime is
@@ -239,6 +240,52 @@ final class TimerTransportTests {
             XCTAssertEqual(app.timerText, "10:00", "Reset applies the edited duration")
             XCTAssertEqual(app.timerTransport, .idle)
             app.hideTimer()
+        }
+    }
+
+    /// A running countdown publishes when what it shows changes, about once a second, not on each
+    /// of its five updates a second: every view and menu that watches the stage redraws on each
+    /// publication. Its bar steps with the digits; Pause, Resume and finishing still publish.
+    func testARunningCountdownPublishesOncePerShownSecond() throws {
+        try withTimer { app, settings, clock in
+            MainActor.assumeIsolated {
+                settings.value.timerMinutes = 5
+                let stage = StageKitController(coordinator: app)
+                app.startTimer()
+                settle()
+                var coordinator = 0, controller = 0
+                var observations = Set<AnyCancellable>()
+                app.objectWillChange.sink { _ in coordinator += 1 }.store(in: &observations)
+                stage.objectWillChange.sink { _ in controller += 1 }.store(in: &observations)
+                // About a second of updates with the clock standing still: nothing shown changes.
+                settle(); settle()
+                XCTAssertTrue(app.countdownTimer != nil, "The countdown kept updating")
+                XCTAssertEqual(coordinator, 0, "Updates within one shown second publish nothing")
+                XCTAssertEqual(controller, 0, "and the stage forwards nothing")
+                // The next second: the digits and the bar, and nothing more.
+                coordinator = 0
+                clock.now += 1
+                settle { app.timerText == "04:59" }
+                XCTAssertEqual(app.timerText, "04:59")
+                XCTAssertTrue(coordinator >= 1 && coordinator <= 2, "A new second publishes at most twice: \(coordinator)")
+                XCTAssertTrue(abs(app.timerProgress - 299.0 / 300) < 1e-9, "The bar steps with the digits: \(app.timerProgress)")
+                XCTAssertEqual(app.timerTransport, .running)
+                let beforePause = coordinator
+                app.pauseResumeTimer()
+                XCTAssertEqual(app.timerTransport, .paused)
+                XCTAssertTrue(coordinator > beforePause, "Pause still publishes")
+                let beforeResume = coordinator
+                app.pauseResumeTimer()
+                XCTAssertEqual(app.timerTransport, .running)
+                XCTAssertTrue(coordinator > beforeResume, "Resume still publishes")
+                clock.now += 400
+                settle { app.timerFinished }
+                XCTAssertEqual(app.timerTransport, .finished)
+                XCTAssertEqual(app.timerText, "00:00")
+                XCTAssertTrue(app.countdownTimer == nil, "Finishing stops the periodic update")
+                XCTAssertEqual(app.timerProgress, 0)
+                app.resetTimer(); app.hideTimer()
+            }
         }
     }
 

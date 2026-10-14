@@ -515,6 +515,7 @@ struct TestRunner {
                 ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
                 ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
                 ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+                ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
                 ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
                 ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
                 ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer)
@@ -716,6 +717,7 @@ struct TestRunner {
             ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
             ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
             ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+            ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
             ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
             ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
             ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
