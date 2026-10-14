@@ -748,7 +748,125 @@ enum ReadbackChecks {
                 try check(cues == (quit ? 0 : 1), "\(name): only Stop gives the no-speech cue")
             }
         }
+        passed += try await runWaitForSpeechChecks()
         print("READBACK_QUIT_CHECKS_OK: \(passed) checks")
+    }
+
+    /// The next launch meets the real engine while Parakeet still loads: its admission refuses
+    /// until preparation finishes. A kept take waits queued and then transcribes; a model that
+    /// could not be prepared, or that nothing is preparing, still fails it with that reason.
+    @MainActor
+    private static func runWaitForSpeechChecks() async throws -> Int {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_QUIT_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        let fm = FileManager.default
+        let fixture = fm.temporaryDirectory.appendingPathComponent("Workbench-quit-speech-\(UUID().uuidString)")
+        var domains: [String] = []
+        defer {
+            for domain in domains { UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain) }
+            try? fm.removeItem(at: fixture)
+        }
+        func saved(_ root: URL) -> ReadbackSection? { try? ReadbackStore.load(from: root).sections.first }
+        func waitFor(_ message: String, _ ready: () async -> Bool) async throws {
+            for _ in 0..<500 {
+                if await ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_QUIT_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        func launch(_ name: String) throws -> (URL, UserDefaults) {
+            let root = fixture.appendingPathComponent("speech-\(name)")
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic relaunch")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            try ReadbackStore.writePrivate(Data("Synthetic kept narration".utf8), to: root.appendingPathComponent(directory + "/narration.wav"))
+            manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: directory + "/narration.wav", originalTranscript: nil, transcript: nil, status: .queued, failure: nil, deletedAt: nil)]
+            try ReadbackStore.save(manifest, at: root)
+            let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.QuitSpeech.\(UUID().uuidString)").path
+            domains.append(domain)
+            let defaults = UserDefaults(suiteName: domain)!
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            return (root, defaults)
+        }
+        func engine(_ held: HeldSpeechPreparation, _ defaults: UserDefaults) -> RecognitionEngine {
+            RecognitionEngine(store: .init(defaults: defaults), services: .init(prepareCached: { _ in
+                try await held.prepare()
+                return .init(backend: RecognitionBackend(transcribe: { _ in "Synthetic words" }, transcribeLive: { _ in [] }))
+            }, acquire: { _ in throw CancellationError() }, send: { _ in throw URLError(.cannotConnectToHost) }))
+        }
+
+        // As at launch: AppModel starts preparing, then Snap & Talk resumes the kept take.
+        for (name, beforeQueue) in [("launch", true), ("mid-take", false)] {
+            let (root, defaults) = try launch(name)
+            let held = HeldSpeechPreparation(fails: false), speech = engine(held, defaults)
+            var preparing: Task<Void, Error>?
+            if beforeQueue { preparing = Task { try await speech.prepareCached() } }
+            // mid-take: preparation starts after the queue looked and before the take reaches the engine.
+            var midTake: (@MainActor (URL) async throws -> String)?
+            if !beforeQueue {
+                midTake = { (url: URL) async throws -> String in
+                    if preparing == nil {
+                        preparing = Task { try await speech.prepareCached() }
+                        try await waitFor("\(name): preparation to start") { await held.started }
+                    }
+                    return try await speech.transcribe(url)
+                }
+            }
+            let model = ReadbackModel(engine: speech, defaults: defaults, transcribeAudio: midTake)
+            defer { model.shutdown() }
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+            let waiting = saved(root), heldOpen = await held.started
+            try check(heldOpen && waiting?.status == .queued && waiting?.failure == nil && model.hasPendingTranscriptions
+                && model.notice?.contains("Transcription failed") != true, "\(name): the kept take waits queued while speech prepares")
+            await held.release()
+            try await waitFor("\(name): the kept take to be ready") { saved(root)?.status == .ready }
+            try check(ReadbackStore.readText(root: root, relative: saved(root)?.transcript) == "Synthetic words" && !model.hasPendingTranscriptions,
+                "\(name): the kept take transcribes once speech is ready")
+            _ = try await preparing?.value
+        }
+
+        // Preparation stops with a reason: the take fails with that reason and Retry transcription.
+        do {
+            let (root, defaults) = try launch("failed")
+            let held = HeldSpeechPreparation(fails: true), speech = engine(held, defaults)
+            let preparing = Task { try await speech.prepareCached() }
+            let model = ReadbackModel(engine: speech, defaults: defaults)
+            defer { model.shutdown() }
+            try await waitFor("failed: preparation to start") { await held.started }
+            await held.release()
+            try await waitFor("failed: the take to fail") { saved(root)?.status == .failed }
+            try check(saved(root)?.failure?.contains("Synthetic saved model could not be read.") == true
+                && model.notice?.contains("Transcription failed") == true, "failed: the take fails with the model's reason")
+            _ = try? await preparing.value
+        }
+
+        // Nothing is preparing: the take fails at once, never a silent queue.
+        do {
+            let (root, defaults) = try launch("idle")
+            let model = ReadbackModel(engine: engine(HeldSpeechPreparation(fails: false), defaults), defaults: defaults)
+            defer { model.shutdown() }
+            try await waitFor("idle: the take to fail") { saved(root)?.status == .failed }
+            try check(saved(root)?.failure?.contains("Open Models to prepare speech first") == true, "idle: with nothing preparing the take fails as before")
+        }
+        return passed
+    }
+
+    /// A cached Parakeet load held open until the check releases it.
+    private actor HeldSpeechPreparation {
+        private(set) var started = false
+        private var continuation: CheckedContinuation<Void, Never>?
+        private let fails: Bool
+        init(fails: Bool) { self.fails = fails }
+        func prepare() async throws {
+            await withCheckedContinuation { continuation = $0; started = true }
+            if fails { throw RecognitionFailure(kind: .invalidCache, message: "Synthetic saved model could not be read.") }
+        }
+        func release() { continuation?.resume(); continuation = nil }
     }
 
     @MainActor
