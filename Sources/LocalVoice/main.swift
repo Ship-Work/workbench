@@ -741,7 +741,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard WorkbenchUpdates.shared.canTerminate(saveSession: { model?.saveBeforeUpdate() == true }) else { return .terminateCancel }
         if terminationPending { return .terminateLater }
         guard CaptureImagePreview.shared.canTerminate() else { return .terminateCancel }
-        if let model, !model.library.canTerminate() { model.page = "library"; showWindow(countsAsVisit: false); return .terminateCancel }
+        if let model, model.library.hasUnsavedDraft {
+            model.page = "library"; showWindow(countsAsVisit: false)
+            guard model.library.canTerminate() else { return .terminateCancel }
+        }
         guard let model, model.meetings.isBusy || model.handoffJobs.isBusy || model.hasActiveVoiceCapture else { return .terminateNow }
         terminationPending = true
         terminating = true
