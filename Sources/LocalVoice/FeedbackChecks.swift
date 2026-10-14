@@ -406,46 +406,6 @@ enum FeedbackChecks {
 
     /// Every check that says a ✓ is absent starts from one that is showing,
     /// so the absence means something (#134 T5 review).
-    /// Copy build details, through the owner Copy permission details and Home's Copy transcript
-    /// share with Meetings: a real write is confirmed for four seconds and heard once, a newer copy
-    /// owns its own lifetime, and a refused write says so instead of confirming.
-    private static func checkCopyConfirmation(_ check: Check) throws {
-        var clock: TimeInterval = 5_000
-        var heard: [String] = []
-        let board = NSPasteboard.withUniqueName()
-        defer { board.releaseGlobally() }
-        var refuse = false
-        let updates = WorkbenchUpdates(build: WorkbenchBuild(info: ["CFBundleShortVersionString": "9.9.9", "CFBundleVersion": "synthetic"]))
-        updates.copyFeedback = TranscriptReviewFeedback(clock: { clock }, announce: { heard.append($0) })
-        updates.writeDetails = { details in
-            board.clearContents()
-            return !refuse && board.setString(details, forType: .string)
-        }
-        let feedback = updates.copyFeedback
-        updates.copyDetails()
-        try check(board.string(forType: .string) == updates.build.details && feedback.confirmation?.kind == "Copied" && feedback.problem == nil,
-                  "Copy build details writes the details, then shows ✓ Copied")
-        try check(heard == ["Copied"], "VoiceOver hears Copied once, from Settings or the app menu")
-        let first = feedback.confirmation!.lifetime.event
-        clock += 2; updates.copyDetails()
-        let second = feedback.confirmation!.lifetime.event
-        try check(second != first && heard == ["Copied", "Copied"], "a second copy two seconds later is its own confirmation, heard again")
-        clock += 2; feedback.expire(first)
-        try check(feedback.confirmation?.lifetime.event == second, "the first copy's timer cannot end the second's confirmation")
-        clock += 1.9; feedback.expire(second)
-        try check(feedback.confirmation?.lifetime.event == second, "the second copy's confirmation lasts its own four seconds")
-        clock += 0.1; feedback.expire(second)
-        try check(feedback.confirmation == nil && board.string(forType: .string) == updates.build.details,
-                  "expiry clears only the label; the copied details stay")
-        updates.copyDetails()
-        refuse = true; updates.copyDetails()
-        try check(feedback.confirmation == nil && feedback.problem?.contains("could not be copied") == true && heard.count == 3,
-                  "a refused write clears the showing ✓, says why and is not heard as a success")
-        refuse = false; updates.copyDetails()
-        try check(feedback.confirmation?.kind == "Copied" && feedback.problem == nil && heard.count == 4,
-                  "the next real copy confirms and clears the reason")
-    }
-
     private static func checkShortcutConfirmation(_ check: Check) throws {
         var clock: TimeInterval = 2_000
         let start = VoiceShortcut(keyCode: UInt32(kVK_ANSI_1), modifiers: UInt32(optionKey))
@@ -536,5 +496,47 @@ enum FeedbackChecks {
         _ = refusing.handle(key(.keyDown, kVK_ANSI_3))
         try check(refusing.confirmation == nil && refusing.hasError && refusing.selected?.shortcut == start && refusedHeard.isEmpty,
                   "✓ Saved never shows, or is heard, when the owner could not keep the change")
+    }
+
+    // MARK: Copied
+
+    /// Copy build details, through the owner Copy permission details and Home's Copy transcript
+    /// share with Meetings: a real write is confirmed for four seconds and heard once, a newer copy
+    /// owns its own lifetime, and a refused write says so instead of confirming.
+    private static func checkCopyConfirmation(_ check: Check) throws {
+        var clock: TimeInterval = 5_000
+        var heard: [String] = []
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        var refuse = false
+        let updates = WorkbenchUpdates(build: WorkbenchBuild(info: ["CFBundleShortVersionString": "9.9.9", "CFBundleVersion": "synthetic"]))
+        updates.copyFeedback = TranscriptReviewFeedback(clock: { clock }, announce: { heard.append($0) })
+        updates.writeDetails = { details in
+            board.clearContents()
+            return !refuse && board.setString(details, forType: .string)
+        }
+        let feedback = updates.copyFeedback
+        updates.copyDetails()
+        try check(board.string(forType: .string) == updates.build.details && feedback.confirmation?.kind == "Copied" && feedback.problem == nil,
+                  "Copy build details writes the details, then shows ✓ Copied")
+        try check(heard == ["Copied"], "VoiceOver hears Copied once, from Settings or the app menu")
+        let first = feedback.confirmation!.lifetime.event
+        clock += 2; updates.copyDetails()
+        let second = feedback.confirmation!.lifetime.event
+        try check(second != first && heard == ["Copied", "Copied"], "a second copy two seconds later is its own confirmation, heard again")
+        clock += 2; feedback.expire(first)
+        try check(feedback.confirmation?.lifetime.event == second, "the first copy's timer cannot end the second's confirmation")
+        clock += 1.9; feedback.expire(second)
+        try check(feedback.confirmation?.lifetime.event == second, "the second copy's confirmation lasts its own four seconds")
+        clock += 0.1; feedback.expire(second)
+        try check(feedback.confirmation == nil && board.string(forType: .string) == updates.build.details,
+                  "expiry clears only the label; the copied details stay")
+        updates.copyDetails()
+        refuse = true; updates.copyDetails()
+        try check(feedback.confirmation == nil && feedback.problem?.contains("could not be copied") == true && heard.count == 3,
+                  "a refused write clears the showing ✓, says why and is not heard as a success")
+        refuse = false; updates.copyDetails()
+        try check(feedback.confirmation?.kind == "Copied" && feedback.problem == nil && heard.count == 4,
+                  "the next real copy confirms and clears the reason")
     }
 }
