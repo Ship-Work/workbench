@@ -116,9 +116,12 @@ enum ImageWorkspaceChecks {
             try render(preview.panel!, to: output.appendingPathComponent("image-workspace-small.png"))
             preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
         }
+        // "pricing," and a Tags field typed in then cleared leave empty pieces; Save keeps only real tags.
+        editor.draft.tags = ["pricing", ""]
         preview.saveEditing(copy: false); try await settle(preview)
         let saved = try store.snapshot(first.id)
         try check(preview.editing == nil && snap.draft == nil && preview.panel === originalPanel, "Save returns to viewing in the same window")
+        try check(saved.item.tags == ["pricing"], "Save drops the empty tag a trailing comma leaves")
         try check(saved.originalPNG == png && saved.item.edit.marks.first?.kind == .text && saved.item.formatVersion == 2, "saved text is reopenable and original remains exact")
         preview.step(1); try await settle(preview); preview.step(-1); try await settle(preview)
         preview.beginEditing(); try await settle(preview)
@@ -127,8 +130,9 @@ enum ImageWorkspaceChecks {
         let source = root.appendingPathComponent("Frozen session image.png"); try png.write(to: source)
         preview.show(.savedCopy(title: "Frozen input", url: source)); try await settle(preview); preview.beginEditing(); try await settle(preview)
         try check(preview.editing?.draft.existing == nil && preview.editing?.draft.originalPNG == (try SnapRendering.png(png)), "frozen source edits become new full-resolution Snaps")
-        preview.editing?.addText(); preview.saveEditing(copy: false); try await settle(preview)
+        preview.editing?.addText(); preview.editing?.draft.tags = [""]; preview.saveEditing(copy: false); try await settle(preview)
         try check(try Data(contentsOf: source) == png && store.load().items.count == 3, "saving a copy leaves frozen input unchanged")
+        try check(try store.load().items.contains { $0.title == "Saved image for Frozen input" && $0.tags.isEmpty }, "Save of a cleared Tags field stores no tags")
         if case .snap(let savedRoot, let savedID) = preview.model?.item.source {
             try check(savedRoot == store.root && (try store.read(savedID)).edit.marks.first?.kind == .text,
                       "Save a copy returns to the newly edited image in the same workspace")
