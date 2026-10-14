@@ -244,6 +244,13 @@ final class MeetingModel: ObservableObject {
         refreshAdmission()
     }
 
+    /// Returning to Workbench rereads the audio apps (CoreAudio metadata only, no permission or
+    /// capture) so the picker and Ready to record match what is running now.
+    func refreshSourcesOnReturn() {
+        guard !isBusy, !shuttingDown else { refreshAdmission(); return }
+        refreshApps()
+    }
+
     func start(expectedApp: MeetingAudioApp? = nil) async {
         guard !isBusy, !shuttingDown else { return }
         if selectedAppID != nil { refreshApps() }

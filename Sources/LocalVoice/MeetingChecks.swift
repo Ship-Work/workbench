@@ -1131,6 +1131,29 @@ enum MeetingChecks {
         admissionModel.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
         try expect(admissionModel.admission.canStart && admissionModel.selectedAppID == 432 && admissionModel.includeMicrophone && captureCalls == 0,
                    "Models readiness return retains source and microphone choices without starting")
+        // Returning to Workbench rereads the apps: a call app opened meanwhile appears, a quit one is not Ready to record.
+        let zoom = source.values[0], teams = MeetingProcessSnapshot(pid: 433, bundleID: "com.microsoft.teams2", isRunningInput: true, isRunningOutput: true)
+        source.values = [zoom, teams]; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.apps.map(\.id).contains(433) && admissionModel.selectedAppID == 432 && admissionModel.admission.canStart
+                   && captureCalls == 0 && permissionCalls == 0, "returning shows a newly opened call app and keeps the chosen one, without capture or permission")
+        source.values = []; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.admission.captureProblem == .sourceDisappeared && !admissionModel.admission.canStart,
+                   "returning after the chosen app quit says so before Start")
+        source.values = [zoom, teams]; admissionModel.refreshSourcesOnReturn(); source.failure = true; admissionModel.refreshSourcesOnReturn()
+        if case .sourceProbe = admissionModel.admission.captureProblem {} else { throw MeetingError.message("A failed read on return became disappearance") }
+        try expect(Set(admissionModel.apps.map(\.id)) == [432, 433], "a failed read on return keeps the previous apps with typed uncertainty")
+        source.failure = false; admissionModel.refreshSourcesOnReturn()
+        let parked = Task { await admissionModel.start() }
+        await waitUntil { permission.isWaiting }
+        let parkedCalls = source.calls
+        source.values = [zoom]; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.isStarting && source.calls == parkedCalls && Set(admissionModel.apps.map(\.id)) == [432, 433],
+                   "returning during a start parked on the microphone prompt rereads nothing")
+        admissionModel.updateHostAdmission(.init()); permission.resume(true); await parked.value
+        microphone = .notDetermined; admissionModel.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
+        admissionModel.refreshApps()
+        try expect(captureCalls == 0 && MeetingStore.sessions(in: admissionRoot).isEmpty && !admissionModel.isBusy,
+                   "the parked start ends without capture")
         source.failure = true; admissionModel.refreshApps()
         if case .sourceProbe = admissionModel.admission.captureProblem {} else { throw MeetingError.message("Failed enumeration became disappearance") }
         try expect(admissionModel.apps.contains { $0.id == 432 }, "failed enumeration retains the selected source while showing typed uncertainty")
