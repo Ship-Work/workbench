@@ -575,6 +575,7 @@ enum ReadbackChecks {
         try check(reconciled.sections[1].status == .needsNarration && reconciled.sections[1].failure?.contains("interrupted") == true, "only an orphaned recording is marked interrupted")
         print("READBACK_RECOVERY_CHECKS_OK: \(passed) checks")
         try await runQuitChecks()
+        try await runRetakeChecks()
     }
 
     /// With the microphone off, a section that needs narration is finished by typing a note.
@@ -752,6 +753,130 @@ enum ReadbackChecks {
         print("READBACK_QUIT_CHECKS_OK: \(passed) checks")
     }
 
+    /// A retake that passes Stop's quiet screen but transcribes to no words keeps the section's
+    /// earlier notes or narration and offers no retry (#342); words replace them, and a real
+    /// engine failure keeps Retry transcription with the earlier text still on disk.
+    @MainActor
+    private static func runRetakeChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_RETAKE_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        func waitFor(_ message: String, _ ready: () -> Bool) async throws {
+            for _ in 0..<500 {
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_RETAKE_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        let fm = FileManager.default
+        let fixture = fm.temporaryDirectory.appendingPathComponent("Workbench-retake-\(UUID().uuidString)")
+        var domains: [String] = []
+        defer {
+            for domain in domains { UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain) }
+            try? fm.removeItem(at: fixture)
+        }
+        struct Outcome { let root: URL; let directory: String; let section: ReadbackSection; let notice: String?; let draft: String?; let history: [String] }
+        /// Records a clear synthetic take over a section, stops it and ends recognition with `finish`.
+        func retake(_ name: String, status: ReadbackSectionStatus, audio: Bool, original: String?, edited: String?,
+                    finish: (ControlledTranscriber) -> Void) async throws -> Outcome {
+            let root = fixture.appendingPathComponent(name)
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic retake")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            if audio { try ReadbackStore.writePrivate(Data("Synthetic earlier audio".utf8), to: root.appendingPathComponent(directory + "/narration.wav")) }
+            if let original { try ReadbackStore.writePrivate(Data(original.utf8), to: root.appendingPathComponent(directory + "/narration-original.txt")) }
+            if let edited { try ReadbackStore.writePrivate(Data(edited.utf8), to: root.appendingPathComponent(directory + "/narration.txt")) }
+            manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: audio ? directory + "/narration.wav" : nil, originalTranscript: original == nil ? nil : directory + "/narration-original.txt",
+                transcript: edited == nil ? nil : directory + "/narration.txt", status: status, failure: nil, deletedAt: nil)]
+            try ReadbackStore.save(manifest, at: root)
+            let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.Retake.\(UUID().uuidString)").path
+            domains.append(domain)
+            let defaults = UserDefaults(suiteName: domain)!
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            let transcriber = ControlledTranscriber()
+            let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+                makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+            defer { model.shutdown(); transcriber.cancel() }
+            model.startNarration(for: id)
+            try check(model.isRecording, "\(name): the retake starts on the synthetic recorder")
+            try await waitFor("\(name) meter tick") { model.recordingElapsed > 0 }
+            model.stopNarration()
+            try await waitFor("\(name) recognition") { transcriber.calls == 1 }
+            let queued = try ReadbackStore.load(from: root).sections[0]
+            try check(queued.audio == directory + "/narration.wav" && queued.originalTranscript == nil,
+                "\(name): Stop sets aside only the earlier audio and its original")
+            if let edited {
+                try check(queued.transcript == directory + "/narration.txt"
+                    && ReadbackStore.readText(root: root, relative: queued.transcript) == edited
+                    && (model.transcriptDrafts[id] ?? "") == edited,
+                    "\(name): Stop keeps the earlier text linked and in the page's draft while the take transcribes")
+            }
+            finish(transcriber)
+            try await waitFor("\(name) recognition to end") {
+                (try? ReadbackStore.load(from: root).sections[0].status).map { ![.queued, .transcribing].contains($0) } ?? false
+            }
+            let history = (try? fm.contentsOfDirectory(atPath: root.appendingPathComponent(directory + "/history").path)) ?? []
+            return Outcome(root: root, directory: directory, section: try ReadbackStore.load(from: root).sections[0],
+                           notice: model.notice, draft: model.transcriptDrafts[id], history: history)
+        }
+        func offersNoRetry(_ outcome: Outcome) -> Bool {
+            outcome.section.status != .failed && outcome.notice?.localizedCaseInsensitiveContains("retry") != true
+                && outcome.section.failure?.localizedCaseInsensitiveContains("retry") != true
+        }
+        let kept = "No speech heard. The screenshot and any earlier narration were kept."
+
+        // 1. Imported notes: the notes stay, the silent take goes to history, and nothing offers a retry.
+        let notes = try await retake("notes", status: .ready, audio: false, original: nil, edited: "My notes") { $0.complete("") }
+        try check(notes.section.status == .ready && notes.section.failure == nil && notes.section.audio == nil,
+            "notes: an empty result leaves the section ready with no audio to retry")
+        try check(ReadbackStore.readText(root: notes.root, relative: notes.section.transcript) == "My notes" && notes.draft == "My notes",
+            "notes: the notes stay on disk and in the page")
+        try check(notes.history.filter { $0.hasSuffix("-audio.wav") }.count == 1, "notes: the silent take is kept in history, never deleted")
+        try check(offersNoRetry(notes) && notes.notice == kept, "notes: no retry is offered and the notice says what was kept")
+
+        // 2. Narrated section: the edited narration stays; the earlier audio and original are in history.
+        let narrated = try await retake("narrated", status: .ready, audio: true, original: "Earlier words", edited: "Earlier words, edited") { $0.complete("") }
+        try check(narrated.section.status == .ready && narrated.section.audio == nil && offersNoRetry(narrated)
+            && ReadbackStore.readText(root: narrated.root, relative: narrated.section.transcript) == "Earlier words, edited",
+            "narrated: an empty result keeps the edited narration, ready")
+        try check(narrated.history.filter { $0.hasSuffix("-audio.wav") }.count == 2 && narrated.history.contains { $0.hasSuffix("-original-transcript.txt") },
+            "narrated: the earlier audio and original, and the silent take, are in history")
+
+        // 3. Fresh capture: its empty linked note keeps it ready, not stranded at a retry.
+        let fresh = try await retake("fresh", status: .ready, audio: false, original: nil, edited: "") { $0.complete(" \n") }
+        try check(fresh.section.status == .ready && fresh.section.audio == nil && offersNoRetry(fresh), "fresh: an empty result leaves a fresh capture ready")
+
+        // 4. Nothing linked: the section still needs narration and says to record again.
+        let bare = try await retake("bare", status: .needsNarration, audio: false, original: nil, edited: nil) { $0.complete("") }
+        try check(bare.section.status == .needsNarration && bare.section.failure == "No speech was heard. Record the narration again."
+            && bare.section.audio == nil && offersNoRetry(bare), "bare: an empty result asks to record again, not to retry")
+
+        // 5. A real engine failure keeps Retry transcription; the earlier notes stay linked on disk.
+        let failed = try await retake("engine-failure", status: .ready, audio: false, original: nil, edited: "My notes") {
+            $0.fail(ReadbackError.message("Synthetic engine failure."))
+        }
+        try check(failed.section.status == .failed && failed.section.audio != nil && failed.notice?.contains("kept for retry") == true,
+            "engine failure: the take fails with its audio kept for Retry transcription")
+        try check(ReadbackStore.readText(root: failed.root, relative: failed.section.transcript) == "My notes",
+            "engine failure: the earlier notes are still on disk and linked")
+
+        // 6. Words replace the earlier text, which moves to history.
+        let words = try await retake("words", status: .ready, audio: true, original: "Earlier words", edited: "Earlier words, edited") { $0.complete("New words") }
+        try check(words.section.status == .ready && words.section.audio == words.directory + "/narration.wav"
+            && ReadbackStore.readText(root: words.root, relative: words.section.transcript) == "New words"
+            && ReadbackStore.readText(root: words.root, relative: words.section.originalTranscript) == "New words",
+            "words: the new narration is the section's text and original")
+        let archived = try words.history.filter { $0.hasSuffix("-edited-transcript.txt") }
+            .map { try String(contentsOf: words.root.appendingPathComponent(words.directory + "/history/" + $0), encoding: .utf8) }
+        try check(archived == ["Earlier words, edited"], "words: the earlier edited narration is archived, not overwritten")
+        print("READBACK_RETAKE_CHECKS_OK: \(passed) checks")
+    }
+
     /// The next launch meets the real engine while Parakeet still loads: its admission refuses
     /// until preparation finishes. A kept take waits queued and then transcribes; a model that
     /// could not be prepared, or that nothing is preparing, still fails it with that reason.
@@ -880,6 +1005,7 @@ enum ReadbackChecks {
         }
 
         func complete(_ result: String) { pending.removeFirst().resume(returning: result) }
+        func fail(_ error: Error) { pending.removeFirst().resume(throwing: error) }
         func cancel() {
             let continuations = pending; pending = []
             for continuation in continuations { continuation.resume(throwing: CancellationError()) }
