@@ -183,7 +183,7 @@ Draft the customer-facing copy once, then use the same opening and outcomes in t
 - **[Another useful outcome.]** [A concrete benefit in one sentence.]
 - **[A fix worth knowing about.]** [The problem the person will no longer hit.]
 
-Choose Settings → Workbench updates when you’re ready. Your saved work stays in this edition’s library.
+Choose Update to [version] in the sidebar when you’re ready, or check from Settings › General › Updates. Your saved work stays in this edition’s library.
 ```
 
 For a first download, add the short instruction to unzip, move the app to Applications and open it from there. An update refusal about the download location needs the same quit, move and relaunch steps. Preserve an existing Applications location and name any real migration limit. Follow the outcomes with a separate Verification section on GitHub for exact version/build/source, signing, tests actually run and remaining limits. Keep a user-relevant limitation beside the affected outcome when it changes whether someone can use it. Check the HTML at a narrow updater width and the Markdown preview before packaging; keep their claims aligned. Release notes are frozen into the signed feed, so later copy changes belong to a newly prepared release.

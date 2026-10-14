@@ -69,7 +69,7 @@ struct BugReportView: View {
             evidence
             email
             inclusion
-            if let problem = model.problem, !model.problemNearEvidence { problemRow(problem) }
+            if let problem = model.problem, model.problemPlacement == .form { problemRow(problem) }
             if let note = model.note {
                 WorkbenchNote(note, tone: .done)
             }
@@ -119,9 +119,10 @@ struct BugReportView: View {
     private var evidence: some View {
         VStack(alignment: .leading, spacing: 10) {
             screenshotRow
+            if let problem = model.problem, model.problemPlacement == .screenshot { problemRow(problem) }
             Divider()
             voiceRow
-            if let problem = model.problem, model.problemNearEvidence { problemRow(problem) }
+            if let problem = model.problem, model.problemPlacement == .voice { problemRow(problem) }
         }
         .reportCard(padding: 12)
     }

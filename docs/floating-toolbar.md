@@ -304,13 +304,18 @@ sized from its content's `onGeometryChange` report, never from a background
 
 From the toolbar's Prompts, the original field, value and UTF-16 selection are
 captured before the picker opens. Supported fields receive confirmed literal
-chunks; other readable fields get one guarded paste labelled as such. Without
+chunks, two Characters first and then doubling to 256, each confirmed after 45 ms, so
+a 2,000-Character prompt lands in about a second and one at the 50,000-Character
+limit in about ten seconds; other readable fields get one guarded paste labelled as such. Without
 Accessibility approval, or with no readable field, the action is Copy prompt: one
 copy of the exact text and the Copied, Paste with ⌘V. receipt, with no paste or
 Accessibility write. Library's Saved Prompts… never captures an external field: it
 copies the complete prompt through Library's copy owner and reports clipboard
 failure beside the resource. The last delivery is one line naming its destination,
-with Details for the full reason. Escape, Stop, changed focus/selection/value and
+with Details for the full reason. Since the picker has closed by then, a delivery
+that ends any other way than inserted also shows dictation's brief delivery cue at
+the toolbar's place: Delivery stopped with its short reason, or the paste
+fallback's Copied or Paste unconfirmed; a confirmed insertion or paste stays quiet. Escape, Stop, changed focus/selection/value and
 shortcut editing cancel insertion. No partial write is replayed and no submit key
 is sent. (Restored 7 October 2026: the consolidation had removed the toolbar door
 without an owner decision.)

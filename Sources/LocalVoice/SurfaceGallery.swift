@@ -740,7 +740,7 @@ private struct HistoryNativeAcceptanceView: View {
             }),
             // A result too long for one line gets Details. With no field, nothing is typed.
             ("details", "With the status line's Details", {
-                delivery.insert("Synthetic prompt.", title: "Walk through onboarding", into: nil); controller.shownModel?.showsDetails = true
+                delivery.insert("Synthetic prompt.", title: "Walk through onboarding", into: nil, receipts: receipts); controller.shownModel?.showsDetails = true
             }),
             ("all", "Every prompt again", { controller.shownModel?.list.query = "" })]
         var shots: [SurfaceGallery.Shot] = [], checks: [SurfaceGallery.PickerHostCheck] = []
@@ -878,6 +878,27 @@ private struct HistoryNativeAcceptanceView: View {
                                   file: "panel-floating-receipt-\(theme).png", to: output))
         }
 
+        model.clipboardReceipt.holdHUD(false)
+        model.clipboardReceipt.clear()
+
+        // A prompt that stopped after the picker closed, in the same cue (#159).
+        let stopped = PromptAttempt(prompt: "Walk through onboarding", destination: "Notes",
+                                    result: "Insertion could not be confirmed. Check the destination; nothing was replayed.")
+        guard let stoppedCue = PromptInsertion.cue(for: stopped, paste: nil) else { throw VoiceError.message("A stopped prompt recorded no cue.") }
+        model.clipboardReceipt.record(outcome: stoppedCue, wordCount: 120, source: .prompt)
+        model.clipboardReceipt.holdHUD(true)
+        do {
+            let size = CaptureHUDLayout.compact
+            let host = NSHostingView(rootView: ClipboardCueHUD(receipts: model.clipboardReceipt).frame(width: size.width, height: size.height)
+                .background(Color(nsColor: .windowBackgroundColor)))
+            let window = offscreenWindow(size: size, styleMask: [.borderless])
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            settle(host)
+            shots.append(try save(try snapshot(host), id: "floating-receipt-prompt-stopped", title: "Floating: prompt delivery stopped",
+                                  detail: "A prompt insertion that stopped once the picker had closed: Delivery stopped and its short reason, in the same brief cue. The picker keeps Details.",
+                                  file: "panel-floating-receipt-prompt-stopped-\(theme).png", to: output))
+        }
         model.clipboardReceipt.holdHUD(false)
         model.clipboardReceipt.clear()
 

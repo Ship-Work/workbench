@@ -243,8 +243,9 @@ enum BugReportEnvelope {
     struct RateLimit: Equatable {
         /// Seconds before the report may be sent again.
         var wait: TimeInterval
-        /// Only the attachment category is limited: the feedback event itself went through, so the
-        /// report counts as Sent and the verifier decides whether its files arrived.
+        /// Only attachments (by size or by count) are limited: the feedback event itself went through,
+        /// so the report counts as Sent, words only. Relay queues what it accepted and still answers
+        /// 429 when it dropped any item (HandledEnvelope::check_rate_limits), so this holds on 2xx or 429.
         var attachmentsOnly: Bool
     }
 
@@ -255,10 +256,10 @@ enum BugReportEnvelope {
             guard let first = fields.first, let seconds = Double(first.trimmingCharacters(in: .whitespaces)), seconds.isFinite, seconds >= 0 else { continue }
             let categories = fields.count > 1 ? fields[1].split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) } : []
             if categories.isEmpty || categories.contains("feedback") { feedback = max(feedback ?? 0, seconds) }
-            else if categories.contains("attachment") { attachment = max(attachment ?? 0, seconds) }
+            else if categories.contains("attachment") || categories.contains("attachment_item") { attachment = max(attachment ?? 0, seconds) }
         }
         if let feedback { return RateLimit(wait: min(86_400, max(1, max(feedback, attachment ?? 0))), attachmentsOnly: false) }
-        if status != 429, let attachment { return RateLimit(wait: min(86_400, max(1, attachment)), attachmentsOnly: true) }
+        if let attachment { return RateLimit(wait: min(86_400, max(1, attachment)), attachmentsOnly: true) }
         guard status == 429 else { return nil }
         return RateLimit(wait: retryAfterSeconds(retryAfter, now: now) ?? 60, attachmentsOnly: false)
     }

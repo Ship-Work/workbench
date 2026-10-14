@@ -110,6 +110,7 @@ enum WorkbenchUpdateChecks {
         policy.receiveOffer(version: item.displayVersionString, buildNumber: "different-build", summary: nil, downloaded: true, reply: { choices.append($0) })
         try require(choices.count == 3 && !policy.installRequested, "same marketing version with a different build needs fresh consent")
         policy.finishUpdateSession(); policy.enabled = false
+        try failureChecks(release: release, updater: updater, current: currentError)
         // Match Sparkle's optional-delegate dispatch without starting a network
         // session: an absent callback admits background and information checks.
         let admission = NSSelectorFromString("updater:mayPerformUpdateCheck:error:")
@@ -128,7 +129,7 @@ enum WorkbenchUpdateChecks {
         try require(WorkbenchUpdateSummary.text(from: "<p>Unfinished", format: "html") == nil, "malformed notes have no invented benefit")
         try require(WorkbenchUpdateSummary.text(from: String(repeating: "a", count: 65_000), format: "html") == nil, "oversized notes stay bounded")
         try require(WorkbenchUpdateSummary.text(from: "First benefit.\n\nDetails.", format: "plain-text") == "First benefit.", "plain text keeps the short opening")
-        print("WORKBENCH_UPDATE_CHECKS_OK: identity, one-click choices, failure cleanup, release summary, seven activity gates and restart policy")
+        print("WORKBENCH_UPDATE_CHECKS_OK: identity, one-click choices, failure cleanup and reasons, release summary, seven activity gates and restart policy")
     }
 }
 
@@ -157,6 +158,66 @@ enum WorkbenchUpdateChecks {
 }
 
 extension WorkbenchUpdateChecks {
+    /// Sparkle 2.10's real codes and userInfo reach the real abort delegate, and Settings gets
+    /// the reason and the fix rather than "Update check:" and a raw domain and code.
+    @MainActor private static func failureChecks(release: WorkbenchBuild, updater: SPUUpdater, current: NSError) throws {
+        func require(_ condition: Bool, _ message: String) throws {
+            if !condition { throw VoiceError.message("Update failures: " + message) }
+        }
+        func sparkle(_ code: SUError, _ info: [String: Any]? = nil) -> NSError {
+            NSError(domain: SUSparkleErrorDomain, code: Int(code.rawValue), userInfo: info)
+        }
+        let connection = "Couldn’t reach the update server", secure = "secure connection couldn’t be verified"
+        // (a) Cancelling macOS's installer authorization: Sparkle gives 4007 with no userInfo.
+        let policy = WorkbenchUpdates(build: release)
+        var replies: [SPUUserUpdateChoice] = []
+        policy.receiveOffer(version: "9.1.0", summary: nil, downloaded: true, reply: { replies.append($0) })
+        policy.checkForUpdates()
+        try require(replies == [.install] && policy.installRequested, "fixture: one chosen install")
+        policy.updater(updater, didAbortWithError: sparkle(.installationCanceledError))
+        policy.enabled = true
+        try require(policy.status.contains("not installed") && !policy.status.contains("SUSparkleErrorDomain")
+            && !policy.status.contains("Update check:"), "a cancelled authorization says nothing was installed: \(policy.status)")
+        try require(!policy.installRequested && policy.availableVersion == nil && policy.canCheck && replies == [.install],
+                    "a cancelled authorization leaves Check for Updates… ready and replays nothing")
+        // (b, c) A copy opened where it was unzipped, or from a read-only volume.
+        let translocated = sparkle(.runningTranslocated, [
+            NSLocalizedDescriptionKey: "Workbench can’t be updated if it’s running from the location it was downloaded to.",
+            NSLocalizedRecoverySuggestionErrorKey: "Please move Workbench to your Applications folder, relaunch it from there, and try again."])
+        let readOnly = sparkle(.runningFromDiskImageError, [
+            NSLocalizedDescriptionKey: "Workbench can’t be updated, because it was opened from a read-only or a temporary location.",
+            NSLocalizedRecoverySuggestionErrorKey: "Use Finder to copy Workbench to the Applications folder, relaunch it from there, and try again."])
+        for error in [translocated, readOnly] {
+            policy.updater(updater, didAbortWithError: current)
+            policy.updater(updater, didAbortWithError: error)
+            try require(policy.status.hasPrefix(error.localizedDescription) && policy.status.contains("Applications")
+                && policy.status.contains("Go › Home") && policy.status.contains("open that copy")
+                && !policy.status.contains("Update check:") && !policy.checkedCurrent,
+                "an app outside Applications says how to move it (\(error.code)): \(policy.status)")
+        }
+        // (d, e, f) Offline arrives as 2001 wrapping 2001 wrapping the URL error.
+        func download(_ underlying: NSError?) -> NSError {
+            let inner = sparkle(.downloadError, underlying.map { [NSUnderlyingErrorKey: $0] })
+            return sparkle(.downloadError, [NSLocalizedDescriptionKey: "An error occurred in retrieving update information. Please try again later.",
+                                            NSUnderlyingErrorKey: inner])
+        }
+        policy.updater(updater, didAbortWithError: download(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)))
+        try require(policy.status.contains(connection) && !policy.status.contains(secure), "a nested offline cause says so: \(policy.status)")
+        policy.updater(updater, didAbortWithError: download(NSError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted)))
+        try require(policy.status.contains(secure) && !policy.status.contains(connection), "a certificate failure is not called offline: \(policy.status)")
+        policy.updater(updater, didAbortWithError: download(nil))
+        try require(!policy.status.contains(connection) && !policy.status.contains(secure)
+            && policy.status == "Update check: An error occurred in retrieving update information. Please try again later.",
+            "a download error without a cause keeps Sparkle's description: \(policy.status)")
+        // (g) Anything else keeps its description and recovery suggestion.
+        policy.updater(updater, didAbortWithError: NSError(domain: "Other", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Something else.", NSLocalizedRecoverySuggestionErrorKey: "Try X."]))
+        try require(policy.status == "Update check: Something else. Try X.", "an unknown failure keeps its suggestion: \(policy.status)")
+        policy.receiveOffer(version: "9.1.1", summary: nil, downloaded: false, reply: { replies.append($0) })
+        policy.updater(updater, didAbortWithError: NSError(domain: "Other", code: 1, userInfo: [NSLocalizedDescriptionKey: "Something else."]))
+        try require(policy.status == "Update not finished: Something else.", "a failure after an offer is not called a check: \(policy.status)")
+    }
+
     @MainActor private static func driverChecks() throws {
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw VoiceError.message("Update driver: " + message) }
