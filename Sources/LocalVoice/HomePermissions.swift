@@ -561,7 +561,8 @@ struct HomePermissionsPanel: View {
     var refresh: () -> Void
     @State private var showingDetails = false
     @State private var problem: String?
-    @State private var copiedDetails = false
+    /// Copy permission details' four-second “Copied”, on the shared owner.
+    @StateObject private var copyFeedback = TranscriptReviewFeedback()
 
     var body: some View {
         let expanded = snapshot.expanded(dismissed: dismissed, offWhenDismissed: offWhenDismissed) || showingDetails
@@ -588,10 +589,11 @@ struct HomePermissionsPanel: View {
                     .buttonStyle(.workbenchLink).font(.callout)
                     .help(snapshot.isComplete ? "Fold the panel to one line." : "Fold the panel to one line. It opens again only if something else turns off.")
                     .accessibilityIdentifier("home.permissions.fold")
-                    Button(copiedDetails ? "Copied" : "Copy permission details") { copyDetails() }
+                    Button("Copy permission details") { copyDetails() }
                         .buttonStyle(.workbenchLink).font(.callout)
                         .help("Copies what Workbench needs and what this Mac reports, for your IT team. It holds none of your words or files.")
                         .accessibilityIdentifier("home.permissions.copyDetails")
+                    ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"]).font(.callout)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -674,10 +676,13 @@ struct HomePermissionsPanel: View {
         Task {
             let facts = await MacPermissionDetails.liveFacts(accessibilityAsked: asked, delivery: delivery, paste: paste)
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(MacPermissionDetails.text(snapshot, facts), forType: .string)
-            copiedDetails = true
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            copiedDetails = false
+            let failure = "Permission details could not be copied. Try again."
+            if NSPasteboard.general.setString(MacPermissionDetails.text(snapshot, facts), forType: .string) {
+                copyFeedback.finish("Copied")
+                if problem == failure { problem = nil }
+            } else {
+                copyFeedback.finish(nil); problem = failure
+            }
         }
     }
 }

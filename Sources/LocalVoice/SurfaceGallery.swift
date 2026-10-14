@@ -1129,6 +1129,8 @@ private struct HistoryNativeAcceptanceView: View {
         // the existing busy guard for replacing Dictate's draft.
         model.phase = .recording
         var shots: [SurfaceGallery.Shot] = []
+        // Where the words' box sits in the sheet with no capture notes, which a noted review keeps.
+        var plainBox = CGRect.null
         for (name, size) in SurfaceGallery.sizes {
             final class Frames { var values: [String: CGRect] = [:] }
             let frames = Frames()
@@ -1147,12 +1149,13 @@ private struct HistoryNativeAcceptanceView: View {
             guard model.historyDoor == nil, let sheet = window.attachedSheet, let content = sheet.contentView,
                   let frame = frames.values["history.transcript-review"],
                   let textFrame = frames.values["history.transcript-review.text"],
-                  let document = frames.values["history.transcript-review.document"],
-                  document.height > textFrame.height * 2,
+                  let document = Self.reviewDocument(in: content), document.string == item.text,
+                  document.frame.height > document.visibleRect.height * 2,
                   abs(frame.width - 640) < 1, abs(frame.height - 560) < 1,
                   textFrame.width > 500, textFrame.height > 250 else {
                 throw VoiceError.message("History did not attach the full transcript review at \(name): \(frames.values).")
             }
+            plainBox = textFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
             settle(content)
             guard model.transcript == kept.draft, model.rawTranscript == kept.raw,
                   model.historyLibrary.selected == kept.selected, model.speechText == kept.reading,
@@ -1177,6 +1180,8 @@ private struct HistoryNativeAcceptanceView: View {
                 throw VoiceError.message("Done failed to close only the transcript review.")
             }
         }
+        try checkLongTranscriptReview(kept: (kept.draft, kept.raw, kept.selected))
+        shots.append(try checkNotedTranscriptReview(plainBox: plainBox, to: output))
         let original = TranscriptReview(transcript: item, version: .original)
         guard original.text == item.rawText,
               TranscriptExport.data(for: item, version: .original) == Data(original.text.utf8),
@@ -1192,6 +1197,204 @@ private struct HistoryNativeAcceptanceView: View {
             detail: "The production review on Original wording. Copy explicitly names current text; Export original uses the exact original UTF-8 bytes. No playback, copy or export is started by opening it.",
             file: "page-history-transcript-review-original-\(theme).png", to: output))
         return shots
+    }
+
+    /// The review's native text view: read-only, selectable, the saved words exactly.
+    static func reviewDocument(in view: NSView) -> NSTextView? {
+        func documents(_ view: NSView) -> [NSTextView] {
+            (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(documents)
+        }
+        return documents(view).first { !$0.isEditable && $0.isSelectable }
+    }
+
+    /// A meeting saved before gap notes were folded carries a note for every gap, up to the 32
+    /// History keeps. The notes stay above the words but scroll in their own space past about six
+    /// lines, so the sheet keeps its size and the words' box, Copy, Export and Review recording
+    /// stay where a review without notes has them. One note takes only its own lines.
+    func checkNotedTranscriptReview(plainBox: CGRect, to output: URL) throws -> SurfaceGallery.Shot {
+        let paragraphs = (1...24).map {
+            "Item \($0). Maya will review the proposal on Thursday. Sam will confirm the room and bring the revised agenda."
+        }.joined(separator: "\n\n")
+        let item = Transcript(id: UUID(uuidString: "5D1C0A1E-0000-4000-8000-000000000349")!, date: Date(timeIntervalSince1970: 1_789_401_000),
+                              text: paragraphs, seconds: 3_600, rawText: paragraphs)
+        // The wording Workbench saved for each gap before #343 folded them.
+        let notes = (1...32).map {
+            String(format: "remote: The audio source temporarily stopped supplying samples. Gap at %.2fs for %.2fs; the saved timeline includes silence.",
+                   Double($0) * 97.25, 1.5 + Double($0 % 5))
+        }
+        model.history.append(item)
+        defer {
+            model.history.removeAll { $0.id == item.id }
+            model.historyLibrary.removeReferences(kind: .transcript, ids: [item.id])
+        }
+        guard !plainBox.isNull else { throw VoiceError.message("No review without notes was measured.") }
+        final class Frames { var values: [String: CGRect] = [:] }
+        /// Opens the review with these notes; returns the sheet's content, the words' box in the
+        /// sheet, the height the notes take above the words, and whether the notes scroll.
+        func open(_ notes: [String]) throws -> (NSView, CGRect, CGFloat, Bool) {
+            model.historyLibrary.setMetadata(TranscriptMetadata(purpose: .meeting, captureNotes: notes), for: item.id)
+            guard model.historyLibrary.metadata(for: item.id).captureNotes == notes else {
+                throw VoiceError.message("The noted meeting fixture was not saved.")
+            }
+            let frames = Frames()
+            model.page = "home"; model.historyDoor = nil
+            let window = homeWindow(size: SurfaceGallery.sizes[1].size, hostsSheets: true) { frames.values[$0] = $1 }
+            let root = window.contentView?.superview ?? window.contentView!
+            windows.append(window)
+            settle(root)
+            model.openHistory(HomeMeetings.review(item.id))
+            let deadline = Date().addingTimeInterval(4)
+            repeat { settle(root, seconds: 0.1) }
+            while (window.attachedSheet == nil || frames.values["history.transcript-review.text"] == nil) && Date() < deadline
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                  let frame = frames.values["history.transcript-review"], let box = frames.values["history.transcript-review.text"],
+                  let document = Self.reviewDocument(in: content), document.string == item.text, let words = document.enclosingScrollView else {
+                throw VoiceError.message("History did not attach the review of a meeting with \(notes.count) capture notes: \(frames.values).")
+            }
+            settle(content)
+            guard abs(frame.width - 640) < 1, abs(frame.height - 560) < 1 else {
+                throw VoiceError.message("\(notes.count) capture notes resized the review to \(frame.size).")
+            }
+            func scrolls(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrolls) }
+            let placed = box.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            let scrolling = scrolls(content).contains { $0 !== words && ($0.documentView?.frame.height ?? 0) > $0.contentView.bounds.height + 1 }
+            return (content, placed, placed.height - words.frame.height - Workbench.tilePadding, scrolling)
+        }
+        var windows: [NSWindow] = []
+        defer {
+            for window in windows {
+                if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+                window.contentViewController = nil; window.close()
+            }
+        }
+        let (_, oneBox, oneHeight, oneScrolls) = try open([notes[0]])
+        // Two lines of callout text, the one note's own height, are well under 40 points.
+        guard abs(oneBox.minY - plainBox.minY) < 1, abs(oneBox.height - plainBox.height) < 1, oneHeight > 0, oneHeight < 40, !oneScrolls else {
+            throw VoiceError.message(String(format: "One capture note took %.0f pt above the words, or scrolled (%@), or moved the words' box.",
+                                            oneHeight, oneScrolls ? "yes" : "no"))
+        }
+        let (content, box, height, scrolling) = try open(notes)
+        guard abs(box.minY - plainBox.minY) < 1, abs(box.height - plainBox.height) < 1,
+              height <= TranscriptReviewView.notesHeight + 1, scrolling else {
+            throw VoiceError.message(String(format: "32 capture notes squeezed the review: words' box %.0f pt high at %.0f (%.0f at %.0f without notes), notes %.0f pt and %@.",
+                box.height, box.minY, plainBox.height, plainBox.minY, height, scrolling ? "scroll" : "do not scroll"))
+        }
+        return try save(try snapshot(content), id: "transcript-review-notes", title: "Transcript review, a meeting with 32 gap notes",
+            detail: "A meeting saved with a capture note for every gap. The notes scroll in about six lines above the words, so the sheet keeps its size and the words, Copy, Export and Review recording keep their places. One note takes only its own lines.",
+            file: "page-history-transcript-review-notes-\(theme).png", to: output)
+    }
+
+    /// A two-hour, two-sided meeting (1,200 labelled turns, about 110,000 characters) opens
+    /// through Home's door and switches wording, in the same text view, about as fast as a
+    /// five-turn one; it copies a selection exactly, and Escape or Return in the words, with or
+    /// without Caps Lock, close only the review. Both limits follow the five-turn meeting timed in
+    /// the same run, so a slower machine moves them together.
+    func checkLongTranscriptReview(kept: (draft: String, raw: String, selected: Set<WorkbenchItemReference>)) throws {
+        func meeting(_ turns: Int, _ id: Int) -> Transcript {
+            let checkpoint = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<turns).map { index in
+                LiveVoiceSegment(source: index % 2 == 0 ? .microphone : .app, start: Double(index) * 6, end: Double(index) * 6 + 5,
+                                 text: "Turn \(index + 1). Maya will review the proposal on Thursday; Sam will confirm the room."
+                                    + (index == turns - 1 ? " Final marker: cobalt orchard." : ""), isFinal: true)
+            })
+            return Transcript(id: UUID(uuidString: String(format: "5D1C0A1E-0000-4000-8000-%012d", id))!, date: Date(timeIntervalSince1970: 1_789_400_000),
+                              text: checkpoint.conversation, seconds: Double(turns) * 6, rawText: checkpoint.text)
+        }
+        let short = meeting(5, 332), long = meeting(1_200, 1_332)
+        guard long.text.count > 100_000, long.text.hasSuffix("Final marker: cobalt orchard."), long.rawText != long.text else {
+            throw VoiceError.message("The long meeting fixture is not a two-hour, two-sided transcript.")
+        }
+        model.history += [short, long]
+        defer { model.history.removeAll { $0.id == short.id || $0.id == long.id } }
+        final class Frames { var values: [String: CGRect] = [:] }
+        let frames = Frames()
+        model.page = "home"; model.historyDoor = nil
+        let window = homeWindow(size: SurfaceGallery.sizes[0].size, hostsSheets: true) { frames.values[$0] = $1 }
+        let root = window.contentView?.superview ?? window.contentView!
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+            window.contentViewController = nil; window.close()
+        }
+        settle(root)
+        func poll(_ limit: TimeInterval, until done: () -> Bool) -> TimeInterval {
+            let start = Date()
+            while !done() && Date().timeIntervalSince(start) < limit { settle(root, seconds: 0.005) }
+            return Date().timeIntervalSince(start)
+        }
+        func open(_ item: Transcript) throws -> (NSWindow, NSTextView, TimeInterval) {
+            frames.values["history.transcript-review.text"] = nil
+            let start = Date()
+            model.openHistory(HomeMeetings.review(item.id))
+            _ = poll(10) { window.attachedSheet != nil && frames.values["history.transcript-review.text"] != nil }
+            let elapsed = Date().timeIntervalSince(start)
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                  let document = Self.reviewDocument(in: content) else {
+                throw VoiceError.message("Review did not open a native text view for \(item.text.count) characters.")
+            }
+            return (sheet, document, elapsed)
+        }
+        func close(_ sheet: NSWindow, with key: (code: UInt16, text: String), flags: NSEvent.ModifierFlags = [], from document: NSTextView) throws {
+            guard sheet.makeFirstResponder(document), sheet.firstResponder === document else {
+                throw VoiceError.message("The review's words could not take keyboard focus.")
+            }
+            sheet.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber, context: nil,
+                characters: key.text, charactersIgnoringModifiers: key.text, isARepeat: false, keyCode: key.code)!)
+            _ = poll(3) { window.attachedSheet == nil }
+            guard window.attachedSheet == nil, model.transcript == kept.draft, model.rawTranscript == kept.raw,
+                  model.historyLibrary.selected == kept.selected, model.phase == .recording else {
+                throw VoiceError.message("\(key.code == 53 ? "Escape" : "Return")\(flags.contains(.capsLock) ? " with Caps Lock on" : "") in the review's words did not close only the review.")
+            }
+        }
+        /// Original wording and back, in the same text view, at the top with nothing selected.
+        /// Returns the slower switch.
+        func switchWording(_ item: Transcript, in sheet: NSWindow, _ document: NSTextView) throws -> TimeInterval {
+            func controls(_ view: NSView) -> [NSSegmentedControl] { (view as? NSSegmentedControl).map { [$0] } ?? view.subviews.flatMap(controls) }
+            guard let wording = controls(sheet.contentView!).first else { throw VoiceError.message("The review has no wording control.") }
+            var slowest: TimeInterval = 0
+            for (segment, words) in [(1, item.rawText!), (0, TranscriptExport.text(for: item, version: .cleaned))] {
+                wording.selectedSegment = segment
+                wording.sendAction(wording.action, to: wording.target)
+                let switched = poll(1) { document.string == words }
+                guard Self.reviewDocument(in: sheet.contentView!) === document, document.string == words,
+                      document.selectedRange() == NSRange(location: 0, length: 0) else {
+                    throw VoiceError.message(String(format: "A wording switch for %d characters rebuilt the review's text view or took over %.0f ms.",
+                                                    item.text.count, switched * 1000))
+                }
+                slowest = max(slowest, switched)
+            }
+            return slowest
+        }
+        let (shortSheet, shortDocument, baseline) = try open(short)
+        let shortSwitch = try switchWording(short, in: shortSheet, shortDocument)
+        try close(shortSheet, with: (36, "\r"), flags: .capsLock, from: shortDocument)
+        let (sheet, document, opened) = try open(long)
+        let current = TranscriptExport.text(for: long, version: .cleaned)
+        guard document.string == current, opened < baseline + 0.4 else {
+            throw VoiceError.message(String(format: "A 1,200-turn review took %.0f ms to open against %.0f ms for 5 turns, or showed other words.",
+                                            opened * 1000, baseline * 1000))
+        }
+        let switched = try switchWording(long, in: sheet, document)
+        guard switched < shortSwitch + 0.3 else {
+            throw VoiceError.message(String(format: "A 1,200-turn wording switch took %.0f ms against %.0f ms for 5 turns.",
+                                            switched * 1000, shortSwitch * 1000))
+        }
+        // Printed so a run's margin can be read beside its limits.
+        print(String(format: "TRANSCRIPT_REVIEW_LONG_OK: 1,200 turns opened in %.0f ms (5 turns: %.0f ms) and switched wording in %.0f ms (5 turns: %.0f ms)",
+                     opened * 1000, baseline * 1000, switched * 1000, shortSwitch * 1000))
+        let start = (current as NSString).range(of: "Others: Turn 1198.").location
+        guard start != NSNotFound else { throw VoiceError.message("The long meeting has no turn 1198 to select.") }
+        let selection = NSRange(location: start, length: 200)
+        let board = NSPasteboard(name: NSPasteboard.Name("Workbench.gallery.review-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        document.setSelectedRange(selection)
+        // What Copy writes: the text view's own pasteboard types, here on a private pasteboard.
+        guard document.writeSelection(to: board, types: document.writablePasteboardTypes),
+              board.string(forType: .string) == (current as NSString).substring(with: selection) else {
+            throw VoiceError.message("A copied selection from the review did not match the saved words.")
+        }
+        try close(sheet, with: (53, "\u{1b}"), from: document)
+        let (reopened, again, _) = try open(long)
+        try close(reopened, with: (36, "\r"), from: again)
     }
 
     /// Home at 1.35 times its text in the minimum window's content column. SwiftUI's text styles do

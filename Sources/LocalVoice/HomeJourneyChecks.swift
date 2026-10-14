@@ -321,6 +321,21 @@ enum HomeJourneyChecks {
                   "the follow-up shown is the newest task made from that meeting")
         try check(HomeMeetings.followUp(for: earlierCall.id, in: [unrelated, olderFollowUp, newerFollowUp]) { inputs[$0.id] ?? [] } == nil,
                   "a meeting nothing was made from offers Prepare follow-up…")
+        try check(HomeMeetings.followUp(for: latestMeeting.id, in: [unrelated, olderFollowUp, newerFollowUp],
+                                        inputs: { inputs[$0.id] ?? [] }, excluding: { $0.id == newerFollowUp.id })?.id == olderFollowUp.id
+                  && HomeMeetings.followUp(for: latestMeeting.id, in: [newerFollowUp], inputs: { inputs[$0.id] ?? [] },
+                                           excluding: { $0.id == newerFollowUp.id }) == nil,
+                  "an excluded newer task is passed over, and with only that task Prepare follow-up… stays")
+        try check(HomeMeetings.followUpState(.ready) == "Follow-up prepared, no result yet"
+                  && !HomeMeetings.followUpState(.ready).localizedCaseInsensitiveContains("ready")
+                  && HomeMeetings.followUpState(.completed) == "Follow-up completed" && HomeMeetings.followUpState(.failed) == "Follow-up failed"
+                  && HomeMeetings.followUpState(.cancelled) == "Follow-up cancelled",
+                  "a prepared follow-up never reads as ready; the others read as History's badges")
+        var finished = newerFollowUp
+        finished.updatedAt = newerFollowUp.updatedAt.addingTimeInterval(30); finished.status = .completed
+        try check(HomeMeetings.taskStamps([unrelated, newerFollowUp]) != HomeMeetings.taskStamps([unrelated, finished])
+                  && HomeMeetings.taskStamps([unrelated, newerFollowUp]) == HomeMeetings.taskStamps([unrelated, newerFollowUp]),
+                  "a follow-up that finishes, keeping its id, reloads the tile's task files")
 
         // Your decks: the newest presentable file in outputs/, never a note or an image.
         let now = Date(timeIntervalSince1970: 1_000)
