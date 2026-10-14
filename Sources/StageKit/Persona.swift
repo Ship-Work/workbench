@@ -79,6 +79,13 @@ enum PersonaError: LocalizedError {
     }
 }
 
+/// A library that could not be read keeps its own reason on every show door: it may hold
+/// personas, and Add stays off until it can be read, so "nothing to show" would mislead.
+struct PersonaLibraryUnreadable: LocalizedError {
+    let reason: String
+    var errorDescription: String? { reason }
+}
+
 /// A new editable portrait between choosing its picture and Add persona. It
 /// lives only in memory: nothing is written, selected or added to a group until
 /// `PersonaLibrary.add(_:)`, so Cancel or Escape at any step leaves the library
@@ -1167,7 +1174,10 @@ final class PersonaLibrary: NSObject, ObservableObject {
         let guest = requested.flatMap { id in group.map { $0.personaIDs.contains(id) } == false ? id : nil }
         let candidateIDs = group.map { (guest.map { [$0] } ?? []) + $0.personaIDs } ?? items.map(\.id)
         guard let initialID = (requested ?? selectedID).flatMap({ candidateIDs.contains($0) ? $0 : nil }) ?? candidateIDs.first
-        else { throw items.isEmpty ? PersonaError.noSavedPersona : PersonaError.emptyGroup }
+        else {
+            if items.isEmpty, let readOnlyReason { throw PersonaLibraryUnreadable(reason: readOnlyReason) }
+            throw items.isEmpty ? PersonaError.noSavedPersona : PersonaError.emptyGroup
+        }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         let deck = PersonaCardDeck(candidates: candidateIDs.compactMap { byID[$0] }, root: root,
                                    budget: cardImageBudget, label: publicLabel(for:))

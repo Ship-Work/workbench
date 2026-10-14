@@ -264,6 +264,46 @@ final class PersonaOneCardTests {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), [], "Nothing is written")
     }
 
+    /// A library that could not be read may still hold personas, and Add is off until it
+    /// can be. Every door keeps the library's own reason instead of saying nothing is saved.
+    func testShowingFromAnUnreadableLibraryKeepsItsReason() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PersonaOneCard-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // A record from a newer Workbench, holding one persona this build cannot read.
+        let record = root.appendingPathComponent("persona-library.json")
+        let newer = Data(#"{"version":4,"items":[{"id":"6B1C3E1A-0000-4000-8000-000000000001","name":"Synthetic","image":"persona-x.png"}],"groups":[],"preparedGroupIDs":[]}"#.utf8)
+        try newer.write(to: record)
+        let f = Fixture(root: root, library: PersonaLibrary(root: root, sessionHUDEnabled: false), items: [])
+        defer { cleanup(f) }
+        f.library.usesSharedControls = true
+        XCTAssertTrue(f.library.isReadOnly); XCTAssertTrue(f.library.items.isEmpty)
+        guard let reason = f.library.notice else { XCTAssertTrue(false, "The library says why it is read-only"); return }
+        let doors: [(String, () -> Void)] = [
+            ("Show", { _ = f.library.showOverlay() }),
+            ("the toolbar and panel", { _ = f.library.togglePersonaVisibility() }),
+            ("Option-F", { f.library.toggleQuickPersona() }),
+            ("Option-R", { f.library.stepQuickPersona(1) })
+        ]
+        for (door, press) in doors {
+            press()
+            XCTAssertFalse(f.library.artworkVisible, "\(door) has no card to show")
+            XCTAssertEqual(f.library.notice, reason, "\(door) keeps the library's reason")
+            XCTAssertEqual(f.library.cardFeedback, reason, "\(door) leaves the same line on the panel")
+            XCTAssertFalse(f.library.notice?.contains("Add a persona first") == true, "\(door) does not ask for an Add that is off")
+        }
+        XCTAssertEqual(try Data(contentsOf: record), newer, "The newer record is unchanged")
+
+        // A library opened read-only for another reason, such as a failed move of saved data, says that.
+        let empty = root.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let blocked = PersonaLibrary(root: empty, readOnlyReason: "Synthetic unavailable library", sessionHUDEnabled: false)
+        defer { blocked.shutdown() }
+        blocked.usesSharedControls = true
+        blocked.toggleQuickPersona()
+        XCTAssertEqual(blocked.notice, "Synthetic unavailable library")
+        XCTAssertEqual(blocked.cardFeedback, "Synthetic unavailable library")
+    }
+
     /// A group picked before it has members says that, without the group's private name;
     /// All saved then shows a card as usual.
     func testShowingAnEmptyGroupSaysSoWithoutItsName() throws {
