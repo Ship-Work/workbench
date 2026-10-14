@@ -47,6 +47,13 @@ enum PromptInsertionChecks {
         try check(longField.value == "before \(long) after" && longResult == "Prompt inserted. Nothing was submitted." && longField.pastes == 0
                   && longField.writes.count <= 14 && longField.writes.first!.count <= 2 && longField.writes.allSatisfy { $0.count <= 256 }
                   && longField.writes.map(\.count).reduce(0, +) == long.count, "a 2,000-Character prompt lands exactly in at most 14 confirmed writes")
+        // At the Library's limit the size stays at 256 for every later write: 7 growing writes, then 195.
+        let longest = String(String(repeating: unicode, count: DemoResource.promptCharacterLimit / 10).prefix(DemoResource.promptCharacterLimit))
+        let longestField = Field()
+        let longestResult = await longestField.run(longest)
+        try check(longestField.value == "before \(longest) after" && longestResult == "Prompt inserted. Nothing was submitted." && longestField.pastes == 0
+                  && longestField.writes.count == 202 && longestField.writes.first!.count <= 2 && longestField.writes.allSatisfy { $0.count <= 256 },
+                  "a prompt at the 50,000-Character Library limit lands exactly in 202 confirmed writes of at most 256")
         var confirmations = 0
         let stopsSecond = Field(); stopsSecond.afterWrite = { confirmations += 1; if confirmations == 2 { stopsSecond.cancelled = true } }
         let stopsResult = await stopsSecond.run(long)

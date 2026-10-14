@@ -15,7 +15,8 @@ struct PromptInsertionPlan {
     }
     /// Two Characters first, to learn that the field takes confirmed writes, then doubling to
     /// at most 256: a long prompt lands in about a second, and every write is still confirmed.
-    var nextChunk: String { String(remaining.prefix(confirmedWrites == 0 ? 2 : min(256, 2 << confirmedWrites))) }
+    /// The exponent stops at 7, so the size cannot overflow on a 50,000-Character prompt.
+    var nextChunk: String { String(remaining.prefix(confirmedWrites == 0 ? 2 : 2 << min(confirmedWrites, 7))) }
     mutating func acknowledge(_ chunk: String) {
         guard !chunk.isEmpty, remaining.hasPrefix(chunk), let range = Range(selection, in: expectedValue) else { return }
         expectedValue.replaceSubrange(range, with: chunk)
