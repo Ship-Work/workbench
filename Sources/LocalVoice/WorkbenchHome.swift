@@ -463,7 +463,7 @@ struct WorkbenchHome: View {
     static let sectionSummaries: [String: String] = [
         "settings": "How Workbench looks, starts and updates.",
         "shortcuts": "One set of shortcuts for speaking, drawing and presenting.",
-        "models": "The models that hear and tidy your words on this Mac.",
+        "models": "Speech and writing models, all running on this Mac.",
         "connections": "Assistants that can take work you hand off from History.",
         "library": "Keep useful prompts, links and files together.",
         "packs": "Reusable skills, scenes, personas and resources."]
