@@ -172,13 +172,13 @@ final class PackStoreTests: XCTestCase {
     func testPathsAndCaseCollisionsRejected() async throws {
         for path in ["../secret", "/tmp/file", "skills/../file", "skills//x", "skills\\x", ".git/config", "skills/x%2Fy"] { XCTAssertThrowsError(try PackPath.validated(path), path) }
         let source = try FixtureSource()
-        var manifest = await source.manifestValue
+        var manifest = source.manifestValue
         let file = manifest.files[0]
         manifest.files.append(PackFile(path: file.path.uppercased(), sha256: file.sha256, size: file.size))
         XCTAssertThrowsError(try manifest.validated())
     }
     func testFileDirectoryCaseCollisionRejected() async throws {
-        var manifest = await (try FixtureSource()).manifestValue
+        var manifest = (try FixtureSource()).manifestValue
         manifest.files.append(PackFile(path: "SKILLS", sha256: String(repeating: "a", count: 64), size: 1))
         XCTAssertThrowsError(try manifest.validated())
     }

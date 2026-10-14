@@ -177,7 +177,7 @@ enum PresenterPauseChecks {
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &failed) == 0 else { throw PresenterError.unavailable }
         var unstarted: PresenterPeer? = PresenterPeer(fd: failed[0])
         close(failed[1])
-        weak var released = unstarted
+        weak let released = unstarted
         unstarted?.send(PresenterMessage(type: "list")); unstarted = nil
         for _ in 0..<100 where released != nil { try await Task.sleep(nanoseconds: 5_000_000) }
         try check(released == nil, "failed writer releases its unstarted peer")
