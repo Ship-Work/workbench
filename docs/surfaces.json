@@ -3906,7 +3906,8 @@
     "label": "Rectangle",
     "case": "rectangle",
     "kind": "option",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Pending Names decision (#76): this tool's presenter key is named Shape (shortcut.stage.rectangle) and Snap's editor calls its tool Box. The tool's own name is unchanged until the maintainer chooses one name."
   },
   {
     "id": "choices.DrawingTool.text",
@@ -4177,7 +4178,8 @@
     "label": "Clear",
     "case": "clear",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Clear & return to demo to Clear, the name Home teaches for this presenter key and Quick Controls uses, so Settings › Keyboard, the shortcut editors and conflict messages say the same; the Clear item in Draw's menu now reads Clear too. The action and its saved shortcut are unchanged."
   },
   {
     "id": "shortcut.stage.color1",
@@ -4334,7 +4336,8 @@
     "label": "Draw",
     "case": "pen",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Pen to Draw, the name Home teaches for this presenter key (hold it to draw with the pen), so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Draw's tool list keeps the tool's own name, Pen (choices.DrawingTool.pen)."
   },
   {
     "id": "shortcut.stage.personaNext",
@@ -4375,7 +4378,8 @@
     "label": "Shape",
     "case": "rectangle",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Rectangle to Shape, the name Home teaches for this presenter key, so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Deliberate, pending split: Draw's tool list keeps the tool's own name, Rectangle (choices.DrawingTool.rectangle), and Snap's editor calls its tool Box. One name for this tool is a Names decision left to the maintainer; the check compares labels only across owners, so it cannot see this split."
   },
   {
     "id": "shortcut.stage.redo",
