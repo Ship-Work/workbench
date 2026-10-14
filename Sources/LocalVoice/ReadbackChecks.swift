@@ -577,6 +577,7 @@ enum ReadbackChecks {
         try await runQuitChecks()
         try await runRetakeChecks()
         try await runCancelChecks()
+        try await runShortcutNoticeChecks()
     }
 
     /// With the microphone off, a section that needs narration is finished by typing a note.
@@ -968,6 +969,58 @@ enum ReadbackChecks {
         try await waitFor("the auto-stop") { !model.isRecording }
         try check(model.pendingCancelNarration == nil, "the 300 s auto-stop clears the question")
         print("READBACK_CANCEL_CHECKS_OK: \(passed) checks")
+    }
+
+    /// The narration notice names Snap & Talk's key only while it is on and registered; otherwise
+    /// it points to Stop narration, never to a key called "Off" or one another app holds (#342).
+    @MainActor
+    private static func runShortcutNoticeChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_SHORTCUT_NOTICE_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        let keyed = ReadbackModel.narrationNotice(section: 2, shortcut: "⌥C")
+        try check(keyed == "Narrating section 2. Use ⌥C again to stop.", "with a usable key the notice names it")
+        let keyless = ReadbackModel.narrationNotice(section: 2, shortcut: nil)
+        try check(keyless == "Narrating section 2. Use Stop narration to finish." && !keyless.contains("Off") && !keyless.contains("again to stop"),
+            "without a usable key the notice names Stop narration")
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("Workbench-shortcut-notice-\(UUID().uuidString)")
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.ShortcutNotice.\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain); try? fm.removeItem(at: root) }
+        var manifest = try ReadbackStore.create(at: root, title: "Synthetic shortcut notice")
+        let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+        try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+        try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+        manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+            audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+        try ReadbackStore.save(manifest, at: root)
+        defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+        var preferences = VoicePreferences.load(from: defaults)
+        var off = VoicePreferences.defaultReadbackShortcut; off.enabled = false
+        preferences.readbackShortcut = off
+        try check(preferences.save(to: defaults), "the scratch suite saves a disabled Snap & Talk shortcut")
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            microphoneAccess: { .authorized }, makeNarrationRecorder: { url, _ in SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10) })
+        defer { model.shutdown() }
+        try check(model.usableShortcutLabel == nil, "a disabled shortcut has no usable label")
+        model.startNarration(for: id)
+        try check(model.isRecording && model.notice == "Narrating section 1. Use Stop narration to finish.", "narrating with the shortcut off says to use Stop narration")
+        model.cancelNarration()
+
+        preferences.readbackShortcut = VoicePreferences.defaultReadbackShortcut
+        try check(preferences.save(to: defaults), "the scratch suite saves the default shortcut")
+        let label = VoicePreferences.defaultReadbackShortcut.label
+        try check(model.usableShortcutLabel == label && label.hasPrefix("⌥") && label != "Off", "an enabled, registered shortcut names its key")
+        model.setShortcutFailure("⌥C is in use. Choose a different shortcut.")
+        try check(model.usableShortcutLabel == nil, "a shortcut that failed to register has no usable label")
+        model.startNarration(for: id)
+        try check(model.notice?.hasSuffix("Use Stop narration to finish.") == true, "narrating with a failed shortcut says to use Stop narration")
+        model.cancelNarration()
+        print("READBACK_SHORTCUT_NOTICE_CHECKS_OK: \(passed) checks")
     }
 
     /// The next launch meets the real engine while Parakeet still loads: its admission refuses

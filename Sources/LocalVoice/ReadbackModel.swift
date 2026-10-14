@@ -533,7 +533,16 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
         return nil
     }
-    var shortcutLabel: String { VoicePreferences.load().shortcut(5).label }
+    /// The Snap & Talk key, only while it is on and registered; Off or a key in use is never named (#342).
+    var usableShortcutLabel: String? {
+        let shortcut = VoicePreferences.load(from: defaults).shortcut(5)
+        return shortcut.enabled && shortcutFailure == nil ? shortcut.label : nil
+    }
+
+    /// Names the key that stops narration only when it works, as Dictate's "Use Stop to finish" does.
+    static func narrationNotice(section: Int, shortcut: String?) -> String {
+        "Narrating section \(section)." + (shortcut.map { " Use \($0) again to stop." } ?? " Use Stop narration to finish.")
+    }
 
     private let transcribeAudio: @MainActor (URL) async throws -> String
     /// True while the speech model loads or downloads; queued takes wait for it.
@@ -1031,7 +1040,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         recordingElapsed = 0; recordingLevel = 0; peakPower = -160; isRecording = true; recordingSectionID = sectionID
         current.sections[index].status = .recording; current.sections[index].failure = nil
         try ReadbackStore.save(current, at: root); publish(current, for: root)
-        notice = "Narrating section \(current.sections.filter { $0.deletedAt == nil }.firstIndex(where: { $0.id == sectionID }).map { $0 + 1 } ?? 1). Use \(shortcutLabel) again to stop."
+        notice = Self.narrationNotice(section: current.sections.filter { $0.deletedAt == nil }.firstIndex(where: { $0.id == sectionID }).map { $0 + 1 } ?? 1,
+                                      shortcut: usableShortcutLabel)
         meter = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let recorder = self.recorder else { return }

@@ -273,7 +273,7 @@ struct ReadbackView: View {
                 } label: { Label("Capture & narrate", systemImage: "camera.viewfinder") }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.permissionsReady || model.currentSessionProblem != nil)
-                    .help("Capture the chosen area, then start narration. \(model.shortcutLabel) captures the display under your pointer.")
+                    .help("Capture the chosen area, then start narration." + (model.usableShortcutLabel.map { " \($0) captures the display under your pointer." } ?? ""))
                     .accessibilityIdentifier("readback.capture")
                 Spacer(minLength: 0)
                 if let onChooseSnaps {
@@ -579,7 +579,9 @@ struct ReadbackView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     WorkbenchSectionTitle("Keyboard shortcut")
-                    Text("\(model.shortcutLabel) captures the display under your pointer and starts narration. Press again to stop.")
+                    // The key is described only while it works; otherwise why not, and what still does.
+                    Text(model.usableShortcutLabel.map { "\($0) captures the display under your pointer and starts narration. Press again to stop." }
+                         ?? model.shortcutFailure ?? "No shortcut is set. Capture & narrate on the page still works.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
