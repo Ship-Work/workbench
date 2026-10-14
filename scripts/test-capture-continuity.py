@@ -14,7 +14,7 @@ audio = SwiftFile(ROOT / "Sources/LocalVoice/MeetingAudio.swift").extract([
     "MeetingAudioGap", "MeetingAudioFeed", "MeetingTrackRecorder",
 ])
 models = SwiftFile(ROOT / "Sources/LocalVoice/MeetingModels.swift").extract([
-    "MeetingTrackSource", "MeetingTrack", "MeetingError",
+    "MeetingTrackSource", "MeetingTrack", "MeetingError", "MeetingGapNote",
 ])
 harness = r'''
 import AVFoundation
