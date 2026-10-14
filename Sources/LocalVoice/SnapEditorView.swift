@@ -158,8 +158,10 @@ private struct CaptionFocus: NSViewRepresentable {
     let request: UUID?
     let done: () -> Void
     final class Coordinator { var handled: UUID? }
+    /// Sits behind the field and never takes its clicks.
+    final class Hook: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
     func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView { Hook() }
     func updateNSView(_ view: NSView, context: Context) {
         guard let request, request != context.coordinator.handled else { return }
         context.coordinator.handled = request
