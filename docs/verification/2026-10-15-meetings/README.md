@@ -5,7 +5,7 @@ Refs [#280](https://github.com/Ship-Work/workbench/issues/280) (items 1-4) and [
 ## What changed
 
 1. **The live transcript measures only up to its 360 pt clamp.** The page's clock relayouts it every second, and each pass rebuilt and measured the whole meeting. Sizing now measures a doubling prefix of turns (or of saved text) until it is whole or reaches the clamp. A short transcript is still measured whole, and the text shown is unchanged.
-2. **Pauses and reconnections fold into bounded History notes.** History accepts at most 32 notes of 500 characters, and every gap on every track became one, so about sixteen pauses or reconnections on a call made the transcript unsaveable for good. Every processor outcome now projects its notes. Gaps become one count-and-length line per named source, and the person's own Stop & keep note is left out. Notes are deduplicated, kept to one line and 500 characters, and anything past 32 folds into a final line. The manifest, timing records and capture caps keep every gap.
+2. **Pauses and reconnections fold into bounded History notes.** History accepts at most 32 notes of 500 characters, and every gap on every track became one, so about sixteen pauses or reconnections on a call made the transcript unsaveable for good. Every processor outcome now projects its notes. Gaps become one count-and-length line per named source, and the person's own Stop & keep note is left out. Notes are deduplicated, kept to one line and 500 characters, and anything past 32 folds into one line. The fold replaces middle notes, so the last note, where processing puts a limitation of the saved result such as missing originals, always survives. The manifest, timing records and capture caps keep every gap.
 3. **A meeting that ends itself finishes with a transcript.** The two-hour limit, a source that could not reconnect and microphone access being removed now finish like Finish meeting, with the reason as a note. Low disk still keeps the recording for later, and a failed transcription falls back to Kept for later with its audio.
 4. **Returning to Workbench rechecks the audio apps.** While idle, the Meetings page rereads the audio apps (CoreAudio metadata only, no permission or capture) when Workbench becomes active. A newly opened call app appears, and a quit one no longer reads Ready to record. During a start or recording it only rechecks admission, as before.
 5. **Hide Workbench (⌘H) pauses recording review** and closes the Library preview, as closing and minimizing do. Unhiding resumes nothing.
@@ -18,6 +18,8 @@ Across the full surface gallery (350 renders, 0 flags), the only differing files
 
 ## Checks run on the final branch
 
+Rerun after the independent review's fold fix (see below), on the final debug build.
+
 | Check | Result |
 | --- | --- |
 | `swift build --disable-sandbox --product LocalVoice` (debug) | Passed; only existing warnings remain. |
@@ -26,9 +28,10 @@ Across the full surface gallery (350 renders, 0 flags), the only differing files
 | `LocalVoice --check-handoff-jobs NEW_DIR` | 203 checks passed. |
 | `LocalVoice --check-history-journey NEW_DIR` | 20 steps passed. |
 | `LocalVoice --check-core` | Passed. |
-| `LocalVoice --render-live-voice NEW_DIR` | 10 renders, byte-identical to `main`. |
-| `LocalVoice --render-surfaces NEW_DIR` | 350 renders, 163 entries, 0 flags. |
+| `LocalVoice --render-live-voice NEW_DIR` | 10 renders, byte-identical to `main` (before the review fix, which changes no view). |
+| `LocalVoice --render-surfaces NEW_DIR` | 350 renders, 163 entries, 0 flags (before the review fix). |
 | `bash scripts/test.sh harnesses` | Passed, including capture continuity and library recall. |
+| `python3 scripts/check-surfaces.py` | Surface registry OK: 682 entries. |
 
 ## Each new check fails without its change
 
@@ -40,6 +43,11 @@ Each behaviour was confirmed failing by building the branch's checks against the
 - **Item 4:** with `main`'s admission-only return, the newly opened app, the quit app and the failed read are all missed. Without the busy guard, the parked-start case rereads the apps.
 - **Item 5:** without the observer, the hide notification leaves the recording playing.
 - **Harness:** without the added member, the capture continuity harness fails to compile.
+- **Review fix:** with the earlier fold, which kept the first 31 notes, the 41-note check loses its trailing missing-originals note and fails.
+
+## Independent review
+
+The review found one P3: past 32 notes, the fold dropped the last note first, which is where processing adds "Original audio is missing". No reachable recording has that many distinct non-gap notes today (at most about nine), so this is hardening. It is fixed: the fold now keeps the first 30 notes, the fold line and the last note, and the pure check covers it.
 
 ## Not verified natively
 
