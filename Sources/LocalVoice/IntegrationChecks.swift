@@ -94,9 +94,14 @@ enum IntegrationChecks {
         let damaged = folder.appendingPathComponent("damaged.m4a"), empty = folder.appendingPathComponent("empty.wav")
         try Data((0..<4096).map { UInt8(truncatingIfNeeded: ($0 &* 1_103_515_245 &+ 12_345) >> 16) }).write(to: damaged)
         try Data().write(to: empty)
-        for url in [damaged, empty] {
-            var message = ""
-            do { _ = try ImportedAudio.open(url) } catch { message = error.localizedDescription }
+        // Probing a damaged file loads and code-checks the system's audio readers. That is slow
+        // work macOS flags on the main thread, so the check probes off it, as a test of words only.
+        let messages = DispatchQueue.global(qos: .userInitiated).sync {
+            [damaged, empty].map { url -> String in
+                do { _ = try ImportedAudio.open(url); return "" } catch { return error.localizedDescription }
+            }
+        }
+        for (url, message) in zip([damaged, empty], messages) {
             try check(message == ImportedAudio.unreadable && !message.contains("com.apple") && !message.contains("couldn’t be completed")
                       && message.contains("M4A"), "an unreadable .\(url.pathExtension) says why in words, with formats to try")
         }
