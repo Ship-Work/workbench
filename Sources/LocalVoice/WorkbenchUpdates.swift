@@ -231,6 +231,8 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
         status = "No compatible update was found."
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        // Read before the session ends: an offer or a chosen install means the update, not the check, failed.
+        let wasUpdating = installRequested || availableVersion != nil
         deferredInstall = nil; restartWaiting = false
         finishUpdateSession()
         let error = error as NSError
@@ -241,8 +243,39 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
                 (error.localizedRecoverySuggestion ?? error.localizedDescription)
         } else {
             checkedCurrent = false
-            status = "Update check: \(error.localizedDescription)"
+            status = Self.failureStatus(error, wasUpdating: wasUpdating)
         }
+    }
+    /// One line for a failed check or update: the real reason, and the fix where a person has one.
+    /// Sparkle nests the cause (a download error wraps the connection error), so up to four
+    /// underlying errors are read. Its own alert keeps the original error.
+    static func failureStatus(_ error: NSError, wasUpdating: Bool) -> String {
+        var chain = [error]
+        while chain.count <= 4, let next = chain.last?.userInfo[NSUnderlyingErrorKey] as? NSError { chain.append(next) }
+        func sparkle(_ codes: SUError...) -> NSError? {
+            chain.first { $0.domain == SUSparkleErrorDomain && codes.map { Int($0.rawValue) }.contains($0.code) }
+        }
+        func url(_ codes: Int...) -> Bool { chain.contains { $0.domain == NSURLErrorDomain && codes.contains($0.code) } }
+        if let location = sparkle(.runningTranslocated, .runningFromDiskImageError) {
+            // Sparkle's own suggestion names /Applications; a first install belongs in the home folder's.
+            return "\(location.localizedDescription) Quit Workbench and move it into Applications (for a first install, "
+                + "Finder › Go › Home › Applications; otherwise replace the existing copy there), open that copy, then choose Check for Updates…"
+        }
+        if sparkle(.installationCanceledError) != nil {
+            return "Update not installed: authorization was cancelled. This version and your work are unchanged. "
+                + "Choose Check for Updates… to try again."
+        }
+        if url(NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut,
+               NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed) {
+            return "Couldn’t reach the update server. Check your connection and try again; nothing was changed."
+        }
+        if url(NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateUntrusted,
+               NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+               NSURLErrorClientCertificateRejected, NSURLErrorClientCertificateRequired) {
+            return "The update server’s secure connection couldn’t be verified. Nothing was changed."
+        }
+        let suggestion = error.localizedRecoverySuggestion.map { " \($0)" } ?? ""
+        return "\(wasUpdating ? "Update not finished" : "Update check"): \(error.localizedDescription)\(suggestion)"
     }
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
         guard activity().busy else { installing = true; return false }
