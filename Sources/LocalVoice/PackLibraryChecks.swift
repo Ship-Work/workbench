@@ -284,8 +284,12 @@ actor PackAuthorizationFixture: PackHTTPClient {
                       && writes == exportCount && choices == chooserCount && model.savedResource == nil,
                       "post-commit \(fault) retry reviews disk and commits one same-ID reference without another export or chooser")
         }
+        try model.prepareSkill(notes, from: pack, input: nil, readback: readback, handoffJobs: jobs)
+        let chosenLine = jobs.notice
         model.remove(pack.id)
         try await wait { !model.isBusy && model.packs.isEmpty }
+        try check(chosenLine != nil && model.preferredTranscriptSkillID == nil && jobs.notice == nil,
+                  "removing the chosen transcript skill's pack takes back the choice and History's line")
         try check(Data(contentsOf: session.appendingPathComponent("SKILL.md")) == frozenSkill
                   && Data(contentsOf: session.appendingPathComponent(ReadbackStore.skillPackReceiptName)) == frozenReceipt
                   && Data(contentsOf: file) == data && reloaded.resources.count == 3,

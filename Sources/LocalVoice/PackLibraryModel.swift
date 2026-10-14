@@ -38,6 +38,9 @@ final class PackLibraryModel: ObservableObject {
     private var updateTimer: Timer?
     private var lastUpdateAttempt = Date.distantPast
     private var refreshGeneration = 0
+    /// History's line for the current transcript skill choice, taken back if that skill goes.
+    private weak var choiceCaptionJobs: HandoffJobsModel?
+    private var choiceCaption: String?
     private let appVersion: PackVersion
 
     init(defaults: UserDefaults = .standard, root: URL = Workbench.supportDirectory(component: "Packs"),
@@ -207,6 +210,10 @@ final class PackLibraryModel: ObservableObject {
                     problem: valid[pack.id] == nil ? "Installed files could not be verified. Remove this pack and add it again. Personal copies and sessions are unchanged." : nil)
             }
             transcriptSkills = skills(for: .transcripts)
+            if let id = preferredTranscriptSkillID, !transcriptSkills.contains(where: { $0.id == id }) {
+                preferredTranscriptSkillID = nil
+                if let jobs = choiceCaptionJobs, jobs.notice == choiceCaption { jobs.notice = nil }
+            }
             onSkillsChanged?(skills(for: .snapAndTalk))
             if !failures.isEmpty {
                 notice = "These packs need repair: \(failures.joined(separator: ", ")). Remove and add them again. Existing sessions are unchanged."
@@ -253,7 +260,8 @@ final class PackLibraryModel: ObservableObject {
             preferredTranscriptSkillID = id
             // History's caption says what the choice did; the Hand off picker names the skill the same way.
             let title = transcriptSkills.first(where: { $0.id == id })?.title ?? entry.name
-            handoffJobs?.notice = "\(title) is chosen for Hand off. Select transcripts, then Hand off…"
+            choiceCaption = "\(title) is chosen for Hand off. Select transcripts, then Hand off…"
+            choiceCaptionJobs = handoffJobs; handoffJobs?.notice = choiceCaption
         }
         return chosen
     }
