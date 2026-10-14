@@ -14,7 +14,7 @@ Branch `claude/install-update-report-prompts`, based on `main` at `edc15df`. Ref
    - The signed feed notes (`site/updates/*.xml`) are untouched.
 2. **Update failures (#287).** A copy running from Downloads or a read-only location says to quit, move it into Applications, open that copy and check again. A cancelled installer authorization says *Update not installed* and that nothing changed. Sparkle's raw `SUSparkleErrorDomain error 4007` no longer shows. A connection or certificate cause nested inside Sparkle's download error gets one sentence each. Anything else keeps its description and recovery suggestion.
 3. **Sentry 429 (#296).** A 429 whose only rate limit is `attachment` or `attachment_item` reads *Sent · words only* and is not re-sent on its own. Relay queues the words and still answers 429 when it drops any item.
-4. **Prompt speed (#159).** Insertion writes 2 Characters first, then each confirmed write doubles the next, up to 256. Every write is still checked before and after.
+4. **Prompt speed (#159).** Insertion writes 2 Characters first, then each confirmed write doubles the next, up to 256. The doubling stops at 256, so a prompt at the 50,000-Character Library limit lands in 202 writes. Every write is still checked before and after.
 5. **Prompt delivery cue (#159).** A refused, unconfirmed or partial insertion, or a paste fallback, now records dictation's delivery cue once the picker has closed. A confirmed insertion or paste stays quiet. *Paste unconfirmed* names the prompt rather than a transcript.
 6. **Held Space (#225).** The next action, the capture choices and next persona ignore repeated activation keys, as the launcher and accessory already do.
 7. **Report a Problem placement (#296).** A screenshot problem shows under *Add screenshot* and a voice note problem under the voice row. Anything else shows with the form.
@@ -47,13 +47,17 @@ Each check below passed on this branch. "Fails on main" says how the new asserti
 | `node site/build.mjs` | builds production v2.5.0 | n/a |
 | `LocalVoice --check-updates` | `WORKBENCH_UPDATE_CHECKS_OK` | Yes. Restoring the old `Update check: <description>` line fails the cancelled-authorization case. |
 | `LocalVoice --check-bug-report docs/bug-reporting-schema.md` | `BUG_REPORT_CHECK_OK: 7 groups` | Yes. Main's envelope fails the 429 parser case. Main's transport, with the fixed envelope, fails the 429 words-only case. The placement assertions need the new property, so main does not compile them. |
-| `LocalVoice --check-floating-toolbar` (prompt insertion) | `PROMPT_INSERTION_CHECKS_OK: 30 checks` | Yes. Main's two-Character plan fails "a 2,000-Character prompt lands exactly in at most 14 confirmed writes". The cue checks need the new mapping, so main does not compile them. |
+| `LocalVoice --check-floating-toolbar` (prompt insertion) | `PROMPT_INSERTION_CHECKS_OK: 31 checks` | Yes. Main's two-Character plan fails "a 2,000-Character prompt lands exactly in at most 14 confirmed writes". The cue checks need the new mapping, so main does not compile them. The 50,000-Character check traps (exit 133, negative prefix) on this branch's first sizing, which shifted without a cap. |
 | `LocalVoice --check-feedback` (clipboard receipts) | `CLIPBOARD_RECEIPT_CHECKS_OK: 33 checks` | Yes. Main's receipt fails "an unconfirmed prompt paste names the prompt, not a transcript". |
 | `LocalVoice --check-core` | exit 0 | Includes all of the above that it runs. |
 | `swift test --filter ToolbarKitTests` | 116 tests, 0 failures, 2 skipped | Yes. On main the new test fails: one Space plus five repeats acts 6 times instead of once on each button. |
 | `scripts/test.sh harnesses` | exit 0 | n/a |
 | `python3 scripts/check-surfaces.py` | 682 entries OK | n/a. No entry point was added or renamed. |
 | `LocalVoice --render-surfaces` | 354 renders, 0 flags | See Renders. |
+
+## Independent review
+
+One finding, P1, fixed. The first sizing, `min(256, 2 << confirmedWrites)`, kept shifting after the size reached 256. At the 63rd write `2 << 62` is `Int.min`, so any prompt longer than 14,334 Characters stopped Workbench partway through insertion. The exponent now stops at 7. A new check inserts a prompt at the Library's 50,000-Character limit, which traps on the old expression and passes now.
 
 ## Not verified natively
 
