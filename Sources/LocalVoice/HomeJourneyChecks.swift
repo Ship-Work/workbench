@@ -55,6 +55,25 @@ enum HomeJourneyChecks {
         try check(!landed.offersSkip && !landed.offersGuide, "after the first result neither Skip nor the way back remains")
         try check(HomeJourney(transcripts: 1, guide: .completed).sections == results, "Done returns to the ordinary Home")
 
+        // The guide teaches a key only while it is on and registered (#15).
+        let dictateKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil).contains("⌥V"), "the guide names the Dictate shortcut while it works")
+        let dictateOff = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey), enabled: false)
+        try check(!HomeJourney.shortcutHint(dictateOff, failure: nil).contains("Off") && !HomeJourney.shortcutHint(dictateOff, failure: nil).contains("press"),
+                  "a Dictate shortcut that is off is never taught as \"press Off\"")
+        let taken = HomeJourney.shortcutHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.")
+        try check(!taken.contains("⌥V") && !taken.contains("press"), "a Dictate shortcut macOS could not register is never taught")
+        // A writing model's download or failure is current work wherever Current work can show it (#335).
+        try check(HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: true, guideShows: true),
+                  "with speech ready, a writing model download shows in Current work above the guide")
+        try check(HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: false),
+                  "with speech not ready and the guide hidden, Current work shows the engine banner that carries it")
+        try check(!HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: true),
+                  "while the guide's own banner carries it, Current work is not an empty card")
+        try check(!HomeJourney.writingModelIsCurrentWork(hasLine: false, speechReady: true, guideShows: false), "no writing model line adds no current work")
+        try check(CaptureMode.allCases.allSatisfy { !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Off to") && !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Press") },
+                  "Dictate's Activation hint teaches no key while the shortcut is off")
+
         // Current work comes first in every state; the columns hold every result section once.
         try check(HomeJourney(transcripts: 1, hasCurrentWork: true).sections == [.currentWork] + results,
                   "current work renders above the results")

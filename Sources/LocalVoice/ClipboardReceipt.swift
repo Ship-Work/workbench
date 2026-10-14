@@ -140,16 +140,6 @@ final class ClipboardReceiptModel: ObservableObject {
         if receipt?.isClipboardCurrent != true { clear() }
     }
 
-    /// Reopen the same owned receipt without writing to or reading from the clipboard.
-    func revealHUD() {
-        refreshClipboardOwnership()
-        guard let receipt, receipt.isClipboardCurrent else { return }
-        isHUDVisible = true
-        lifetime = freshLifetime(for: receipt)
-        scheduleExpiry()
-        startTimerIfNeeded()
-    }
-
     /// Called on new recording as well as explicit dismissal of the whole receipt.
     func clear() {
         isHUDVisible = false
