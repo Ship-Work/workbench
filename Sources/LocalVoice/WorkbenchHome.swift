@@ -233,8 +233,8 @@ struct WorkbenchHome: View {
             }.allowsHitTesting(false).accessibilityHidden(true)
         }
             .frame(minWidth: 1050, minHeight: 730).tint(Workbench.accent).workbenchTheme()
-            .onChange(of: collapsed) { _ in hoveredSidebarItem = nil }
-            .onChange(of: model.page) { _ in hoveredSidebarItem = nil }
+            .onChange(of: collapsed) { hoveredSidebarItem = nil }
+            .onChange(of: model.page) { hoveredSidebarItem = nil }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hoveredSidebarItem = nil }
             .onDisappear { hoveredSidebarItem = nil }
             .onAppear {
@@ -629,9 +629,9 @@ struct WorkbenchHomePage: View {
         } }
         .background(Workbench.background)
         .onAppear { if journey.offersSkip { stayInGuide = true }; sample = SampleDeck.load(); readPermissions() }
-        .onChange(of: model.microphoneAuthorization) { _ in readPermissions() }
-        .onChange(of: model.accessibilityGranted) { _ in readPermissions() }
-        .onChange(of: model.lastPasteProblem) { _ in readPermissions() }
+        .onChange(of: model.microphoneAuthorization) { readPermissions() }
+        .onChange(of: model.accessibilityGranted) { readPermissions() }
+        .onChange(of: model.lastPasteProblem) { readPermissions() }
         // Returning from System Settings brings Workbench to the front: read again then.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refreshPermissions(); model.refreshMicrophoneAuthorization(); readPermissions()
