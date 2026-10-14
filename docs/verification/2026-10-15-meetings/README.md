@@ -37,7 +37,7 @@ Rerun after the independent review's fold fix (see below), on the final debug bu
 
 Each behaviour was confirmed failing by building the branch's checks against the old code for that item only:
 
-- **Item 1:** with `main`'s measurement, a 1,200-turn clock relayout took a median of 19,589 ms in a debug build. The budget is 250 ms. The fixed debug build takes 42 ms live and about 100 ms with saved text, held at 360 pt.
+- **Item 1:** with `main`'s measurement, a 1,200-turn clock relayout took a median of 19,589 ms in a debug build. The budget is one second: CI runners measured up to 252 ms for saved text, so a 250 ms budget was flaky. The fixed debug build takes 42 ms live and about 100 ms with saved text, held at 360 pt.
 - **Item 2:** with `main`'s raw notes, the 40-gap recording fails to save to History, and so does the missing-originals path. The pure check also shows History refusing the raw list with "too many capture notes".
 - **Item 3:** with `main`'s kept-for-later stop, both the lost-source and the two-hour cases end without a transcript.
 - **Item 4:** with `main`'s admission-only return, the newly opened app, the quit app and the failed read are all missed. Without the busy guard, the parked-start case rereads the apps.

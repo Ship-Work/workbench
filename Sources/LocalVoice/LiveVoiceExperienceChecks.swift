@@ -77,8 +77,10 @@ import SwiftUI
                 view.layoutSubtreeIfNeeded()
                 timings.append(Date().timeIntervalSince(started))
             }
+            // Measuring every turn took about 20 s here; the clamp takes 0.1 to 0.25 s, the upper end on a
+            // shared CI runner. A second keeps that twentyfold margin without failing on a slow machine.
             let median = timings.sorted()[1], kind = completedText == nil ? "live" : "saved"
-            try expect(median < 0.25, "a 1,200-turn \(kind) transcript relayouts for the clock in under 250 ms (median \(Int(median * 1000)) ms)")
+            try expect(median < 1.0, "a 1,200-turn \(kind) transcript relayouts for the clock in under a second (median \(Int(median * 1000)) ms)")
             try expect(transcriptScroll(in: view)?.frame.height == LiveTranscriptText.maximumHeight,
                        "a 1,200-turn \(kind) transcript stays clamped at 360 pt")
             window.close()
