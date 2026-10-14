@@ -377,7 +377,15 @@ struct HistoryView: View {
         // Removing or exporting a transcript that went wrong: the menu-bar panel's Open History…
         // leads to these words (#134).
         // Primary words with an orange symbol (docs/desktop.md § Status): red is for recording and removal.
-        if let attention = model.attention, attention.page == .history { WorkbenchNote(attention.message) }
+        // Its × only puts the note away, as Dictate's and Meetings' banners do; nothing is retried.
+        if let attention = model.attention, attention.page == .history {
+            HStack(alignment: .top, spacing: 10) {
+                WorkbenchNote(attention.message)
+                Spacer()
+                Button { model.dismissError() } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Dismiss problem")
+            }.workbenchCard()
+        }
         if let notice = jobs.notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
         if let error = jobs.error { WorkbenchNote(error) }
         if let notice = snap.notice { Text(notice).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }

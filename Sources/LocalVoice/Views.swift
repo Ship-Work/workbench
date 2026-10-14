@@ -50,6 +50,12 @@ struct ContentView: View {
                         Button("Microphone Settings…") { model.openMicrophoneSettings() }.controlSize(.small)
                             .help("Open Privacy & Security › Microphone in System Settings")
                     }
+                    // A kept capture's Retry sits beside the message that promises it, the same
+                    // action as Capture recovery's. Only on Dictate, whose draft it fills.
+                    if model.page == "dictate" && hasCurrentRecovery && model.canRetry {
+                        Button(model.retryCaptureLabel) { model.retryTranscription() }.controlSize(.small)
+                            .disabled(model.phase != .idle).help(model.retryCaptureHelp)
+                    }
                     // The same Report a problem… as Help, carrying this problem's typed code (#296).
                     if let attention = bannerAttention { ReportProblemButton(origin: BugReportOrigin(surface: .dictate, errorCode: attention.code)) }
                     Button { model.dismissError() } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }

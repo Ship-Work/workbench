@@ -24,7 +24,8 @@ methods = model.extract([
     'resumeWaitingDelivery', 'copyWaitingDelivery',
     # The Dictate shortcut's press and release, and the attempt it starts (#134 T5).
     'toggleRecording', 'recordAgain', 'shortcutChanged',
-    'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'importAudio(_:)', 'retryTranscription',
+    'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
+    'importAudio(_:)', 'retryTranscription',
     # Transcription, its commit and the recovery it keeps.
     'transcribe', 'admitNewCapture', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
     'discardRecordingRecovery', 'discardCaptureRecovery', 'showCaptureRecoveryFiles', 'showSavedRecordings',
@@ -116,6 +117,13 @@ import Combine
 __VALUES__
 __REQUEST__
 
+// FluidAudio's download error, which RecognitionFailure.classify reads. Nothing
+// here downloads; --check-providers classifies the real cases.
+enum DownloadError: Error {
+    case invalidResponse, rateLimited(statusCode: Int, message: String), downloadFailed(path: String, underlying: Error)
+    case modelNotFound(path: String), htmlErrorResponse(path: String, snippet: String), invalidArtifact(path: String, reason: String)
+    case stalled(path: String, window: TimeInterval), networkDisabled(operation: String), modelMissing(repo: String, missing: [String])
+}
 enum FixtureFailure: Error { case write }
 @MainActor final class StateStore {
     var saved: SavedState?
@@ -783,6 +791,24 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check((try Data(contentsOf: savedFieldAudio)) == wav && !fieldFailed.captureRecovery.hasRecovery,
                   "Uncertain live insertion preserves its exact original audio in existing Saved recordings")
 
+        // A writer that never wrote leaves the words copied (test-live-dictation.py):
+        // nothing in the field is uncertain, so no review entry and no kept audio.
+        let fieldUntouched = CaptureHarness(directory: folder("live-field-untouched"))
+        let fieldUntouchedURL = try recording(fieldUntouched, seconds: 1, peak: -20)
+        let untouchedRecorder = FixtureLiveCapture(); untouchedRecorder.checkpoint = liveRecorder.checkpoint
+        let untouchedOwner = LiveDictationDelivery()
+        untouchedOwner.outcome = .init(message: "Copied.", clipboardChangeCount: 1, failure: .focusChanged, pasteWasAttempted: false)
+        fieldUntouched.liveCapture = untouchedRecorder; fieldUntouched.liveDictation = untouchedOwner
+        let untouchedID = fieldUntouched.captureRecovery.pending!.id
+        fieldUntouched.stopRecording(); try await waitUntil("untouched live field") { fieldUntouched.phase == .idle }
+        try check(untouchedOwner.finishCalls == 1 && TextDelivery.calls == pasteCallsBeforeField && fieldUntouched.history.count == 1
+                  && fieldUntouched.unresolvedDelivery == nil && fieldUntouched.clipboardReceipt.actual.receipt?.title == "Copied",
+                  "A live writer that never wrote ends as a copy, with no ⌘V fallback and no review entry")
+        let untouchedSaved = fieldUntouched.captureRecovery.savedRecordingsDirectory.appendingPathComponent(untouchedID.uuidString)
+        try check(!fieldUntouched.captureRecovery.hasRecovery && !FileManager.default.fileExists(atPath: untouchedSaved.path)
+                  && !FileManager.default.fileExists(atPath: fieldUntouchedURL.path),
+                  "A field never written releases its original audio instead of keeping it in Saved recordings")
+
         let fieldCancel = CaptureHarness(directory: folder("live-field-cancel-changed"))
         let fieldCancelURL = try recording(fieldCancel, seconds: 1, peak: -20)
         let fieldCancelOwner = LiveDictationDelivery(); fieldCancelOwner.attempted = true
@@ -791,6 +817,50 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         fieldCancel.cancelRecording()
         try check(fieldCancelOwner.cancelCalls == 1 && fieldCancel.canRetry && fieldCancel.status == fieldCancelOwner.cancellationProblem
                   && (try Data(contentsOf: fieldCancelURL)) == wav, "Cancel with changed field keeps audio and reports that text remains")
+        // That reason shows where the person acted, not only in the status: the toolbar's
+        // result with Retry and Dismiss, the Dictate banner and the panel's recovery row.
+        func expectLiveTextKept(_ model: CaptureHarness, _ problem: String, _ audio: URL, _ path: String) throws {
+            try check(model.phase == .idle && model.captureFailure == problem && model.status == problem
+                      && model.attention == Attention(message: problem, page: .dictate, code: "dictate.cancel_live_text_kept")
+                      && model.canRetry && model.hasCaptureRecovery && (try Data(contentsOf: audio)) == wav,
+                      "Cancel that leaves live words explains it, with Retry and the recording kept (\(path))")
+        }
+        try expectLiveTextKept(fieldCancel, fieldCancelOwner.cancellationProblem!, fieldCancelURL, "recording")
+        let keptProblem = "Cancelled. Words already written in Fixture were left there. The recording is kept."
+        func keptOwner(_ problem: String?) -> LiveDictationDelivery {
+            let owner = LiveDictationDelivery(); owner.attempted = true; owner.cancellationProblem = problem; return owner
+        }
+        let liveCancel = CaptureHarness(directory: folder("live-field-cancel-capture"))
+        let liveCancelURL = try recording(liveCancel, seconds: 1, peak: -20)
+        liveCancel.liveCapture = FixtureLiveCapture(); liveCancel.liveDictation = keptOwner(keptProblem)
+        var shownWhenIdle: String?
+        liveCancel.onPhaseChange = { if liveCancel.phase == .idle { shownWhenIdle = liveCancel.captureFailure } }
+        liveCancel.cancelRecording(); try await waitUntil("live capture cancel") { liveCancel.phase == .idle }
+        try expectLiveTextKept(liveCancel, keptProblem, liveCancelURL, "live capture")
+        try check(shownWhenIdle == keptProblem, "The result is in place before the toolbar hears the capture end")
+        try check(liveCancel.admitsCapture() && liveCancel.captureFailure == nil && liveCancel.attention == nil,
+                  "The next capture keeps that audio for later and clears the result")
+        let heldCancel = CaptureHarness(directory: folder("live-field-cancel-held"))
+        let heldCancelURL = try recording(heldCancel, seconds: 1, peak: -20)
+        let heldCancelRecorder = FixtureLiveCapture(); heldCancelRecorder.hold = true
+        heldCancel.liveCapture = heldCancelRecorder; heldCancel.liveDictation = keptOwner(keptProblem)
+        heldCancel.stopRecording(); try await waitUntil("held live finish") { heldCancelRecorder.continuation != nil }
+        heldCancel.cancelCurrentCapture()
+        heldCancelRecorder.continuation?.resume(); heldCancelRecorder.continuation = nil
+        try await waitUntil("held live cancel") { heldCancel.phase == .idle }
+        try expectLiveTextKept(heldCancel, keptProblem, heldCancelURL, "finishing")
+        let transcribingCancel = CaptureHarness(directory: folder("live-field-cancel-transcribing"))
+        let transcribingURL = try transcribingCancel.makeRecording(wav); transcribingCancel.engine.delayed = true
+        transcribingCancel.liveDictation = keptOwner(keptProblem)
+        transcribingCancel.run(transcribingURL, owned: true); try await waitForEngine(transcribingCancel)
+        transcribingCancel.cancelCurrentCapture(); transcribingCancel.engine.release(); await finish(transcribingCancel)
+        try expectLiveTextKept(transcribingCancel, keptProblem, transcribingURL, "transcribing")
+        let quietCancel = CaptureHarness(directory: folder("live-field-cancel-restored"))
+        let quietCancelURL = try recording(quietCancel, seconds: 1, peak: -20)
+        quietCancel.liveCapture = FixtureLiveCapture(); quietCancel.liveDictation = keptOwner(nil)
+        quietCancel.cancelRecording(); try await waitUntil("restored live cancel") { quietCancel.phase == .idle }
+        try check(quietCancel.captureFailure == nil && quietCancel.attention == nil && !quietCancel.canRetry && !quietCancel.hasCaptureRecovery
+                  && !FileManager.default.fileExists(atPath: quietCancelURL.path), "A Cancel that restored the field stays quiet and discards")
 
         let partialModel = CaptureHarness(directory: folder("live-partial"))
         _ = try recording(partialModel, seconds: 1, peak: -20)

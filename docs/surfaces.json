@@ -252,15 +252,15 @@
     "label": "Microphone Settings…",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality: a dictation refused the microphone opens its System Settings pane where the person acted, in place of Open Workbench; Snap, Snap & Talk and Camera already offer their settings."
+    "note": "Quality: a dictation refused the microphone opens its System Settings pane where the person acted, in place of Open Dictate…; Snap, Snap & Talk and Camera already offer their settings."
   },
   {
-    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-workbench",
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-dictate",
     "surface": "floating toolbar live controls",
-    "label": "Open Workbench",
+    "label": "Open Dictate…",
     "kind": "action",
-    "belongsTo": "app",
-    "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself."
+    "belongsTo": "dictate",
+    "note": "Quality rename (Fit 6): the failure card's door opens Dictate, so it carries the name the panel's recovery row and the toolbar chooser already give that door; it was Open Workbench, the name of the panel footer's door to Home and the app menu's to the current page. Same control in the same result view (#134 T4)."
   },
   {
     "id": "LocalVoice.CapturePanel.DictationResultView.Button.record-again",
