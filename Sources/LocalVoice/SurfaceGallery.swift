@@ -1046,6 +1046,8 @@ private struct HistoryNativeAcceptanceView: View {
         model.cleanupModels.cancel()
         let reason = "gemma3:1b couldn’t be downloaded. The synthetic Ollama server stopped responding."
         model.cleanupModels.presentFailure(reason)
+        // Leave Home first, so the row reports where it lands afresh.
+        model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
         frames.byID = [:]
         let (homeFailure, failureSize) = try renderPage("home", in: window)
         guard model.writingModelLine == reason, frames.byID["home.current-work.writing-model"]?.isEmpty == false else {
