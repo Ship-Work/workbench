@@ -369,6 +369,19 @@ enum HandoffJobStore {
         }
     }
 
+    /// A two-sided meeting saves its conversation, one labelled turn per paragraph, as its
+    /// text and the same words unlabelled as its original. That original adds no wording, so
+    /// a prompt carries the meeting once; a cleanup, a later edit or other recognition keeps it.
+    static func originalAddsWording(text: String, original: String) -> Bool {
+        guard original != text else { return false }
+        let labels = LiveVoiceSource.allCases.map { $0.label + ": " }
+        let unlabelled = text.components(separatedBy: "\n\n").map { turn in
+            labels.first(where: turn.hasPrefix).map { String(turn.dropFirst($0.count)) } ?? turn
+        }.joined(separator: " ")
+        func collapsed(_ words: String) -> String { words.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        return collapsed(original) != collapsed(unlabelled)
+    }
+
     static func prompt(snapshot: HandoffSnapshotRecord, skill: String, folder: URL, manual: Bool, manualRequiresFolder: Bool = true) -> String {
         let delivery = manualRequiresFolder
             ? "Use the chosen skill and its files in the selected work folder: " + folder.path + ". Read selection.json for per-item roles and source references, and handoff.json for portable transcript inputs. Write the requested outputs inside outputs/. Do not send, publish or change the inputs."
@@ -403,7 +416,8 @@ enum HandoffJobStore {
                 : ""
             parts.append("\n--- " + (item.role == .instructions ? "MY INSTRUCTIONS" : "REFERENCE") + " ---\n"
                 + item.title + "\nSource ID: " + item.reference.kind.rawValue + ":" + item.reference.id.uuidString + timing
-                + "\nText:\n" + item.text + (item.originalText == item.text ? "" : "\nOriginal wording:\n" + item.originalText))
+                + "\nText:\n" + item.text
+                + (originalAddsWording(text: item.text, original: item.originalText) ? "\nOriginal wording:\n" + item.originalText : ""))
             if let notes = item.captureNotes, !notes.isEmpty {
                 let guidance = snapshot.task == MetadataSuggestionReview.task
                     ? "Recording limitations are preserved separately by Workbench. Do not turn these into tags or add JSON fields:"
