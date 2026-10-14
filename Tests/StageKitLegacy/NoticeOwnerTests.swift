@@ -7,6 +7,7 @@ import ServiceManagement
 /// to Draw; these fail on that version.
 final class NoticeOwnerTests: XCTestCase {
     private struct LoginFixtureError: LocalizedError { var errorDescription: String? { "Synthetic login failure" } }
+    private struct ScreenshotFixtureError: LocalizedError { var errorDescription: String? { "Synthetic screenshot failure" } }
 
     /// A disposable coordinator and the controller the panel reads, on a temporary folder only.
     private func withFixture(settingsData: Data? = nil, _ body: @MainActor (AppCoordinator, StageKitController) -> Void) {
@@ -57,6 +58,70 @@ final class NoticeOwnerTests: XCTestCase {
             XCTAssertTrue(stage.notice(on: .general) != nil, "General still shows its saved-settings notice")
             app.clearNotice(); app.settings.clearNotice()
             XCTAssertTrue(stage.notice == nil && stage.noticePage == nil, "Draw's dismiss clears both")
+        }
+    }
+
+    /// Something that worked is confirmed on its own page and never becomes the panel's orange
+    /// problem row (#134 T5, Fit 7). The tone is recorded where each notice is raised, never read
+    /// from its words, and a confirmation never stands in front of a live problem.
+    func testSuccessesStayOnTheirPageAndNeverHideAProblem() {
+        withFixture { app, stage in
+            var finish: ((Error?) -> Void)?
+            app.screenshotLauncher = { completion in finish = completion }
+            func screenshot(closingWith error: Error?) {
+                app.openScreenshot()
+                XCTAssertTrue(app.screenshotHandoffActive, "Screenshot opened")
+                finish?(error)
+                let deadline = Date().addingTimeInterval(1)
+                while app.screenshotHandoffActive && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+                XCTAssertFalse(app.screenshotHandoffActive, "Screenshot closed")
+            }
+            // (a) Screenshot closing as expected is Draw's quiet confirmation, not a problem.
+            screenshot(closingWith: nil)
+            XCTAssertTrue(stage.notice == nil && stage.noticePage == nil, "A Screenshot that closed is not a problem: \(stage.notice ?? "nil")")
+            XCTAssertTrue(stage.notice(on: .draw)?.hasPrefix("Screenshot closed.") == true, "Draw still confirms it")
+            // (d) Draw's confirmation never hides a problem raised after it.
+            app.demoScenes.notice = "A scene problem"
+            XCTAssertEqual(stage.notice, "A scene problem")
+            XCTAssertTrue(stage.noticePage == .present, "The problem's own page, not Draw")
+            app.demoScenes.notice = nil
+            // (b) Screenshot that could not open stays a Draw problem.
+            screenshot(closingWith: ScreenshotFixtureError())
+            XCTAssertTrue(stage.notice?.hasPrefix("Screenshot could not open") == true, "\(stage.notice ?? "nil")")
+            XCTAssertTrue(stage.noticePage == .draw, "A Screenshot that could not open is Draw's problem")
+            // (c) A board that could not be copied is still a Draw problem.
+            app.clearNotice()
+            app.copyBoard()
+            XCTAssertTrue(stage.notice != nil && stage.noticePage == .draw, "No board to copy is Draw's problem")
+            app.clearNotice()
+            // (e) A scene saved as My device is Present's confirmation; a later notice is a problem again.
+            let scenes = app.demoScenes
+            let image = FileManager.default.temporaryDirectory.appendingPathComponent("NoticeOwnerScene-" + UUID().uuidString + ".png")
+            defer { try? FileManager.default.removeItem(at: image) }
+            do {
+                try SceneLibraryStorage.textLogo("Synthetic scene").write(to: image)
+                try scenes.addImage(image)
+            } catch { XCTAssertTrue(false, "Synthetic scene: \(error)"); return }
+            scenes.saveMyDevice()
+            XCTAssertEqual(scenes.notice, "My device saved. Use it in any scene.")
+            XCTAssertTrue(stage.notice == nil && stage.noticePage == nil, "My device saved is not a problem: \(stage.notice ?? "nil")")
+            XCTAssertEqual(stage.notice(on: .present), "My device saved. Use it in any scene.")
+            scenes.notice = "x"
+            XCTAssertEqual(stage.notice, "x", "Any other scene notice is a problem")
+            XCTAssertTrue(stage.noticePage == .present)
+            scenes.notice = nil
+            // Persona's confirmations stay on Persona the same way.
+            let personas = scenes.personas
+            do {
+                let group = try personas.createGroup(name: "Synthetic group")
+                personas.removeGroup(group)
+            } catch { XCTAssertTrue(false, "Synthetic group: \(error)"); return }
+            XCTAssertEqual(personas.notice, "Group removed. Its personas, images and scenes are kept.")
+            XCTAssertTrue(stage.notice == nil && stage.noticePage == nil, "A removed group is not a problem: \(stage.notice ?? "nil")")
+            XCTAssertEqual(stage.notice(on: .persona), "Group removed. Its personas, images and scenes are kept.")
+            personas.notice = "y"
+            XCTAssertEqual(stage.notice, "y", "Any other Persona notice is a problem")
+            XCTAssertTrue(stage.noticePage == .persona)
         }
     }
 }

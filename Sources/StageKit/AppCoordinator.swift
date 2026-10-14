@@ -51,7 +51,9 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     @Published private(set) var postedNotice: StageNotice?
     /// The notice's words, as Draw's controls show them.
     var notice: String? { postedNotice?.text }
-    func post(_ text: String, on page: StageNoticePage) { postedNotice = StageNotice(text: text, page: page) }
+    func post(_ text: String, on page: StageNoticePage, tone: StageNotice.Tone = .problem) {
+        postedNotice = StageNotice(text: text, page: page, tone: tone)
+    }
     func clearNotice() { postedNotice = nil }
     @Published var launchAtLogin = false
     /// Adds or removes Workbench as a login item and returns what macOS decided. Checks replace it,
@@ -403,7 +405,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func copyBoard() {
         guard !boardExportInProgress else { return }
-        do { try boardImageExport().copy(); post("Board copied as an image.", on: .draw) }
+        do { try boardImageExport().copy(); post("Board copied as an image.", on: .draw, tone: .done) }
         catch { post(error.localizedDescription, on: .draw) }
     }
     func saveBoardPNG() {
@@ -425,7 +427,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             boardSavePanel = nil; boardExportInProgress = false
             guard !shuttingDown else { return }
             if result == .OK, let url = panel.url {
-                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw) }
+                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw, tone: .done) }
                 catch { post("Board image could not be saved: \(error.localizedDescription)", on: .draw) }
             }
             refreshWindows(); refreshPalette(); refreshEffects()
@@ -457,8 +459,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             overlayHistory.values.forEach { $0.pauseFade(by: duration) }
         }
         screenshotHandoffActive = false
-        post(error.map { "Screenshot could not open: \($0.localizedDescription)" }
-            ?? "Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw)
+        if let error { post("Screenshot could not open: \(error.localizedDescription)", on: .draw) }
+        else { post("Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw, tone: .done) }
         for canvas in canvases.values { canvas.needsDisplay = true }
         refreshWindows(); refreshPalette(); refreshEffects(); updateStatus()
         if error != nil { showControls(tab: "Drawing", preservingCanvas: true) }

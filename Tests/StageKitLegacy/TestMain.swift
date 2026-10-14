@@ -149,7 +149,8 @@ struct TestRunner {
             let tests: [(String, () throws -> Void)] = [
                 ("shortcut recording notices belong to Keyboard", suite.testShortcutRecordingNoticesBelongToKeyboard),
                 ("login notices belong to General", suite.testLoginNoticesBelongToGeneral),
-                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral)
+                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral),
+                ("successes stay on their page and never hide a problem", suite.testSuccessesStayOnTheirPageAndNeverHideAProblem)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -883,6 +884,7 @@ struct TestRunner {
             ("shortcut recording notices belong to Keyboard", NoticeOwnerTests().testShortcutRecordingNoticesBelongToKeyboard),
             ("login notices belong to General", NoticeOwnerTests().testLoginNoticesBelongToGeneral),
             ("saved settings notices belong to General", NoticeOwnerTests().testSavedSettingsNoticesBelongToGeneral),
+            ("successes stay on their page and never hide a problem", NoticeOwnerTests().testSuccessesStayOnTheirPageAndNeverHideAProblem),
             ("duplicate shortcut registration plan", suite.testDuplicateShortcutRegistrationPlanPausesBothWithoutChangingSettings),
             ("ink colour accessibility descriptions", suite.testInkColourAccessibilityDescriptions),
             ("actual rendering for every tool", suite.testAllToolsRenderToRealPixels),
