@@ -354,6 +354,7 @@ enum MeetingChecks {
         try await recordingReviewChecks(root: root, expect: expect)
         try await phaseRecoveryChecks(root: root.appendingPathComponent("phase-recovery"), expect: expect)
         try await captureNoteChecks(root: root.appendingPathComponent("capture-notes"), expect: expect)
+        try await selfEndChecks(root: root.appendingPathComponent("self-end"), expect: expect)
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
@@ -1265,6 +1266,57 @@ enum MeetingChecks {
                    && missingNotes.count <= 32 && missingNotes.contains { $0.hasPrefix("Original audio is missing") }
                    && missingNotes.contains { $0.hasPrefix("Synthetic Call had 20 gaps") } && (try MeetingStore.load(from: missingSession).gaps.count) == 41,
                    "saved words with missing originals also save with bounded notes")
+        await model.prepareForShutdown()
+    }
+
+    /// A meeting that ends itself finishes like Finish meeting, with its reason as a note.
+    /// Stop & keep and a failed transcription still keep the recording for later. Synthetic capture and words.
+    private static func selfEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingChecks-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var capture = CaptureFixture(), failRecognition = false, history: [Transcript] = []
+        let model = MeetingModel(directory: root, defaults: defaults, processSource: ProcessFixture(), transcribe: { _ in
+            if failRecognition { throw MeetingError.message("Synthetic recognition failure") }
+            return "Synthetic words heard before the end"
+        }, microphonePermission: { true }, captureFactory: { capture })
+        model.saveTranscript = { item, _ in history = TranscriptHistory.adding(item, to: history) }
+        let lost = "The selected audio source could not reconnect. The recording was kept with its interruption marked."
+
+        await model.start()
+        try expect(model.isRecording, "a self-ended meeting starts like any other")
+        capture.stopReason = lost
+        await waitUntil { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && history.map(\.id) == [model.completedTranscriptID!]
+                   && model.pendingTranscriptNotes.contains(lost) && model.recoveries.isEmpty && capture.finished == 1,
+                   "a source that could not reconnect ends with a saved transcript noting why")
+
+        capture = CaptureFixture(); capture.elapsedSeconds = MeetingSegmentPlan.maximumMeetingSeconds
+        await model.start()
+        await waitUntil { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && history.count == 2 && model.recoveries.isEmpty
+                   && model.pendingTranscriptNotes.contains("The two-hour recording limit was reached."),
+                   "reaching the two-hour limit ends with a saved transcript noting the limit")
+
+        capture = CaptureFixture()
+        await model.start(); await model.cancel()
+        try expect(model.completedTranscriptID == nil && history.count == 2 && model.recoveries.count == 1
+                   && model.notice == "Kept for later. Transcribe it below when you are ready.",
+                   "Stop & keep for later still keeps the recording for later")
+
+        capture = CaptureFixture(); failRecognition = true
+        await model.start()
+        let failing = MeetingStore.sessions(in: root).first { session in
+            !model.recoveries.contains { $0.session.lastPathComponent == session.lastPathComponent }
+                && (try? MeetingStore.load(from: session).state) == .recording
+        }
+        capture.stopReason = lost
+        await waitUntil { !model.isBusy }
+        let kept = model.recoveries.first { $0.session.lastPathComponent == failing?.lastPathComponent }
+        let track = kept?.manifest?.tracks.first.flatMap { try? MeetingStore.safeURL(session: kept!.session, relative: $0.file) }
+        try expect(model.completedTranscriptID == nil && history.count == 2 && model.recoveries.count == 2 && kept != nil
+                   && track.map { FileManager.default.fileExists(atPath: $0.path) } == true,
+                   "a self-ended meeting whose transcription fails keeps the recording and its track for later")
         await model.prepareForShutdown()
     }
 
