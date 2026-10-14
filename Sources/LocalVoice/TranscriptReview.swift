@@ -45,6 +45,12 @@ final class TranscriptReviewFeedback: ObservableObject {
         announce(success)
     }
 
+    /// A door with nothing on screen to hold the reason, such as an app-menu item, still hears it.
+    func fail(heard problem: String) {
+        finish(nil, problem: problem)
+        announce(problem)
+    }
+
     /// Ends the confirmation only if it is still this one and it is due.
     func expire(_ event: UUID) {
         guard let confirmation, confirmation.lifetime.event == event else { return }

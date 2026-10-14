@@ -502,7 +502,7 @@ enum FeedbackChecks {
 
     /// Copy build details, through the owner Copy permission details and Home's Copy transcript
     /// share with Meetings: a real write is confirmed for four seconds and heard once, a newer copy
-    /// owns its own lifetime, and a refused write says so instead of confirming.
+    /// owns its own lifetime, and a refused write says why, aloud too, instead of confirming.
     private static func checkCopyConfirmation(_ check: Check) throws {
         var clock: TimeInterval = 5_000
         var heard: [String] = []
@@ -533,10 +533,11 @@ enum FeedbackChecks {
                   "expiry clears only the label; the copied details stay")
         updates.copyDetails()
         refuse = true; updates.copyDetails()
-        try check(feedback.confirmation == nil && feedback.problem?.contains("could not be copied") == true && heard.count == 3,
-                  "a refused write clears the showing ✓, says why and is not heard as a success")
+        try check(feedback.confirmation == nil && feedback.problem?.contains("could not be copied") == true
+                  && heard.count == 4 && heard.last == feedback.problem,
+                  "a refused write clears the showing ✓ and says why, heard rather than a success, so the app menu's door is not silent")
         refuse = false; updates.copyDetails()
-        try check(feedback.confirmation?.kind == "Copied" && feedback.problem == nil && heard.count == 4,
+        try check(feedback.confirmation?.kind == "Copied" && feedback.problem == nil && heard.count == 5 && heard.last == "Copied",
                   "the next real copy confirms and clears the reason")
     }
 }

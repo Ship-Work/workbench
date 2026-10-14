@@ -128,7 +128,7 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
         #endif
     }
     /// Copy build details' four-second “Copied”, beside the Settings button; from the app menu,
-    /// VoiceOver hears it. Checks give it their own clock.
+    /// VoiceOver hears it, or why the copy failed. Checks give it their own clock.
     var copyFeedback = TranscriptReviewFeedback()
     /// Where the details go. Checks write to a private pasteboard, or refuse.
     var writeDetails: (String) -> Bool = { details in
@@ -137,7 +137,7 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
     }
     func copyDetails() {
         if writeDetails(build.details) { copyFeedback.finish("Copied") }
-        else { copyFeedback.finish(nil, problem: "Build details could not be copied. Try again.") }
+        else { copyFeedback.fail(heard: "Build details could not be copied. Try again.") }
     }
     var panelTitle: String {
         if !build.released { return "Update · Local Build" }
@@ -287,6 +287,10 @@ struct WorkbenchUpdateSettings: View {
                 ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"])
                 Button("Release notes and downloads") { NSWorkspace.shared.open(URL(string: "https://github.com/Ship-Work/workbench/releases")!) }
                     .buttonStyle(.workbenchLink)
+            }
+            .onAppear {
+                // A refusal from the app menu while Settings was closed was heard then; a visit starts clear.
+                if copyFeedback.problem != nil { copyFeedback.finish(nil) }
             }
             if let problem = copyFeedback.problem { WorkbenchNote(problem, font: .caption) }
         }
