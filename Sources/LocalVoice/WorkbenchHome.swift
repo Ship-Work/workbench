@@ -692,9 +692,16 @@ struct WorkbenchHomePage: View {
         // The guide reads only History and the saved guide state, never this property: asking
         // `journey` here recursed until the stack overflowed whenever speech was preparing.
         dictationLive || (model.preparing && !model.ready && !guideShows)
-            || HomeJourney.writingModelIsCurrentWork(hasLine: model.writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
+            || HomeJourney.writingModelIsCurrentWork(hasLine: writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
             || readback.isRecording || readback.hasPendingTranscriptions || stage.isDrawing || stage.isPresenting
             || personaControl.isCurrentWork || stage.hasTimerSession || meetings.isBusy || jobs.isBusy
+    }
+    /// The writing model's line as Current work counts and shows it: a failure only while the
+    /// saved Text style uses Ollama (`HomeJourney.writingModelLine`).
+    private var writingModelLine: String? {
+        HomeJourney.writingModelLine(download: model.cleanupModels.downloadLine, failure: model.cleanupModels.failure,
+            savedStyleUsesOllama: model.cleanupModels.failure != nil && model.preferences.cleanup == .natural
+                && model.cleanupModels.store.snapshot().naturalProvider == .ollama)
     }
     /// Active input first, then other running or resumable work, each with its
     /// own truthful action. Leaving Home collapses, acknowledges or discards none of it.
@@ -713,7 +720,7 @@ struct WorkbenchHomePage: View {
             if !model.ready && !journey.showsGuide { engineBanner }
             // The writing model's download or its failure while speech is ready, when no engine
             // banner carries it: the same line Dictate and the panel show (#335). Cancel stays in Models.
-            if model.ready, let line = model.writingModelLine {
+            if model.ready, let line = writingModelLine {
                 let failed = model.cleanupModels.downloading == nil
                 liveRow(line, failed ? "exclamationmark.triangle.fill" : "text.badge.checkmark", attention: failed) {
                     if !failed { ProgressView().controlSize(.small) }
@@ -941,6 +948,13 @@ struct HomeJourney: Equatable {
     /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
     static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
         hasLine && (speechReady || !guideShows)
+    }
+    /// The writing model's line in Current work: a running download always, and a failed one
+    /// only while the saved Text style uses Ollama, so a failure the person has moved on from
+    /// never holds Current work open. Models, Dictate and the panel keep the reason until the
+    /// next request, Cancel or Save.
+    static func writingModelLine(download: String?, failure: String?, savedStyleUsesOllama: Bool) -> String? {
+        download ?? (savedStyleUsesOllama ? failure : nil)
     }
     /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
     /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu

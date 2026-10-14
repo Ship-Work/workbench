@@ -1048,10 +1048,14 @@ private struct HistoryNativeAcceptanceView: View {
         let homeShot = try save(homeDownload, id: "state-writing-model-download", title: "Home during a writing model download, minimum window, \(Int(homeSize.width)) × \(Int(homeSize.height)) pt",
                                 detail: "Speech is ready, so Current work carries Downloading gemma3:1b · 42% with its progress and Models…, above the first-dictation guide.",
                                 file: "page-home-state-writing-model-download-\(theme).png", to: output)
-        // The download failed: its reason stays on Home with the attention symbol until Models clears it.
+        // The download failed: its reason stays on Home with the attention symbol until Models clears
+        // it, while the saved Text style is Natural with Ollama.
         model.cleanupModels.cancel()
         let reason = "gemma3:1b couldn’t be downloaded. The synthetic Ollama server stopped responding."
         model.cleanupModels.presentFailure(reason)
+        let savedStyle = model.preferences.cleanup
+        model.preferences.cleanup = .natural
+        defer { model.preferences.cleanup = savedStyle }
         // Leave Home first, so the row reports where it lands afresh.
         model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
         frames.byID = [:]
@@ -1062,6 +1066,14 @@ private struct HistoryNativeAcceptanceView: View {
         let failureShot = try save(homeFailure, id: "state-writing-model-failure", title: "Home after a writing model download failed, minimum window, \(Int(failureSize.width)) × \(Int(failureSize.height)) pt",
                                    detail: "The reason stays in Current work beside the attention symbol and Models…, where Download again and Cancel live.",
                                    file: "page-home-state-writing-model-failure-\(theme).png", to: output)
+        // Another Text style takes the failure off Home, so it cannot hold Current work open.
+        model.preferences.cleanup = .light
+        model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
+        frames.byID = [:]
+        _ = try renderPage("home", in: window)
+        guard model.writingModelLine == reason, frames.byID["home.current-work.writing-model"] == nil else {
+            throw VoiceError.message("Home kept a failed writing model download in Current work after Text style changed to Light.")
+        }
         model.cleanupModels.clearFailure()
         return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot, failureShot])]
     }

@@ -89,14 +89,15 @@ struct VoiceOptions: View {
                     ForEach(CaptureMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().fixedSize()
                 // The same words the one-time hold lesson uses, with the shortcut as it is saved (#134 T5).
-                // With the shortcut off there is no key to teach; the keycap above sets one (#15).
-                Text(VoiceOptions.activationHint(model.preferences.dictationShortcut, capture: model.preferences.capture))
+                // With the shortcut off, or held by another app, there is no key to teach; the keycap above sets one (#15).
+                Text(VoiceOptions.activationHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.disabled(model.phase != .idle)
     }
-    nonisolated static func activationHint(_ shortcut: VoiceShortcut, capture: CaptureMode) -> String {
+    nonisolated static func activationHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
         guard shortcut.enabled else { return "Applies to the Dictate shortcut, which is off. Click the shortcut above to set one." }
+        guard failure == nil else { return "Applies to the Dictate shortcut, which isn’t available. Click the shortcut above to choose another." }
         return capture == .hold ? HoldLesson.title(shortcut: shortcut.label) + " " + HoldLesson.body
             : "Press \(shortcut.label) to start dictating, and again to finish."
     }
