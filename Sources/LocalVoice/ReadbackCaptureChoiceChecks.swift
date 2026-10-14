@@ -244,9 +244,14 @@ enum ReadbackCaptureChoiceChecks {
     /// The Snap & Talk page hosted as the window hosts it, in a window kept off every display.
     @MainActor private final class HostedPage {
         private let window: NSWindow
+        private static var launched = false
         init(_ model: ReadbackModel) throws {
-            _ = NSApplication.shared
-            NSApp.setActivationPolicy(.prohibited)
+            if !Self.launched {
+                // As the surface gallery does, which renders windows reliably on the CI runners.
+                _ = NSApplication.shared
+                NSApp.setActivationPolicy(.prohibited); NSApp.finishLaunching()
+                Self.launched = true
+            }
             window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 900, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
             window.contentViewController = NSHostingController(rootView: ReadbackView(model: model))
