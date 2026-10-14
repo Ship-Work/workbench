@@ -102,18 +102,24 @@ actor PackAuthorizationFixture: PackHTTPClient {
                   && !model.isBusy && opened == 0 && saves == 0, "verified installed content loads offline without sign-in, launch or download")
         let pack = model.packs[0], both = pack.entries.first { $0.id == "both" }!, notes = pack.entries.first { $0.id == "notes" }!
         let initialChoice = readback.selectedSkillChoice
+        let jobs = HandoffJobsModel(directory: root.appendingPathComponent("handoffs"), switches: ({ _ in false }, { _, _ in }))
         var refused = false
-        do { try model.prepareSkill(both, from: pack, input: nil, readback: readback) } catch { refused = true }
-        try check(refused && readback.selectedSkillChoice == initialChoice && model.preferredTranscriptSkillID == nil,
+        do { try model.prepareSkill(both, from: pack, input: nil, readback: readback, handoffJobs: jobs) } catch { refused = true }
+        try check(refused && readback.selectedSkillChoice == initialChoice && model.preferredTranscriptSkillID == nil && jobs.notice == nil,
                   "dual-input skill cannot silently choose or change a tool")
-        try check(try model.prepareSkill(notes, from: pack, input: nil, readback: readback) == .transcripts
+        try check(try model.prepareSkill(notes, from: pack, input: nil, readback: readback, handoffJobs: jobs) == .transcripts
                   && model.preferredTranscriptSkillID != nil && readback.selectedSkillChoice == initialChoice,
                   "transcript-only skill prepares only the existing History preference")
+        let chosenTitle = model.transcriptSkills.first { $0.id == model.preferredTranscriptSkillID }?.title
+        try check(chosenTitle != nil && jobs.notice?.contains(chosenTitle!) == true && jobs.notice?.contains("Hand off…") == true,
+                  "History says which skill is chosen for Hand off and what to do next")
+        jobs.notice = nil
         refused = false
-        do { try model.prepareSkill(notes, from: pack, input: .snapAndTalk, readback: readback) } catch { refused = true }
-        try check(refused && readback.selectedSkillChoice == initialChoice, "incompatible explicit destination is refused")
-        try check(try model.prepareSkill(both, from: pack, input: .snapAndTalk, readback: readback) == .snapAndTalk
-                  && readback.sessionURL == nil && !readback.isRecording && !readback.isCapturing,
+        do { try model.prepareSkill(notes, from: pack, input: .snapAndTalk, readback: readback, handoffJobs: jobs) } catch { refused = true }
+        try check(refused && readback.selectedSkillChoice == initialChoice && jobs.notice == nil, "incompatible explicit destination is refused")
+        try check(try model.prepareSkill(both, from: pack, input: .snapAndTalk, readback: readback, handoffJobs: jobs) == .snapAndTalk
+                  && readback.sessionURL == nil && !readback.isRecording && !readback.isCapturing
+                  && jobs.notice == nil && readback.notice?.hasPrefix("Selected Prepare a follow-up") == true,
                   "explicit Snap and Talk choice prepares its skill without a session or capture")
         let session = root.appendingPathComponent("Personal session")
         _ = try readback.createSession(at: session, title: "Retained synthetic session")

@@ -236,7 +236,7 @@ final class PackLibraryModel: ObservableObject {
         "private-" + String(PackDigest.hex(Data((pack.source.identity + "/" + pack.manifest.id + "/" + entry.id).utf8)).prefix(40))
     }
     @discardableResult func prepareSkill(_ entry: PackShelfEntry, from pack: PackShelfItem, input: PackInputKind?,
-                                        readback: ReadbackModel) throws -> PackInputKind {
+                                        readback: ReadbackModel, handoffJobs: HandoffJobsModel? = nil) throws -> PackInputKind {
         guard let record = records[pack.id], record.manifest.version.description == pack.version,
               let definition = payloads[pack.id]?.manifest.entry(id: entry.id), definition.kind == .skill else {
             throw VoiceError.message("This skill changed or is unavailable. Review the installed pack and choose again.")
@@ -249,7 +249,12 @@ final class PackLibraryModel: ObservableObject {
         if chosen == .snapAndTalk {
             guard readback.selectSkill(id) else { throw VoiceError.message(readback.notice ?? "Finish the current Snap & Talk work before choosing a skill.") }
             readback.notice = "Selected \(entry.name) for your next session. Existing sessions keep their own skill; choose New session when ready."
-        } else { preferredTranscriptSkillID = id }
+        } else {
+            preferredTranscriptSkillID = id
+            // History's caption says what the choice did; the Hand off picker names the skill the same way.
+            let title = transcriptSkills.first(where: { $0.id == id })?.title ?? entry.name
+            handoffJobs?.notice = "\(title) is chosen for Hand off. Select transcripts, then Hand off…"
+        }
         return chosen
     }
     func use(_ entry: PackShelfEntry, from pack: PackShelfItem, input: PackInputKind? = nil,
@@ -260,8 +265,8 @@ final class PackLibraryModel: ObservableObject {
                   let definition = payload.manifest.entry(id: entry.id) else { throw VoiceError.message("This pack changed. Review its current content and choose again.") }
             noticePackID = pack.id
             if definition.kind == .skill {
-                if try prepareSkill(entry, from: pack, input: input, readback: readback) == .snapAndTalk { app.page = "readback" }
-                else { app.openHistory() }
+                if try prepareSkill(entry, from: pack, input: input, readback: readback, handoffJobs: app.handoffJobs) == .snapAndTalk { app.page = "readback" }
+                else { app.openHistory(HistoryDoor(filter: .transcripts)) }
                 return
             }
             let data = try payload.data(at: definition.path)
