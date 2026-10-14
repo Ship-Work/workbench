@@ -111,6 +111,7 @@ struct WorkbenchQuickPanel: View {
                             }
                             if let recovery {
                                 PanelRecoveryRow(message: recovery.message, page: recovery.page, warning: recovery.warning, open: open)
+                                    .reportsFrame("panel.recovery", to: sectionFrames)
                             }
                         }
                     }

@@ -559,29 +559,35 @@ private struct HistoryNativeAcceptanceView: View {
                 pages: [], entries: [], menus: [], placement: try checkToolbarPlacement())
         }
         var panels: [SurfaceGallery.Shot] = []
-        final class EditorFrames { var byID: [String: CGRect] = [:] }
-        let editorFrames = EditorFrames()
+        final class PanelFrames { var byID: [String: CGRect] = [:] }
+        let panelFrames = PanelFrames()
         var waitingTurnOff: CGRect?
         for state in panelStates() {
             try state.apply()
-            editorFrames.byID = [:]
-            let rep = try renderPanel(state.readback, controlState: state.controlState) { id, frame in if id.hasPrefix("panel.editor.") { editorFrames.byID[id] = frame } }
+            panelFrames.byID = [:]
+            let rep = try renderPanel(state.readback, controlState: state.controlState) { id, frame in if id.hasPrefix("panel.") { panelFrames.byID[id] = frame } }
+            let editorFrames = panelFrames.byID.filter { $0.key.hasPrefix("panel.editor.") }
             // The editor's one leading slot (#336): Cancel while it waits for keys, Change once it
             // stops, and Turn off in the same place in both.
             if state.id.hasPrefix("shortcut-editor") {
                 let waiting = state.id == "shortcut-editor"
-                guard (editorFrames.byID["panel.editor.cancel"] != nil) == waiting, (editorFrames.byID["panel.editor.change"] != nil) == !waiting,
-                      let turnOff = editorFrames.byID["panel.editor.turn-off"] else {
-                    throw VoiceError.message("The panel's shortcut editor \(waiting ? "while waiting for keys" : "after Escape") showed \(editorFrames.byID.keys.sorted()), not \(waiting ? "Cancel" : "Change") and Turn off.")
+                guard (editorFrames["panel.editor.cancel"] != nil) == waiting, (editorFrames["panel.editor.change"] != nil) == !waiting,
+                      let turnOff = editorFrames["panel.editor.turn-off"] else {
+                    throw VoiceError.message("The panel's shortcut editor \(waiting ? "while waiting for keys" : "after Escape") showed \(editorFrames.keys.sorted()), not \(waiting ? "Cancel" : "Change") and Turn off.")
                 }
                 if waiting { waitingTurnOff = turnOff }
                 else if let waitingTurnOff, abs(waitingTurnOff.minX - turnOff.minX) > 8 {
                     throw VoiceError.message("Turn off moved \(Int(turnOff.minX - waitingTurnOff.minX)) pt when the editor stopped waiting.")
                 }
             }
-            // The attention line colours only its symbol, never its words (#335).
-            if state.id == "microphone-denied", SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width) > 24 {
-                throw VoiceError.message("The panel's attention line draws \(Int(SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width))) pt of orange; only its symbol may be orange.")
+            // The attention line colours only its symbol, never its words (#335). Only its own row
+            // is measured: another row's shortcut label may be orange for its own reason.
+            if state.id == "microphone-denied" {
+                guard let row = panelFrames.byID["panel.recovery"] else { throw VoiceError.message("The denied-microphone panel showed no attention line.") }
+                let orange = SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width, rows: row.minY...row.maxY)
+                guard orange > 0, orange <= 24 else {
+                    throw VoiceError.message("The panel's attention line draws \(Int(orange)) pt of orange; only its symbol may be orange, and it must be.")
+                }
             }
             panels.append(try save(rep, id: state.id, title: state.title, detail: state.detail, file: "panel-\(state.id)-\(theme).png", to: output))
             try state.reset()
@@ -3963,11 +3969,14 @@ private struct HistoryNativeAcceptanceView: View {
         return total > 0 && Double(drawn) / Double(total) < 0.002
     }
 
-    /// How wide, in points of a `width`-point render, the strongly orange pixels spread: a symbol
-    /// is a glyph wide, while orange words run the length of their sentence.
-    static func orangeExtent(_ rep: NSBitmapImageRep, width: CGFloat) -> CGFloat {
+    /// How wide, in points of a `width`-point render, the strongly orange pixels spread within
+    /// `rows` (points from the top): a symbol is a glyph wide, while orange words run the length
+    /// of their sentence.
+    static func orangeExtent(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>) -> CGFloat {
+        let scale = CGFloat(rep.pixelsWide) / width
+        let top = max(0, Int(rows.lowerBound * scale)), bottom = min(rep.pixelsHigh, Int((rows.upperBound * scale).rounded(.up)))
         var low = Int.max, high = Int.min
-        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+        for y in stride(from: top, to: bottom, by: 2) {
             for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
                 guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if colour.redComponent > 0.85, colour.greenComponent > 0.4, colour.greenComponent < 0.75, colour.blueComponent < 0.35 {
