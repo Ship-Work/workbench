@@ -14,7 +14,7 @@ extension DemoScenes {
                 guard let library = sceneSync?.library else { throw SceneDocumentError.invalid("The scene library is unavailable.") }
                 let record = try library.importPackage(SceneFile.read(url))
                 query = ""; selectedID = record.id
-                notice = "Imported an independent scene. The sender’s copy stays unchanged."
+                confirm("Imported an independent scene. The sender’s copy stays unchanged.")
             } catch { notice = error.localizedDescription }
         }
     }
@@ -34,7 +34,7 @@ extension DemoScenes {
                 panel.message = "Includes this scene’s pictures and editable layout. It does not give access to your library."
                 guard panel.runModal() == .OK, let url = panel.url else { return }
                 try data.write(to: url, options: .atomic)
-                notice = "Saved an editable scene copy. Share the file using Finder or your usual app."
+                confirm("Saved an editable scene copy. Share the file using Finder or your usual app.")
             } catch { notice = error.localizedDescription }
         }
     }

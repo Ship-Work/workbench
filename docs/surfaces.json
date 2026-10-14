@@ -2363,11 +2363,27 @@
     "belongsTo": "draw"
   },
   {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.copy-board",
+    "surface": "Draw menu",
+    "label": "Copy Board",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
+  },
+  {
     "id": "StageKit.AnnotationMenu.AnnotationMenu.command.drawing-controls",
     "surface": "Draw menu",
     "label": "Drawing Controls…",
     "kind": "action",
     "belongsTo": "draw"
+  },
+  {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.save-board-png",
+    "surface": "Draw menu",
+    "label": "Save Board PNG…",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
   },
   {
     "id": "StageKit.DemoPresentation.DemoPresentation.LiveSettings.Button.end-presentation",
@@ -3890,7 +3906,8 @@
     "label": "Rectangle",
     "case": "rectangle",
     "kind": "option",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Pending Names decision (#76): this tool's presenter key is named Shape (shortcut.stage.rectangle) and Snap's editor calls its tool Box. The tool's own name is unchanged until the maintainer chooses one name."
   },
   {
     "id": "choices.DrawingTool.text",
@@ -4158,10 +4175,11 @@
   {
     "id": "shortcut.stage.clear",
     "surface": "global shortcuts",
-    "label": "Clear & return to demo",
+    "label": "Clear",
     "case": "clear",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Clear & return to demo to Clear, the name Home teaches for this presenter key and Quick Controls uses, so Settings › Keyboard, the shortcut editors and conflict messages say the same; the Clear item in Draw's menu now reads Clear too. The action and its saved shortcut are unchanged."
   },
   {
     "id": "shortcut.stage.color1",
@@ -4315,10 +4333,11 @@
   {
     "id": "shortcut.stage.pen",
     "surface": "global shortcuts",
-    "label": "Pen",
+    "label": "Draw",
     "case": "pen",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Pen to Draw, the name Home teaches for this presenter key (hold it to draw with the pen), so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Draw's tool list keeps the tool's own name, Pen (choices.DrawingTool.pen)."
   },
   {
     "id": "shortcut.stage.personaNext",
@@ -4356,10 +4375,11 @@
   {
     "id": "shortcut.stage.rectangle",
     "surface": "global shortcuts",
-    "label": "Rectangle",
+    "label": "Shape",
     "case": "rectangle",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Rectangle to Shape, the name Home teaches for this presenter key, so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Deliberate, pending split: Draw's tool list keeps the tool's own name, Rectangle (choices.DrawingTool.rectangle), and Snap's editor calls its tool Box. One name for this tool is a Names decision left to the maintainer; the check compares labels only across owners, so it cannot see this split."
   },
   {
     "id": "shortcut.stage.redo",
@@ -4613,12 +4633,29 @@
     "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner."
   },
   {
-    "id": "StageKit.PersonaLibraryView.PersonaLibraryView.Button.use-in-scene",
-    "surface": "Persona workspace",
-    "label": "Use in scene",
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.cancel",
+    "surface": "Present persona chooser",
+    "label": "Cancel",
+    "kind": "action",
+    "belongsTo": "present",
+    "aliasOf": "present",
+    "note": "Quality (#276): closes Present's selection-only persona chooser and changes nothing; the existing contextual dismissal wording."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.open-persona",
+    "surface": "Present persona chooser",
+    "label": "Open Persona…",
     "kind": "action",
     "belongsTo": "persona",
-    "note": "Existing scene chooser callback, now included by the Persona route scanner while registering Me. Uses the selected saved Persona in the preparing scene and starts nothing."
+    "note": "Quality (#276; mac-foundation §1): replaces the add, edit, group and appearance controls the embedded library offered here with one route to Persona, in the panel's words for the same door. It closes the chooser first; without a Persona page it opens the library sheet."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.use-in-scene",
+    "surface": "Present persona chooser",
+    "label": "Use in scene",
+    "kind": "action",
+    "belongsTo": "present",
+    "note": "Quality (#276): moved from the embedded Persona library to Present's selection-only chooser. Places the chosen saved card's own copy in the scene and starts nothing; it never changes Persona's selection, prepared group or cards."
   },
   {
     "id": "LocalVoice.DemoLibraryView.DemoLibraryView.Button.add-local-file.2",

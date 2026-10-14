@@ -131,6 +131,7 @@ struct TestRunner {
                 ("persona sheet launch only after dismissal", suite.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
                 ("persona workspace failure preserves active session", suite.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
                 ("Present compact preview policy", suite.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+                ("Present persona chooser lists every card and only selects", suite.testPresentChooserListsEveryCardAndOnlySelects),
                 ("optional offscreen workspace layouts", suite.testOffscreenWorkspaceLayouts)
             ]
             for (name, test) in tests {
@@ -149,7 +150,8 @@ struct TestRunner {
             let tests: [(String, () throws -> Void)] = [
                 ("shortcut recording notices belong to Keyboard", suite.testShortcutRecordingNoticesBelongToKeyboard),
                 ("login notices belong to General", suite.testLoginNoticesBelongToGeneral),
-                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral)
+                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral),
+                ("successes stay on their page and never hide a problem", suite.testSuccessesStayOnTheirPageAndNeverHideAProblem)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -401,7 +403,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", suite.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", suite.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", suite.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", suite.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -515,6 +518,7 @@ struct TestRunner {
                 ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
                 ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
                 ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+                ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
                 ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
                 ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
                 ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer)
@@ -716,6 +720,7 @@ struct TestRunner {
             ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
             ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
             ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+            ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
             ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
             ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
             ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
@@ -881,6 +886,7 @@ struct TestRunner {
             ("shortcut recording notices belong to Keyboard", NoticeOwnerTests().testShortcutRecordingNoticesBelongToKeyboard),
             ("login notices belong to General", NoticeOwnerTests().testLoginNoticesBelongToGeneral),
             ("saved settings notices belong to General", NoticeOwnerTests().testSavedSettingsNoticesBelongToGeneral),
+            ("successes stay on their page and never hide a problem", NoticeOwnerTests().testSuccessesStayOnTheirPageAndNeverHideAProblem),
             ("duplicate shortcut registration plan", suite.testDuplicateShortcutRegistrationPlanPausesBothWithoutChangingSettings),
             ("ink colour accessibility descriptions", suite.testInkColourAccessibilityDescriptions),
             ("actual rendering for every tool", suite.testAllToolsRenderToRealPixels),
@@ -915,6 +921,7 @@ struct TestRunner {
             ("persona sheet launch only after dismissal", personaWorkspace.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
             ("persona workspace failure preserves active session", personaWorkspace.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
             ("Present compact preview policy", personaWorkspace.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+            ("Present persona chooser lists every card and only selects", personaWorkspace.testPresentChooserListsEveryCardAndOnlySelects),
             ("persona voice ring listens only while on and showing", personaVoice.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
             ("persona voice ring asks while preparing and stops when unavailable", personaVoice.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
             ("persona voice a fault found by a show keeps its reason", personaVoice.testAFaultFoundByAShowKeepsItsReason),
@@ -988,7 +995,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", annotationMenu.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", annotationMenu.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", annotationMenu.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", annotationMenu.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ])
         }
         var skipped = 0

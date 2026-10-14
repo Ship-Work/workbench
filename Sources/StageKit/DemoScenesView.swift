@@ -273,10 +273,7 @@ struct DemoScenesView: View {
         }
         .sheet(isPresented: $model.choosingPersonas) {
             if let id = model.personaSceneID {
-                PersonaLibraryView(library: model.personas, onChoose: { persona in
-                    model.usePersona(persona, in: id)
-                    model.choosingPersonas = false
-                })
+                PersonaSceneChooser(model: model, sceneID: id)
             } else {
                 PersonaLibraryView(library: model.personas)
             }
