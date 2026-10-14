@@ -836,7 +836,7 @@ struct WorkbenchHomePage: View {
                         Text(model.captureProcessingLabel).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Text("or press \(model.preferences.dictationShortcut.label) in any text field").font(.callout).foregroundStyle(.secondary)
+                Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])).font(.callout).foregroundStyle(.secondary)
                 if !model.transcript.isEmpty {
                     Text(model.transcript).lineLimit(6).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16).background(Workbench.surface, in: RoundedRectangle(cornerRadius: 12))
@@ -928,6 +928,12 @@ struct HomeJourney: Equatable {
     var offersGuide: Bool { !showsGuide && !hasDictated }
     /// What to save once History holds a dictation.
     var guideToSave: FirstDictationGuide? { transcripts > 0 && guide != .completed ? .completed : nil }
+    /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
+    /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
+    /// bar, in History's words.
+    static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?) -> String {
+        shortcut.enabled && failure == nil ? "or press \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
+    }
     /// Current work first, then the guide while offered, then Permissions while it is open, then
     /// your meetings, decks and keys, and a folded Permissions last. Home holds
     /// only what the app shows nowhere else in that form; History keeps everything else

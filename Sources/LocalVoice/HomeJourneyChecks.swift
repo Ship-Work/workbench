@@ -55,6 +55,17 @@ enum HomeJourneyChecks {
         try check(!landed.offersSkip && !landed.offersGuide, "after the first result neither Skip nor the way back remains")
         try check(HomeJourney(transcripts: 1, guide: .completed).sections == results, "Done returns to the ordinary Home")
 
+        // The guide teaches a key only while it is on and registered (#15).
+        let dictateKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil).contains("⌥V"), "the guide names the Dictate shortcut while it works")
+        let dictateOff = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey), enabled: false)
+        try check(!HomeJourney.shortcutHint(dictateOff, failure: nil).contains("Off") && !HomeJourney.shortcutHint(dictateOff, failure: nil).contains("press"),
+                  "a Dictate shortcut that is off is never taught as \"press Off\"")
+        let taken = HomeJourney.shortcutHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.")
+        try check(!taken.contains("⌥V") && !taken.contains("press"), "a Dictate shortcut macOS could not register is never taught")
+        try check(CaptureMode.allCases.allSatisfy { !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Off to") && !VoiceOptions.activationHint(dictateOff, capture: $0).contains("Press") },
+                  "Dictate's Activation hint teaches no key while the shortcut is off")
+
         // Current work comes first in every state; the columns hold every result section once.
         try check(HomeJourney(transcripts: 1, hasCurrentWork: true).sections == [.currentWork] + results,
                   "current work renders above the results")

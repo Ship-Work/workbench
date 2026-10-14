@@ -89,12 +89,16 @@ struct VoiceOptions: View {
                     ForEach(CaptureMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().fixedSize()
                 // The same words the one-time hold lesson uses, with the shortcut as it is saved (#134 T5).
-                Text(model.preferences.capture == .hold
-                     ? HoldLesson.title(shortcut: model.preferences.dictationShortcut.label) + " " + HoldLesson.body
-                     : "Press \(model.preferences.dictationShortcut.label) to start dictating, and again to finish.")
+                // With the shortcut off there is no key to teach; the keycap above sets one (#15).
+                Text(VoiceOptions.activationHint(model.preferences.dictationShortcut, capture: model.preferences.capture))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.disabled(model.phase != .idle)
+    }
+    nonisolated static func activationHint(_ shortcut: VoiceShortcut, capture: CaptureMode) -> String {
+        guard shortcut.enabled else { return "Applies to the Dictate shortcut, which is off. Click the shortcut above to set one." }
+        return capture == .hold ? HoldLesson.title(shortcut: shortcut.label) + " " + HoldLesson.body
+            : "Press \(shortcut.label) to start dictating, and again to finish."
     }
 }
 
