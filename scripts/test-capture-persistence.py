@@ -26,6 +26,8 @@ methods = model.extract([
     'toggleRecording', 'recordAgain', 'shortcutChanged',
     'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
     'importAudio(_:)', 'retryTranscription',
+    # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
+    'transcribeForShortcut',
     # Transcription, its commit and the recovery it keeps.
     'transcribe', 'admitNewCapture', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
     'discardRecordingRecovery', 'discardCaptureRecovery', 'showCaptureRecoveryFiles', 'showSavedRecordings',
@@ -322,7 +324,7 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     var captureUsesHoldShortcut = false, isMicrophoneQuiet = false, rendering = false
     var microphoneStartFailure: ((TextDelivery.Target?) -> String?)?
     var microphoneFailure: AVAuthorizationStatus?
-    var onShowEditor: ((String) -> Void)?
+    var onShowEditor: ((String) -> Void)?, onCloseMenu: (() -> Void)?
     var undelivered = UnresolvedDeliverySlot()
     var draftRevision: UInt64 = 0
     var persistWork: DispatchWorkItem?
@@ -631,7 +633,8 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         importing.importAudio(invalidImport)
         try check(importing.captureRecovery.pending?.id == importRecoveryID && FileManager.default.fileExists(atPath: importRecoveryURL.path), "Invalid audio import leaves current retry audio in place")
         // Each refusal is one plain sentence (#337): an unreadable file says so with formats to try,
-        // and a readable one over 30 minutes says only that it is too long.
+        // a readable one over 30 minutes says only that it is too long, and the Transcribe shortcut
+        // throws the same sentence to Shortcuts.
         try check(importing.attention == Attention(message: ImportedAudio.unreadable, page: .dictate, code: "dictate.audio_unreadable"),
                   "An unreadable import says why in words: \(String(describing: importing.attention?.message))")
         let longImport = root.appendingPathComponent("over-thirty-minutes.wav"); try wave(rate: 1000, seconds: 1801).write(to: longImport)
@@ -639,6 +642,10 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(importing.attention == Attention(message: "Choose an audio file between 1 second and 30 minutes long.", page: .dictate, code: "dictate.audio_unreadable")
                   && importing.captureRecovery.pending?.id == importRecoveryID && importing.engine.calls == 0,
                   "A recording over 30 minutes is refused as too long, not unreadable: \(String(describing: importing.attention?.message))")
+        let shortcutImport = CaptureHarness(directory: folder("shortcut-import")); var shortcutRefusal = "no refusal"
+        do { _ = try await shortcutImport.transcribeForShortcut(invalidImport) } catch { shortcutRefusal = error.localizedDescription }
+        try check(shortcutRefusal == ImportedAudio.unreadable && shortcutImport.shortcutRequest.id == nil && shortcutImport.engine.calls == 0,
+                  "The Transcribe shortcut gives Shortcuts the same plain sentence for an unreadable file: \(shortcutRefusal)")
         importing.importAudio(importRecoveryURL); await finish(importing)
         try check(importing.history.count == 1 && importing.history.first?.id == importRecoveryID && !importing.hasCaptureRecovery, "Importing the current recovery transcribes with its owned identity and never moves the URL first")
         let cancelled = CaptureHarness(directory: folder("cancelled"))
