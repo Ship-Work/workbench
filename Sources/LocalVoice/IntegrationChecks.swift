@@ -106,11 +106,13 @@ enum IntegrationChecks {
                       && message.contains("M4A"), "an unreadable .\(url.pathExtension) says why in words, with formats to try")
         }
         let caf = folder.appendingPathComponent("two-seconds.caf")
-        do {
+        // Writing and reopening load the system's audio codecs too, off the main thread for the same reason.
+        let frames = try DispatchQueue.global(qos: .userInitiated).sync {
             let output = try AVAudioFile(forWriting: caf, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             try output.write(from: buffer); try output.write(from: buffer)
+            return try ImportedAudio.open(caf).length
         }
-        try check(try ImportedAudio.open(caf).length == 48000, "a playable two-second CAF still opens")
+        try check(frames == 48000, "a playable two-second CAF still opens")
         print("INTEGRATIONS_OK: \(count) checks (synthetic; no network or credentials)")
     }
 }
