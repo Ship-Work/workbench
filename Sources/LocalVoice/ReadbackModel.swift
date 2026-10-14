@@ -1154,7 +1154,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].capturedAt = Date(); current.sections[index].displayName = capture.displayName
             try ReadbackStore.save(current, at: root); publish(current, for: root)
             recordingThumbnail = NSImage(data: capture.data); recordingScreenFrame = capture.screenFrame
-            isCapturing = false; try startNarration(root: root, sectionID: sectionID)
+            isCapturing = false
+            // The new image is saved by now, so a recorder that cannot start must not say otherwise.
+            do { try startNarration(root: root, sectionID: sectionID) }
+            catch { notice = "The screenshot was replaced and its narration was kept, but recording could not start. \(error.localizedDescription)"; stateChanged() }
         } catch {
             guard captureRequest == request else { return }
             if Task.isCancelled { notice = nil; return }

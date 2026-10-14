@@ -31,7 +31,7 @@ enum ReadbackCaptureChoiceChecks {
         let image = bitmap.representation(using: .png, properties: [:])!
 
         // Replace screenshot and Redo use the page's Capture area on a section with known files.
-        let corrections = ["replace-region", "replace-escape", "replace-close", "replace-no-screen", "replace-screen", "redo-escape", "redo-mic-denied"]
+        let corrections = ["replace-region", "replace-escape", "replace-close", "replace-no-screen", "replace-screen", "redo-escape", "redo-mic-denied", "redo-recorder-fails"]
         let originalScreen = Data("Original synthetic screen".utf8)
         for scenario in ["cancel", "permission", "late-denial", "close", "replace", "shutdown", "shutdown-settle", "task-cancel", "commit"] + corrections {
             let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.CaptureChoices.\(UUID().uuidString)").path
@@ -174,6 +174,16 @@ enum ReadbackCaptureChoiceChecks {
                 await model.redoBoth(sectionID, mode: .window)
                 try check(source.modes.isEmpty && hides == 0 && unchanged() && model.notice == model.permissionsProblem,
                     "Redo without the microphone explains before opening a selector it could not narrate")
+            case "redo-recorder-fails":
+                // The microphone is allowed but the recorder cannot start, as with no input device.
+                await model.redoBoth(sectionID, mode: .region)
+                let replaced = try Data(contentsOf: root.appendingPathComponent(sectionDirectory + "/screen.png"))
+                let archived = try fm.contentsOfDirectory(at: history, includingPropertiesForKeys: nil).map { try Data(contentsOf: $0) }
+                try check(source.modes == [.region] && replaced == image && archived == [originalScreen]
+                    && model.manifest?.sections.first?.audio == sectionDirectory + "/narration.wav" && model.manifest?.sections.first?.status == .ready,
+                    "Redo whose recorder cannot start keeps the new screenshot and the earlier narration")
+                try check(model.notice?.hasPrefix("The screenshot was replaced and its narration was kept, but recording could not start.") == true,
+                    "Redo whose recorder cannot start says the screenshot was replaced, not that nothing changed")
             default:
                 for mode in [SnapCapture.Mode.region, .window] {
                     microphone = .authorized; model.refreshPermissionState()
@@ -198,7 +208,7 @@ enum ReadbackCaptureChoiceChecks {
             }
             try check(!model.isCapturing && !model.isRecording && !model.blocksDictation, "\(scenario) releases capture without starting a recorder")
             try check(hides == restores, "\(scenario) restores every hidden editor")
-            if !["commit", "replace-region", "replace-screen"].contains(scenario) {
+            if !["commit", "replace-region", "replace-screen", "redo-recorder-fails"].contains(scenario) {
                 let after = try Data(contentsOf: manifestURL)
                 try check(after == expected && saves == 0, "\(scenario) preserves session bytes and saves no new Snap")
             }
