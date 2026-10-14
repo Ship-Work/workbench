@@ -3,6 +3,13 @@ import ImageIO
 import CoreText
 
 enum SnapRendering {
+    /// ScreenCaptureKit sizes a display in points and a capture in pixels. A display's backing
+    /// scale turns one into the other, so a Retina screen keeps every pixel, as Region and Window do.
+    static func capturePixelSize(points: CGSize, scale: CGFloat) -> (width: Int, height: Int) {
+        let scale = max(1, scale)
+        return (Int((points.width * scale).rounded()), Int((points.height * scale).rounded()))
+    }
+
     static func dimensions(_ bytes: Data) throws -> (width: Int, height: Int) {
         guard !bytes.isEmpty, bytes.count <= SnapStore.maximumImageBytes,
               let source = CGImageSourceCreateWithData(bytes as CFData, nil),
