@@ -67,12 +67,16 @@ struct TranscriptReviewView: View {
     @State private var version: TranscriptExportVersion
     @State private var recording: Transcript?
     @StateObject private var feedback = TranscriptReviewFeedback()
+    /// The capture notes' own height at the sheet's width.
+    @State private var notesFit: CGFloat = 0
 
     init(model: AppModel, review: TranscriptReview, done: @escaping () -> Void) {
         self.model = model; self.review = review; self.done = done
         _version = State(initialValue: review.version)
     }
 
+    /// The most the capture notes take above the words: about six lines.
+    static let notesHeight: CGFloat = 96
     private var item: Transcript { review.transcript }
     private var text: String { TranscriptExport.text(for: item, version: version) }
     private var recordingAvailable: Bool {
@@ -98,10 +102,16 @@ struct TranscriptReviewView: View {
                 Text("Original wording").tag(TranscriptExportVersion.original)
             }.pickerStyle(.segmented).accessibilityLabel("Transcript wording")
             VStack(alignment: .leading, spacing: 0) {
-                // Capture notes are short, so they stay in view above the words that scroll.
+                // Capture notes stay in view above the words that scroll. A meeting saved with a
+                // note for every gap can carry dozens, so past about six lines the notes scroll in
+                // their own space and the words, Copy and Export keep theirs.
                 let notes = model.historyLibrary.metadata(for: item.id).captureNotes
                 if !notes.isEmpty {
-                    WorkbenchNote(notes.joined(separator: "\n")).frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollView {
+                        WorkbenchNote(notes.joined(separator: "\n")).frame(maxWidth: .infinity, alignment: .leading)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { notesFit = $0 }
+                    }.scrollBounceBehavior(.basedOnSize)
+                        .frame(height: min(notesFit, Self.notesHeight))
                         .padding([.horizontal, .top], Workbench.tilePadding)
                 }
                 TranscriptDocumentText(text: text)
