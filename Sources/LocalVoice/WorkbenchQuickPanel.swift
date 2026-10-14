@@ -19,6 +19,7 @@ struct WorkbenchQuickPanel: View {
     @ObservedObject var receipts: ClipboardReceiptModel
     @ObservedObject var snapModel: SnapModel
     @ObservedObject private var updates = WorkbenchUpdates.shared
+    @Environment(\.pageSectionFrames) private var sectionFrames
     var open: (String) -> Void
     var draw: () -> Void
     var snap: () -> Void
@@ -177,12 +178,15 @@ struct WorkbenchQuickPanel: View {
             Text(keyboard.message ?? "Press your combination.")
                 .font(.caption).foregroundStyle(keyboard.hasError ? .orange : .secondary).lineLimit(3)
             HStack {
-                Button("Change") { keyboard.beginRecording() }
+                // One leading slot: Cancel while the recorder waits, as it does from opening, and
+                // Change once it stops. Change would only restart the same wait, and Turn off never
+                // moves into the place just clicked.
+                if keyboard.isInteracting { Button("Cancel") { keyboard.stopInteraction() }.reportsFrame("panel.editor.cancel", to: sectionFrames) }
+                else { Button("Change") { keyboard.beginRecording() }.reportsFrame("panel.editor.change", to: sectionFrames) }
                 // Off already: nothing to turn off, so nothing to confirm. It stays
                 // usable while recording, which this editor starts on opening.
                 Button("Turn off") { keyboard.disableSelected() }
-                    .disabled(keyboard.selected?.shortcut.enabled != true)
-                if keyboard.isInteracting { Button("Cancel") { keyboard.stopInteraction() } }
+                    .disabled(keyboard.selected?.shortcut.enabled != true).reportsFrame("panel.editor.turn-off", to: sectionFrames)
             }.controlSize(.small)
         }
     }
@@ -307,6 +311,13 @@ extension StageNoticePage {
         case .keyboard: return "shortcuts"
         case .general: return "settings"
         }
+    }
+}
+
+private extension View {
+    /// Where the gallery reads this control's place; nothing listens in the app.
+    func reportsFrame(_ id: String, to frames: ((String, CGRect) -> Void)?) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames?(id, $0) }
     }
 }
 

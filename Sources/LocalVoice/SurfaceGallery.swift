@@ -559,9 +559,26 @@ private struct HistoryNativeAcceptanceView: View {
                 pages: [], entries: [], menus: [], placement: try checkToolbarPlacement())
         }
         var panels: [SurfaceGallery.Shot] = []
+        final class EditorFrames { var byID: [String: CGRect] = [:] }
+        let editorFrames = EditorFrames()
+        var waitingTurnOff: CGRect?
         for state in panelStates() {
             try state.apply()
-            let rep = try renderPanel(state.readback, controlState: state.controlState)
+            editorFrames.byID = [:]
+            let rep = try renderPanel(state.readback, controlState: state.controlState) { id, frame in if id.hasPrefix("panel.editor.") { editorFrames.byID[id] = frame } }
+            // The editor's one leading slot (#336): Cancel while it waits for keys, Change once it
+            // stops, and Turn off in the same place in both.
+            if state.id.hasPrefix("shortcut-editor") {
+                let waiting = state.id == "shortcut-editor"
+                guard (editorFrames.byID["panel.editor.cancel"] != nil) == waiting, (editorFrames.byID["panel.editor.change"] != nil) == !waiting,
+                      let turnOff = editorFrames.byID["panel.editor.turn-off"] else {
+                    throw VoiceError.message("The panel's shortcut editor \(waiting ? "while waiting for keys" : "after Escape") showed \(editorFrames.byID.keys.sorted()), not \(waiting ? "Cancel" : "Change") and Turn off.")
+                }
+                if waiting { waitingTurnOff = turnOff }
+                else if let waitingTurnOff, abs(waitingTurnOff.minX - turnOff.minX) > 8 {
+                    throw VoiceError.message("Turn off moved \(Int(turnOff.minX - waitingTurnOff.minX)) pt when the editor stopped waiting.")
+                }
+            }
             panels.append(try save(rep, id: state.id, title: state.title, detail: state.detail, file: "panel-\(state.id)-\(theme).png", to: output))
             try state.reset()
         }
@@ -2890,8 +2907,10 @@ private struct HistoryNativeAcceptanceView: View {
             PanelState(id: "meeting-recording", title: "Meeting recording", detail: "A meeting recording app audio, which shows the meeting status row.", readback: readback,
                        apply: { [self] in model.meetings = recordingMeetings; try drive(recordingMeetings, start: true) },
                        reset: { [self] in try drive(recordingMeetings, start: false); model.meetings = meetings }),
-            PanelState(id: "shortcut-editor", title: "Shortcut editor", detail: "Snap's shortcut label clicked: the inline editor waits for keys. Closing the panel ends it.", readback: readback,
-                       apply: { [self] in panelEditor.change("voice.8") }, reset: { [self] in panelEditor.end() })]
+            PanelState(id: "shortcut-editor", title: "Shortcut editor", detail: "Snap's shortcut label clicked: the inline editor waits for keys, with Cancel and Turn off. Closing the panel ends it.", readback: readback,
+                       apply: { [self] in panelEditor.change("voice.8") }, reset: { [self] in panelEditor.end() }),
+            PanelState(id: "shortcut-editor-stopped", title: "Shortcut editor after Escape", detail: "Snap's editor once it stops waiting: Change returns in Cancel's place and Turn off stays put.", readback: readback,
+                       apply: { [self] in panelEditor.change("voice.8"); keyboard.stopInteraction() }, reset: { [self] in panelEditor.end() })]
     }
 
     // MARK: Rendering
@@ -2902,8 +2921,9 @@ private struct HistoryNativeAcceptanceView: View {
     }
 
     /// The popover's own material is not drawn; the panel sits on the window background.
-    func renderPanel(_ readback: ReadbackModel, controlState: WorkbenchControlState? = nil) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: quickPanel(readback, controlState: controlState).background(Color(nsColor: .windowBackgroundColor)))
+    func renderPanel(_ readback: ReadbackModel, controlState: WorkbenchControlState? = nil, sectionFrames: ((String, CGRect) -> Void)? = nil) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: quickPanel(readback, controlState: controlState).background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.pageSectionFrames, sectionFrames))
         let window = offscreenWindow(size: host.fittingSize, styleMask: [.borderless])
         window.contentView = host
         settle(host)
