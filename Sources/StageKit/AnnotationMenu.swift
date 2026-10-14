@@ -73,6 +73,18 @@ final class AnnotationMenu: AnnotationShortcutMenu, NSMenuDelegate {
         let board = NSScreen.screens.isEmpty ? nil : app.boards[app.currentID]
         addItem(actionItem(.whiteboard, checked: board == .white))
         addItem(actionItem(.blackboard, checked: board == .black))
+        // While a board is up it covers the Draw page on one display, and these menus stay above
+        // it, so its export is here too, in the page's words (#31).
+        if !app.boards.isEmpty {
+            addItem(command("Copy Board", id: "copyBoard", enabled: app.canExportBoardFromMenu) { [weak app] in
+                guard let app, app.canExportBoardFromMenu else { return }
+                app.copyBoard()
+            })
+            addItem(command("Save Board PNG…", id: "saveBoard", enabled: app.canExportBoardFromMenu) { [weak app] in
+                guard let app, app.canExportBoardFromMenu else { return }
+                app.saveBoardPNG()
+            })
+        }
         addItem(.separator())
         guard includeSettings else { trailing?().forEach(addItem); return }
         addItem(command("Drawing Controls…", id: "controls", enabled: app.canUseAnnotationMenuAction(.controls)) { [weak app] in

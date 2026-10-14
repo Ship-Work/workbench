@@ -403,7 +403,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", suite.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", suite.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", suite.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", suite.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -994,7 +995,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", annotationMenu.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", annotationMenu.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", annotationMenu.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", annotationMenu.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ])
         }
         var skipped = 0

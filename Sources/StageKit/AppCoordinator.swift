@@ -394,6 +394,14 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         return boards.count == 1 ? boards.keys.first : nil
     }
     var canExportBoard: Bool { exportableBoardID != nil && !boardExportInProgress }
+    /// Board export from Draw's menus, which stay reachable above a full-screen board: the Draw
+    /// page's export, and like every other menu action never during Screenshot, keyboard
+    /// practice or recording a shortcut (#31).
+    var canExportBoardFromMenu: Bool {
+        canExportBoard && !screenshotHandoffActive && !shortcutsSuspended && recordingAction == nil
+    }
+    /// Where Copy board puts the image; checks give it a private pasteboard.
+    var boardPasteboard: NSPasteboard = .general
     func boardImageExport() throws -> BoardImageExport {
         guard let id = exportableBoardID, let style = boards[id], let canvas = canvases[id],
               let history = history(for: id) else { throw BoardExportError.noBoard }
@@ -405,7 +413,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func copyBoard() {
         guard !boardExportInProgress else { return }
-        do { try boardImageExport().copy(); post("Board copied as an image.", on: .draw, tone: .done) }
+        do { try boardImageExport().copy(to: boardPasteboard); post("Board copied as an image.", on: .draw, tone: .done) }
         catch { post(error.localizedDescription, on: .draw) }
     }
     func saveBoardPNG() {

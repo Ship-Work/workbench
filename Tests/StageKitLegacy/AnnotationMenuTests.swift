@@ -224,6 +224,60 @@ final class AnnotationMenuTests: XCTestCase {
         }
     }
 
+    /// Board export from Draw's own menus while a board is up (#31). On one display the board
+    /// covers the Draw page, whose buttons were the only export. The items appear only with a
+    /// board, in every Draw menu, and recheck admission when clicked. Save is never chosen
+    /// here, because it opens a real save panel.
+    func testOpenBoardOffersCopyAndSaveInDrawMenu() throws {
+        try withFixture { app, menu in
+            let pasteboard = NSPasteboard.withUniqueName()
+            defer { pasteboard.releaseGlobally() }
+            app.boardPasteboard = pasteboard
+            let general = NSPasteboard.general.changeCount
+            let panelMenu = AnnotationMenu(coordinator: app, includeSettings: false)
+            for shown in [menu, panelMenu] {
+                XCTAssertTrue(item("copyBoard", in: shown) == nil && item("saveBoard", in: shown) == nil, "No board, no export")
+            }
+            invoke("whiteboard", in: menu)
+            let display = app.currentID
+            XCTAssertEqual(app.boards[display], .white)
+            let mark = Annotation(tool: .pen, color: .coral, width: 4,
+                points: [InkPoint(CGPoint(x: 15, y: 15)), InkPoint(CGPoint(x: 45, y: 45))])
+            app.history(for: display)?.append(mark)
+            for shown in [menu, panelMenu] {
+                reopen(shown)
+                XCTAssertEqual(item("copyBoard", in: shown)?.title, "Copy Board")
+                XCTAssertEqual(item("saveBoard", in: shown)?.title, "Save Board PNG…")
+                XCTAssertTrue(item("copyBoard", in: shown)?.isEnabled == true && item("saveBoard", in: shown)?.isEnabled == true,
+                              "Both are offered while the board is up")
+            }
+            invoke("copyBoard", in: menu)
+            let bitmap = pasteboard.data(forType: .png).flatMap(NSBitmapImageRep.init(data:))
+            XCTAssertTrue(bitmap != nil, "Copy Board puts the board on the pasteboard as a PNG")
+            XCTAssertTrue((bitmap?.pixelsWide ?? 0) >= Int(app.canvases[display]?.bounds.width ?? 1), "at the board's full width")
+            XCTAssertEqual(app.boards[display], .white, "The board stays up")
+            XCTAssertEqual(app.history(for: display)?.annotations, [mark], "with its ink")
+            XCTAssertEqual(NSPasteboard.general.changeCount, general, "The check never touches the general pasteboard")
+            // Recording a shortcut: a menu drawn before cannot export, and a new one offers it disabled.
+            let copied = pasteboard.changeCount
+            app.recordingAction = .pen
+            invoke("copyBoard", in: menu)
+            XCTAssertEqual(pasteboard.changeCount, copied, "An open menu rechecks admission when clicked")
+            reopen(menu)
+            XCTAssertTrue(item("copyBoard", in: menu)?.isEnabled == false && item("saveBoard", in: menu)?.isEnabled == false,
+                          "Recording a shortcut owns the keyboard")
+            app.recordingAction = nil
+            app.setShortcutsSuspended(true)
+            reopen(menu)
+            XCTAssertTrue(item("copyBoard", in: menu)?.isEnabled != true && item("saveBoard", in: menu)?.isEnabled != true,
+                          "Keyboard practice exports nothing")
+            app.setShortcutsSuspended(false)
+            app.escape()
+            reopen(menu)
+            XCTAssertTrue(item("copyBoard", in: menu) == nil && item("saveBoard", in: menu) == nil, "Closing the board takes them away")
+        }
+    }
+
     func testStaleMenuCannotBypassChangedAdmission() throws {
         try withFixture { app, menu in
             XCTAssertEqual(item("pen", in: menu)?.isEnabled, true)

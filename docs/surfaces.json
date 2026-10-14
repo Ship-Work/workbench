@@ -2363,11 +2363,27 @@
     "belongsTo": "draw"
   },
   {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.copy-board",
+    "surface": "Draw menu",
+    "label": "Copy Board",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
+  },
+  {
     "id": "StageKit.AnnotationMenu.AnnotationMenu.command.drawing-controls",
     "surface": "Draw menu",
     "label": "Drawing Controls…",
     "kind": "action",
     "belongsTo": "draw"
+  },
+  {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.save-board-png",
+    "surface": "Draw menu",
+    "label": "Save Board PNG…",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
   },
   {
     "id": "StageKit.DemoPresentation.DemoPresentation.LiveSettings.Button.end-presentation",
