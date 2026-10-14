@@ -269,9 +269,10 @@ struct HistoryView: View {
     @State private var copied: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The surface gallery passes a confirmation already showing; the app starts with none.
+    /// The surface gallery passes a confirmation already showing and a result already open; the
+    /// app starts with neither.
     init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil,
-         copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil,
+         copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil, expandedResult: UUID? = nil,
          applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
         self.model = model; self.snap = snap
         self.library = model.historyLibrary; self.jobs = model.handoffJobs
@@ -280,6 +281,7 @@ struct HistoryView: View {
         _filter = State(initialValue: model.historyDoor?.filter ?? .all)
         _copyFeedback = StateObject(wrappedValue: copyFeedback ?? TranscriptReviewFeedback())
         _copied = State(initialValue: copied)
+        _expandedResult = State(initialValue: expandedResult)
     }
 
     /// Copy and Copy result, confirmed beside the control pressed by what was written.

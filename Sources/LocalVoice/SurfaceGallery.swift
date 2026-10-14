@@ -2809,11 +2809,14 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// Copy and Copy result confirming beside the control pressed (#338), at standard and 1.35
     /// times the text size: the newest transcript's row in the minimum window's content column,
-    /// History's narrowest, and an expanded result in a window as narrow. The reserved ✓ Copied
-    /// must leave each action row whole.
+    /// History's narrowest, and the completed task's result open in Results at that width. The
+    /// reserved ✓ Copied must leave each action row whole.
     func renderHistoryCopied(to output: URL) throws -> [SurfaceGallery.Shot] {
         let column = NSSize(width: SurfaceGallery.sizes[1].size.width - 216, height: SurfaceGallery.sizes[1].size.height)
         let newest = model.history.max { $0.date < $1.date }?.id
+        guard let completed = model.handoffJobs.visibleJobs.first(where: { $0.status == .completed })?.id else {
+            throw VoiceError.message("History's copied-result render has no completed task to open.")
+        }
         var shots: [SurfaceGallery.Shot] = []
         for (scale, suffix, text) in [(CGFloat(1), "", "standard"), (CGFloat(1.35), "-larger-text", "1.35 times the")] {
             // Each page takes the door when it appears, so each is given its own.
@@ -2834,18 +2837,23 @@ private struct HistoryNativeAcceptanceView: View {
                                   file: "page-history-state-copied\(suffix)-\(theme).png", to: output))
             window.contentView = nil; window.close()
 
-            let result = HandoffResultPreview(
-                text: "Follow-up for Sam\n\nWe agreed to review the pilot on Friday.\nSam will share the revised notes before the review.",
-                context: "Synthetic follow-up", confirmation: "Copied", copyText: {})
-                .padding(16).frame(width: 620 / scale, alignment: .topLeading).scaleEffect(scale, anchor: .topLeading)
-                .frame(width: 620, height: 260, alignment: .topLeading).workbenchTheme()
-            let preview = NSHostingView(rootView: result)
-            let resultWindow = offscreenWindow(size: NSSize(width: 620, height: 260), styleMask: [.borderless])
-            resultWindow.contentView = preview
-            resultWindow.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
-            settle(preview)
-            shots.append(try save(snapshot(preview), id: "state-result-copied\(suffix)", title: "History, a result copied, \(text) text size",
-                                  detail: "An expanded result's Copy result confirms ✓ Copied beside it.",
+            // The completed task open in Results, at the same column width and taller so its
+            // card shows whole: the page hands the confirmation to that task's Copy result.
+            model.historyDoor = HistoryDoor(filter: .results); model.page = "history"
+            let resultFeedback = TranscriptReviewFeedback(clock: { 0 }, announce: { _ in })
+            resultFeedback.finish("Copied")
+            let tall = NSSize(width: column.width, height: 1_180)
+            let results = HistoryView(model: model, snap: snap, copyFeedback: resultFeedback, copied: completed,
+                                      expandedResult: completed, applySuggestedMetadata: { _, _ in })
+                .frame(width: tall.width / scale, height: tall.height / scale).scaleEffect(scale, anchor: .topLeading)
+                .frame(width: tall.width, height: tall.height, alignment: .topLeading)
+                .background(Workbench.background).tint(Workbench.accent).workbenchTheme()
+            let resultHost = NSHostingView(rootView: results)
+            let resultWindow = offscreenWindow(size: tall, styleMask: [.borderless])
+            resultWindow.contentView = resultHost
+            settle(resultHost, seconds: 1)
+            shots.append(try save(try snapshot(resultHost), id: "state-result-copied\(suffix)", title: "History, a result copied, \(text) text size",
+                                  detail: "The completed task open in Results: its Copy result confirms ✓ Copied beside it, and no other card shows it.",
                                   file: "page-history-state-result-copied\(suffix)-\(theme).png", to: output))
             resultWindow.contentView = nil; resultWindow.close()
         }
