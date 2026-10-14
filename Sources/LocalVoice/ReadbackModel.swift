@@ -1169,6 +1169,11 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if let transcriptWriter { try transcriptWriter(Data(text.utf8), url) }
             else { try ReadbackStore.writePrivate(Data(text.utf8), to: url) }
             current.sections[index].transcript = relative
+            // A typed note finishes a section with no narration to wait for; it is never demoted.
+            if current.sections[index].audio == nil, current.sections[index].status == .needsNarration,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                current.sections[index].status = .ready; current.sections[index].failure = nil
+            }
             if let transcriptManifestWriter { try transcriptManifestWriter(current, root) }
             else { try ReadbackStore.save(current, at: root) }
             transcriptSaveFailures.removeValue(forKey: sectionID)

@@ -367,6 +367,7 @@ enum ReadbackChecks {
         try check(captureCount == 2 && switched == before, "closing the session during redo never modifies the previous session")
         try check(model.sessionURL == nil && !model.isRecording && !model.blocksDictation, "session change leaves no hidden recorder or capture reservation")
         print("READBACK_ADMISSION_CHECKS_OK: \(passed) checks")
+        try await runTypedNoteChecks()
         try await ReadbackCaptureChoiceChecks.run()
         try await ReadbackCaptureAccessChecks.run()
     }
@@ -572,6 +573,72 @@ enum ReadbackChecks {
         try check(reconciled.sections[1].status == .needsNarration && reconciled.sections[1].failure?.contains("interrupted") == true, "only an orphaned recording is marked interrupted")
         print("READBACK_RECOVERY_CHECKS_OK: \(passed) checks")
         try await runQuitChecks()
+    }
+
+    /// With the microphone off, a section that needs narration is finished by typing a note.
+    /// Only that state changes; whitespace, other statuses and a failed save leave it as it was.
+    @MainActor
+    private static func runTypedNoteChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () throws -> Bool, _ message: String) throws {
+            guard try value() else { throw ReadbackError.message("READBACK_TYPED_NOTE_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("Workbench-typed-note-\(UUID().uuidString)")
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.TypedNote.\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain); try? fm.removeItem(at: root) }
+        var manifest = try ReadbackStore.create(at: root, title: "Synthetic typed notes")
+        func section(_ status: ReadbackSectionStatus, audio: Bool, failure: String? = nil) throws -> ReadbackSection {
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            if audio { try ReadbackStore.writePrivate(Data("Synthetic audio".utf8), to: root.appendingPathComponent(directory + "/narration.wav")) }
+            return ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: audio ? directory + "/narration.wav" : nil, originalTranscript: nil, transcript: nil, status: status, failure: failure, deletedAt: nil)
+        }
+        let unfinished = try section(.needsNarration, audio: false, failure: "The microphone could not start. Check that an input device is connected.")
+        let others = [try section(.ready, audio: false), try section(.failed, audio: true, failure: "Synthetic recognition failure"),
+                      try section(.needsNarration, audio: true), try section(.queued, audio: true)]
+        let refused = try section(.needsNarration, audio: false)
+        manifest.sections = [unfinished] + others + [refused]
+        try ReadbackStore.save(manifest, at: root)
+        defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+        let transcriber = ControlledTranscriber()
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .denied })
+        defer { model.shutdown(); transcriber.cancel() }
+        for _ in 0..<500 where transcriber.calls == 0 { try await Task.sleep(nanoseconds: 10_000_000) }
+        func saved(_ id: UUID) throws -> ReadbackSection { try ReadbackStore.load(from: root).sections.first { $0.id == id }! }
+        try check(transcriber.calls == 1, "the queued section is held in recognition while notes are typed")
+
+        model.updateTranscript("  \n ", for: unfinished.id)
+        try check(try saved(unfinished.id).status == .needsNarration, "whitespace leaves a section that needs narration unfinished")
+        model.updateTranscript("Typed note", for: unfinished.id)
+        let typed = try saved(unfinished.id)
+        try check(typed.status == .ready && typed.failure == nil && typed.audio == nil && typed.originalTranscript == nil,
+            "a typed note makes the section ready with no invented audio or original transcript")
+        try check(typed.transcript == unfinished.directory + "/narration.txt"
+            && (try? Data(contentsOf: root.appendingPathComponent(unfinished.directory + "/narration.txt"))) == Data("Typed note".utf8),
+            "the note is saved as the section's narration text")
+        try check(model.activeSections.first { $0.id == unfinished.id }?.status == .ready, "the page shows the finished section")
+        model.updateTranscript("", for: unfinished.id)
+        try check(try saved(unfinished.id).status == .ready, "clearing the note later never demotes the section")
+        for other in others {
+            let before = try saved(other.id).status
+            model.updateTranscript("Typed beside \(other.status.rawValue)", for: other.id)
+            try check(try saved(other.id).status == before, "a note leaves a \(other.status.rawValue) section's status alone")
+        }
+
+        model.transcriptManifestWriter = { _, _ in throw ReadbackError.message("The session folder is temporarily read-only.") }
+        model.updateTranscript("Note kept while saving fails", for: refused.id)
+        try check(try saved(refused.id).status == .needsNarration && model.transcriptSaveFailures[refused.id] != nil
+            && model.transcriptDrafts[refused.id] == "Note kept while saving fails", "a failed save keeps the note and leaves the section unfinished")
+        model.transcriptManifestWriter = nil
+        model.retryTranscriptSave(refused.id)
+        try check(try saved(refused.id).status == .ready && model.transcriptSaveFailures[refused.id] == nil, "Retry save finishes the section")
+        print("READBACK_TYPED_NOTE_CHECKS_OK: \(passed) checks")
     }
 
     /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it.

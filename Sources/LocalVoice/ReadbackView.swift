@@ -431,7 +431,8 @@ struct ReadbackView: View {
             }
             if let imageResult { Text(imageResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             if let failure = section.failure { WorkbenchNote(failure) }
-            if section.status == .ready {
+            // One branch keeps the editor's focus when a typed note finishes a section that needs narration.
+            if section.status == .ready || (section.status == .needsNarration && section.audio == nil) {
                 HStack {
                     WorkbenchSectionTitle(section.audio == nil ? "Notes" : "Narration")
                     Spacer()
@@ -456,7 +457,8 @@ struct ReadbackView: View {
                     }
                     if let copyResult { Text(copyResult).font(.caption).foregroundStyle(.secondary) }
                 } else {
-                    Text(section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
+                    Text(section.status == .needsNarration ? "Type notes or record narration to finish this section."
+                         : section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else if section.status == .failed, section.audio != nil {

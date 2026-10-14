@@ -52,7 +52,7 @@ Imported sections are ready with optional editable notes and no invented audio o
 
 The host also wires `ReadbackModel.onSaveCapturedSnap` to `SnapModel.saveNarratedCapture`. A new screenshot from the existing Snap & Talk shortcut first enters this same History, then becomes a portable narrated section with a source receipt. Adding it back to that session skips the duplicate. If the session addition fails, the app identifies the saved capture in History for retry. Earlier sessions are not bulk-imported or rewritten. Narration, section replacements and custom session edits remain owned by their portable session; they never mutate its original source Snap.
 
-With Screen Recording off, a new Snap & Talk capture stops with that explanation before the screen is touched, and its page, panel row and toolbar hint say so. A session's screenshots, narration, typed notes and Add from Snap History keep working; with the microphone off, narration recording stops the same way while typed notes still work.
+With Screen Recording off, a new Snap & Talk capture stops with that explanation before the screen is touched, and its page, panel row and toolbar hint say so. A session's screenshots, narration, typed notes and Add from Snap History keep working; with the microphone off, narration recording stops the same way while typed notes still work, and a typed note finishes a section that still needs narration.
 
 ## Organisation and synthesis
 

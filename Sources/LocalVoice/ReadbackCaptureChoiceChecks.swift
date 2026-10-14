@@ -125,6 +125,11 @@ enum ReadbackCaptureChoiceChecks {
                     try check(saved == image && section.audio == nil && section.status == .needsNarration,
                         "the exact image survives microphone refusal and remains available for narration")
                 }
+                // Without a microphone, typing a note is how the capture is finished (#63).
+                let first = model.activeSections[0].id
+                model.updateTranscript("Note", for: first)
+                let noted = try ReadbackStore.load(from: root).sections.first { $0.id == first }
+                try check(noted?.status == .ready && noted?.audio == nil, "a typed note makes the refused capture ready without audio")
             }
             try check(!model.isCapturing && !model.isRecording && !model.blocksDictation, "\(scenario) releases capture without starting a recorder")
             try check(hides == restores, "\(scenario) restores every hidden editor")
