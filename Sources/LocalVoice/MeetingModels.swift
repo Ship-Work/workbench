@@ -587,8 +587,10 @@ enum MeetingSummary {
             guard !note.isEmpty, seen.insert(note).inserted else { continue }
             kept.append(note)
         }
-        guard kept.count > 32 else { return kept }
-        return Array(kept.prefix(31)) + ["\(kept.count - 31) more notes about this recording were left out here."]
+        // The fold replaces middle notes: the processor appends limitations of the saved result
+        // (such as missing originals) last, and those must survive the cap.
+        guard kept.count > 32, let last = kept.last else { return kept }
+        return Array(kept.prefix(30)) + ["\(kept.count - 31) more notes about this recording were left out here.", last]
     }
 }
 

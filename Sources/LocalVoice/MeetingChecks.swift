@@ -1243,11 +1243,13 @@ enum MeetingChecks {
                    && MeetingGapNote.parse(crash) == nil && MeetingGapNote.parse(gapLines[0])?.source == .local,
                    "a repeated gap counts once, and only the shared gap form is read as a gap")
         let many = (1...40).map { "Synthetic note \($0)." }
-        let capped = MeetingSummary.historyNotes(many + many, appName: nil)
-        try expect(capped.count == 32 && capped.last == "9 more notes about this recording were left out here."
+        let missingNote = "Original audio is missing. This saved text remains available; playback and retranscription are unavailable."
+        let capped = MeetingSummary.historyNotes(many + many + [missingNote], appName: nil)
+        try expect(capped.count == 32 && capped[29] == "Synthetic note 30." && capped[30] == "10 more notes about this recording were left out here."
+                   && capped.last == missingNote
                    && (try? TranscriptMetadata(purpose: .meeting, captureNotes: capped).validated()) != nil
                    && MeetingSummary.historyNotes(capped, appName: nil) == capped,
-                   "more than 32 distinct notes end with one fold line, and projecting again changes nothing")
+                   "more than 32 distinct notes fold their middle into one line, keeping the trailing limitation, and projecting again changes nothing")
 
         // The production writer (AppModel.retainMeetingTranscript): details first, and refused details throw.
         let historyStore = StateStore(directory: root.appendingPathComponent("History"))
