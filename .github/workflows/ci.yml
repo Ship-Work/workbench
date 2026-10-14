@@ -18,13 +18,13 @@ concurrency:
 # and each gallery depends only on the source, so every job builds what it needs
 # itself and a run finishes in the time of the longest job (about 16 minutes;
 # the surface gallery, the slowest, has taken up to 20) instead of one 34-minute
-# chain. The organisation has five macOS runners in all,
-# so the native jobs run where they decide something: in the merge queue, which
-# tests every group with current main before it lands, and on manual runs. A pull
-# request push runs only the classifier and Site unless it carries the ci:native
-# label. A push to main reuses only a successful queue run of this workflow
-# for the exact commit, verified through the Actions API. scripts/ci-scope.py
-# holds that rule and its tests.
+# chain. The organisation has five macOS runners in all, so the native jobs run
+# where they decide something: in the merge queue, which tests every group with
+# current main before it lands, and on manual runs. A pull request push runs
+# only the classifier and Site unless it carries the ci:native label. A push to
+# main reuses only a successful queue run of this workflow for the exact
+# commit, verified through the Actions API. scripts/ci-scope.py holds that rule
+# and its tests.
 # "Build and test" is the required check: it passes only when the classifier, Site,
 # Report check and every selected native job pass, and accepts a skip only when the
 # classifier chose it.

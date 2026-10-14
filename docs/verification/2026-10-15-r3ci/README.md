@@ -4,7 +4,7 @@ Branch `claude/ci-and-warnings`, from the 15 October train (`claude/train-1015` 
 
 ## What changed
 
-1. **Surface gallery has CI headroom** (#361). Its `timeout-minutes` goes from 25 to 30. Over the last 200 CI runs (6 to 14 October) it took a median of 15.6 minutes and at most 19.9, which was 80% of the old limit. Release checks (at most 17.4) and Toolbar gallery and package (at most 17.2) keep 25. The workflow comment now gives the measured length of a run, about 16 minutes, instead of the 13 measured on 5 October. The renderer's own per-page deadlines still stop a hung page well before the job limit.
+1. **Surface gallery has CI headroom** (#361). Its `timeout-minutes` goes from 25 to 30. Over the last 200 CI runs (6 to 14 October) it took a median of 15.6 minutes and at most 19.9, which was 80% of the old limit. Release checks (at most 17.4) and Toolbar gallery and package (at most 17.2) keep 25. The workflow comment now gives the measured length of a run, about 16 minutes, instead of the 13 measured on 5 October. The renderer's own per-page waits have deadlines, so a page that never settles still fails before the job limit; a hang outside those waits, such as a modal that blocks the run loop, runs to the limit.
 2. **The opt-in key-window Tab check asserts the row it draws** (#225). Retiring Read renamed the loop's row to Snap but left the assertion on Read, so `TOOLBAR_KEY_WINDOW_TESTS=1` always compared nil. The offscreen check's comment had the same stale name. StageKit's `--ci` skip line now names `bash scripts/test-stage.sh` (no arguments), which runs the skipped popover regression; `scripts/test.zsh` no longer exists.
 3. **Nine build warnings are gone** (#361). Each fix is the one the compiler names and keeps behaviour: Meetings' completion handler uses the two-parameter `onChange`; the toolbar reads `revealsResult` in `body` beside `state`, not inside the Sendable geometry transform; `TextDelivery.copiedMessage` is a `nonisolated` constant; the presenter check's weak reference is a `weak let`; three tests drop a no-op `try` or `await` or discard an unused result; the readback resources harness drops an unused flag.
 
@@ -38,8 +38,18 @@ They are byte-identical. The whole after gallery (`SURFACE_GALLERY_OK: 360 rende
 | `LocalVoice --check-core`, `--check-floating-toolbar`, `--check-presenter`, `--check-handoff-jobs` | all pass (`HANDOFF_JOBS_CHECKS_OK: 218 checks`, `PRESENTER_CHECKS_OK: 27`, `BROWSER_PAUSE_CHECKS_OK: 43`, `WORKBENCH_CONTROL_CHECKS_OK: 221`) | — |
 | `LocalVoice --render-surfaces` | 360 renders, 0 flags. All 360 are pixel-identical to the train head's | — |
 
-## Not verified
+## Independent review
 
-- I did not run the opt-in `TOOLBAR_KEY_WINDOW_TESTS=1 swift test --filter ToolbarKeyWindowTraversalTests`. It takes the keyboard and makes a panel key, and other sessions were running window checks on this Mac. The static check above shows the assertion now names a row the loop draws.
+An independent review read the whole diff against the train head and reran the checks. Its verdict was ship, with three P3 findings. All three are fixed:
+
+1. The rewrapped workflow comment left a short line mid-paragraph. The paragraph is rewrapped; the comment's words are unchanged.
+2. This record said the renderer's per-page deadlines stop a hung page. They bound only the waits that go through the renderer's helpers, and nothing times the run as a whole, so a hang outside them runs to the job limit. The first item above now says so. The pushed commit message keeps the shorter claim.
+3. The not-verified notes were in the first person and mentioned other work on the Mac. They are now impersonal, under the same heading the other records use.
+
+The fixes change only a comment and this record. On the final branch, the headroom script (same 200 runs, same ratios, the comment still says about 16), `scripts/test-ci-scope.py` (32 tests), the YAML parse, `python3 scripts/check-surfaces.py`, the debug build, `--check-floating-toolbar` (`WORKBENCH_CONTROL_CHECKS_OK: 221`) and `--check-presenter` (`PRESENTER_CHECKS_OK: 27`) were run again and pass.
+
+## Not verified natively
+
+- The opt-in `TOOLBAR_KEY_WINDOW_TESTS=1 swift test --filter ToolbarKeyWindowTraversalTests` run was not made: it takes the keyboard and makes a panel key. The static check above shows the assertion now names a row the loop draws.
 - No app was launched. The toolbar's size report is covered by `--check-floating-toolbar` and the identical renders, not by a hand check on screen.
 - The new Surface gallery limit takes effect from the next native CI run.
