@@ -117,6 +117,13 @@ import Combine
 __VALUES__
 __REQUEST__
 
+// FluidAudio's download error, which RecognitionFailure.classify reads. Nothing
+// here downloads; --check-providers classifies the real cases.
+enum DownloadError: Error {
+    case invalidResponse, rateLimited(statusCode: Int, message: String), downloadFailed(path: String, underlying: Error)
+    case modelNotFound(path: String), htmlErrorResponse(path: String, snippet: String), invalidArtifact(path: String, reason: String)
+    case stalled(path: String, window: TimeInterval), networkDisabled(operation: String), modelMissing(repo: String, missing: [String])
+}
 enum FixtureFailure: Error { case write }
 @MainActor final class StateStore {
     var saved: SavedState?
