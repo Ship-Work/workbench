@@ -372,14 +372,51 @@ enum HandoffJobStore {
     /// A two-sided meeting saves its conversation, one labelled turn per paragraph, as its
     /// text and the same words unlabelled as its original. That original adds no wording, so
     /// a prompt carries the meeting once; a cleanup, a later edit or other recognition keeps it.
+    /// The words are compared in place, without copies: the review rebuilds its prompt as the
+    /// person types, and a two-hour call is over 100,000 characters.
     static func originalAddsWording(text: String, original: String) -> Bool {
         guard original != text else { return false }
-        let labels = LiveVoiceSource.allCases.map { $0.label + ": " }
-        let unlabelled = text.components(separatedBy: "\n\n").map { turn in
-            labels.first(where: turn.hasPrefix).map { String(turn.dropFirst($0.count)) } ?? turn
-        }.joined(separator: " ")
-        func collapsed(_ words: String) -> String { words.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        return collapsed(original) != collapsed(unlabelled)
+        let labels = LiveVoiceSource.allCases.map { Array(($0.label + ": ").utf8) }
+        var text = text, original = original
+        return text.withUTF8 { said in
+            original.withUTF8 { heard in
+                var turns = Words(bytes: said, labels: labels), words = Words(bytes: heard, labels: [])
+                while let word = turns.next() {
+                    guard let other = words.next(), word.elementsEqual(other) else { return true }
+                }
+                return words.next() != nil
+            }
+        }
+    }
+
+    /// Whitespace-separated words of UTF-8 text. With labels, a turn label that opens the text
+    /// or a paragraph after a blank line is not a word. Only ASCII whitespace separates and
+    /// bytes must match exactly, so a stricter reading can keep an original, never drop wording.
+    private struct Words {
+        let bytes: UnsafeBufferPointer<UInt8>
+        let labels: [[UInt8]]
+        var index = 0
+        var turnStart = true
+
+        mutating func next() -> Slice<UnsafeBufferPointer<UInt8>>? {
+            var newlines = 0
+            while true {
+                if turnStart, let label = labels.first(where: { bytes[index...].starts(with: $0) }) { index += label.count }
+                turnStart = false
+                guard index < bytes.count, Self.isSpace(bytes[index]) else { break }
+                // "\r\n" is one line break, as a String reads it, so it never pairs with a following "\n".
+                let crlf = bytes[index] == 0x0D && index + 1 < bytes.count && bytes[index + 1] == 0x0A
+                newlines = bytes[index] == 0x0A ? newlines + 1 : 0
+                index += crlf ? 2 : 1
+                if newlines == 2 { newlines = 0; turnStart = true }
+            }
+            guard index < bytes.count else { return nil }
+            let start = index
+            while index < bytes.count, !Self.isSpace(bytes[index]) { index += 1 }
+            return bytes[start..<index]
+        }
+
+        static func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || (0x09...0x0D).contains(byte) }
     }
 
     static func prompt(snapshot: HandoffSnapshotRecord, skill: String, folder: URL, manual: Bool, manualRequiresFolder: Bool = true) -> String {

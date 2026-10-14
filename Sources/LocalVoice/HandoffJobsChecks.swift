@@ -197,6 +197,17 @@ enum HandoffJobsChecks {
         editedCall.items[0].text = call.conversation.replacingOccurrences(of: "Point 7. Maya", with: "Point 7. Avery")
         try check(HandoffJobStore.prompt(snapshot: editedCall, skill: followUpText, folder: callFolder, manual: false).contains("Original wording:"),
                   "a meeting edited after it was saved keeps its original wording beside the text")
+        // Only a label opening the text or a paragraph is a label; any other difference keeps the original.
+        let shapes: [(text: String, original: String, adds: Bool)] = [
+            ("You: Ready.\n\nOthers:  Agreed,\nthanks.", "Ready. Agreed, thanks.", false),
+            ("You: Ready.\n\nOthers: You: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready. Others: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready.\n\n\nOthers: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready.\n\nOthers: Agreed.", "Ready. Agreed. More.", true),
+            ("You: Ready.\n\nOthers: Agreed. More.", "Ready. Agreed.", true),
+        ]
+        try check(shapes.allSatisfy { HandoffJobStore.originalAddsWording(text: $0.text, original: $0.original) == $0.adds },
+                  "an original that differs from the conversation only by its opening labels and spacing is the only one left out")
         // Resolve the actual links supplied to an assistant from the documents
         // each route asks it to produce, rather than checking a path fragment.
         func imageLinks(in prompt: String) throws -> [String] {
