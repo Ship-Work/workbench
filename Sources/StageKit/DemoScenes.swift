@@ -495,6 +495,14 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         choosingPersonas = true
         show()
     }
+    /// Opens the host's Persona page; without one, Open Persona… opens the library sheet here.
+    var onOpenPersonas: (() -> Void)?
+    /// Open Persona… in Present's chooser: the chooser closes first, then Persona opens.
+    func openPersonasFromChooser() {
+        choosingPersonas = false
+        personaSceneID = nil
+        if let onOpenPersonas { onOpenPersonas() } else { showPersonas() }
+    }
     func saveMyDevice() {
         guard let scene = selected else { return }
         do {

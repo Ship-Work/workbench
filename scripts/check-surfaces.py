@@ -121,6 +121,9 @@ ENTRY_POINTS = [
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.shownPanel', 'Persona live copy', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.liveSourceControl', 'Persona source', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView', 'Persona workspace', 'doors'),
+    # Present's Add persona…: a selection-only chooser of saved cards (#276), so every control
+    # it has is listed, and anything that makes, edits or groups a card would show here.
+    ('StageKit/PersonaLibraryView.swift', 'PersonaSceneChooser', 'Present persona chooser', 'controls'),
     # Persona's other live source: the local camera bubble, prepared and run beside
     # the shown card's controls on the same page.
     ('StageKit/PersonaCamera.swift', 'PersonaCameraPanel', 'Persona live camera', 'controls'),

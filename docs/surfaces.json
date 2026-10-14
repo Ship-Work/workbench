@@ -4613,12 +4613,29 @@
     "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner."
   },
   {
-    "id": "StageKit.PersonaLibraryView.PersonaLibraryView.Button.use-in-scene",
-    "surface": "Persona workspace",
-    "label": "Use in scene",
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.cancel",
+    "surface": "Present persona chooser",
+    "label": "Cancel",
+    "kind": "action",
+    "belongsTo": "present",
+    "aliasOf": "present",
+    "note": "Quality (#276): closes Present's selection-only persona chooser and changes nothing; the existing contextual dismissal wording."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.open-persona",
+    "surface": "Present persona chooser",
+    "label": "Open Persona…",
     "kind": "action",
     "belongsTo": "persona",
-    "note": "Existing scene chooser callback, now included by the Persona route scanner while registering Me. Uses the selected saved Persona in the preparing scene and starts nothing."
+    "note": "Quality (#276; mac-foundation §1): replaces the add, edit, group and appearance controls the embedded library offered here with one route to Persona, in the panel's words for the same door. It closes the chooser first; without a Persona page it opens the library sheet."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.use-in-scene",
+    "surface": "Present persona chooser",
+    "label": "Use in scene",
+    "kind": "action",
+    "belongsTo": "present",
+    "note": "Quality (#276): moved from the embedded Persona library to Present's selection-only chooser. Places the chosen saved card's own copy in the scene and starts nothing; it never changes Persona's selection, prepared group or cards."
   },
   {
     "id": "LocalVoice.DemoLibraryView.DemoLibraryView.Button.add-local-file.2",

@@ -131,6 +131,7 @@ struct TestRunner {
                 ("persona sheet launch only after dismissal", suite.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
                 ("persona workspace failure preserves active session", suite.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
                 ("Present compact preview policy", suite.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+                ("Present persona chooser lists every card and only selects", suite.testPresentChooserListsEveryCardAndOnlySelects),
                 ("optional offscreen workspace layouts", suite.testOffscreenWorkspaceLayouts)
             ]
             for (name, test) in tests {
@@ -919,6 +920,7 @@ struct TestRunner {
             ("persona sheet launch only after dismissal", personaWorkspace.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
             ("persona workspace failure preserves active session", personaWorkspace.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
             ("Present compact preview policy", personaWorkspace.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+            ("Present persona chooser lists every card and only selects", personaWorkspace.testPresentChooserListsEveryCardAndOnlySelects),
             ("persona voice ring listens only while on and showing", personaVoice.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
             ("persona voice ring asks while preparing and stops when unavailable", personaVoice.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
             ("persona voice a fault found by a show keeps its reason", personaVoice.testAFaultFoundByAShowKeepsItsReason),

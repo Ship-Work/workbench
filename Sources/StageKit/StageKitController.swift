@@ -30,8 +30,11 @@ public final class StageKitController: ObservableObject {
     public var onOpenScenes: (() -> Void)? {
         didSet { coordinator.onOpenScenes = onOpenScenes; coordinator.demoScenes.onOpen = onOpenScenes }
     }
-    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet.
-    public var onOpenPersonas: (() -> Void)?
+    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet, whose
+    /// Open Persona… comes here too.
+    public var onOpenPersonas: (() -> Void)? {
+        didSet { coordinator.demoScenes.onOpenPersonas = onOpenPersonas }
+    }
     /// Opens the host's My Profile editor: Persona's live menus offer My Profile… there while no
     /// profile photo is saved, so My Profile is always their first row.
     public var onEditProfile: (() -> Void)? {

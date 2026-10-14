@@ -161,6 +161,89 @@ final class PersonaWorkspaceTests {
         XCTAssertTrue(fallback.width.isFinite && fallback.height.isFinite)
     }
 
+    /// Every file under a folder, for checking that nothing in it changed.
+    private func contents(of folder: URL) throws -> [String: Data] {
+        var result: [String: Data] = [:]
+        let base = folder.resolvingSymlinksInPath().path
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
+        while let url = files?.nextObject() as? URL {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+            result[String(url.resolvingSymlinksInPath().path.dropFirst(base.count))] = try Data(contentsOf: url)
+        }
+        return result
+    }
+    /// A Present scene, three saved cards and two groups, with Persona preparing the group of
+    /// the first card alone and that card selected.
+    private func chooserFixture(in root: URL) throws -> (DemoScenes, UUID, [SavedPersona], UUID) {
+        let source = try picture(in: root)
+        let scenes = DemoScenes(root: root.appendingPathComponent("Scenes"), systemIntegrationEnabled: false)
+        try scenes.addImage(source, name: "Sample scene")
+        guard let sceneID = scenes.selectedID else { throw PersonaError.unreadableImage }
+        let library = scenes.personas
+        let cards = try ["Sample A", "Sample B", "Sample C"].map { try library.addImage(source, name: $0) }
+        _ = try library.createGroup(name: "Sample pair", members: [cards[1].id, cards[2].id])
+        let onlyA = try library.createGroup(name: "Sample one", members: [cards[0].id])
+        library.prepareGroup(onlyA)
+        library.selectedID = cards[0].id
+        return (scenes, sceneID, cards, onlyA)
+    }
+    /// Present's Add persona… only selects (#276). It lists every saved card, whatever group
+    /// Persona has prepared; showing it writes nothing to Persona's selection, group or library.
+    /// Use in scene places the chosen card's own copy, Cancel changes nothing, and Open Persona…
+    /// closes it, then opens Persona once.
+    func testPresentChooserListsEveryCardAndOnlySelects() throws {
+        try MainActor.assumeIsolated {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("PresentChooser-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let (scenes, sceneID, cards, onlyA) = try chooserFixture(in: root)
+            defer { scenes.shutdown() }
+            let library = scenes.personas
+            XCTAssertEqual(library.visibleItems.map(\.id), [cards[0].id], "Persona has prepared the group of A alone")
+            let saved = try contents(of: scenes.root)
+            var opened = 0
+            scenes.onOpenPersonas = { opened += 1 }
+            scenes.personaSceneID = sceneID; scenes.choosingPersonas = true
+
+            let chooser = PersonaSceneChooser(model: scenes, sceneID: sceneID)
+            XCTAssertEqual(chooser.candidates.map(\.id), cards.map(\.id), "Every saved card, not only the prepared group's")
+            let hosting = NSHostingView(rootView: chooser)
+            let window = NSWindow(contentRect: CGRect(x: -10000, y: -10000, width: 480, height: 520), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = hosting
+            defer { window.close() }
+            for _ in 0..<5 { hosting.layoutSubtreeIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+            XCTAssertTrue(library.selectedID == cards[0].id && library.activeGroupID == onlyA, "Showing the chooser keeps Persona's selection and group")
+            XCTAssertTrue(try contents(of: scenes.root) == saved, "Showing the chooser writes nothing")
+
+            chooser.cancel()
+            XCTAssertFalse(scenes.choosingPersonas, "Cancel closes the chooser")
+            XCTAssertTrue(try contents(of: scenes.root) == saved, "Cancel leaves the scene and the library byte for byte")
+            XCTAssertTrue(scenes.scenes.first { $0.id == sceneID }?.persona == nil)
+
+            scenes.choosingPersonas = true
+            chooser.use(cards[2])
+            XCTAssertFalse(scenes.choosingPersonas, "Use in scene closes the chooser")
+            let placed = scenes.scenes.first { $0.id == sceneID }?.persona?.image
+            XCTAssertTrue(placed != nil && placed != cards[2].image && scenes.personaImage(for: scenes.scenes.first { $0.id == sceneID }!) != nil,
+                          "The scene has its own copy of C: \(placed ?? "nil")")
+            XCTAssertTrue(library.selectedID == cards[0].id && library.activeGroupID == onlyA, "Placing C keeps Persona's selection and group")
+            XCTAssertTrue(try Data(contentsOf: scenes.root.appendingPathComponent("persona-library.json")) == saved["/persona-library.json"],
+                          "and its saved library")
+
+            scenes.personaSceneID = sceneID; scenes.choosingPersonas = true
+            chooser.openPersona()
+            XCTAssertFalse(scenes.choosingPersonas, "Open Persona… closes the chooser")
+            XCTAssertEqual(opened, 1, "and opens Persona once")
+            // Without a Persona page (the standalone scenes window), it opens the library sheet instead.
+            scenes.onOpenPersonas = nil; scenes.onOpen = {}
+            scenes.personaSceneID = sceneID; scenes.choosingPersonas = true
+            chooser.openPersona()
+            XCTAssertTrue(scenes.choosingPersonas && scenes.personaSceneID == nil, "Open Persona… falls back to the library sheet")
+            XCTAssertEqual(opened, 1)
+        }
+    }
+
     /// Optional offscreen evidence. No app is installed, activated or shown.
     func testOffscreenWorkspaceLayouts() throws {
         guard let output = ProcessInfo.processInfo.environment["WORKBENCH_LAYOUT_EVIDENCE"] else { return }
@@ -199,6 +282,15 @@ final class PersonaWorkspaceTests {
             for (name, size) in [("persona-small", CGSize(width: 620, height: 650)), ("persona-normal", CGSize(width: 834, height: 730))] {
                 try render(PersonaLibraryView(library: library, mode: .workspace), size: size, to: directory.appendingPathComponent(name + ".png"))
             }
+            // Present's selection-only chooser, with Persona preparing a group of one card.
+            let chooserRoot = root.appendingPathComponent("Chooser")
+            try FileManager.default.createDirectory(at: chooserRoot, withIntermediateDirectories: true)
+            let (chooserScenes, chooserScene, _, _) = try chooserFixture(in: chooserRoot)
+            defer { chooserScenes.shutdown() }
+            for (name, appearance) in [("present-persona-chooser-light", NSAppearance.Name.aqua), ("present-persona-chooser-dark", .darkAqua)] {
+                try render(PersonaSceneChooser(model: chooserScenes, sceneID: chooserScene), size: CGSize(width: 480, height: 470),
+                           to: directory.appendingPathComponent(name + ".png"), appearance: NSAppearance(named: appearance))
+            }
             library.usesSharedControls = true
             try library.startOverlaySession(groupIDs: [group], initialGroupID: group)
             for paused in [false, true] {
@@ -209,15 +301,32 @@ final class PersonaWorkspaceTests {
             }
         }
     }
-    @MainActor private func render<V: View>(_ content: V, size: CGSize, to url: URL) throws {
+    @MainActor private func render<V: View>(_ content: V, size: CGSize, to url: URL, appearance: NSAppearance? = nil) throws {
         let hosting = NSHostingView(rootView: content.frame(width: size.width, height: size.height))
         let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // Workbench's theme reads its own appearance, chosen here in the argument domain, which is
+        // never saved; afterwards it returns to the system's.
+        if let appearance {
+            window.appearance = appearance
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments["appearance"] = appearance.name == .darkAqua ? "Dark" : "Light"
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            WorkbenchSettings.shared.refresh()
+        }
+        defer {
+            if appearance != nil {
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments["appearance"] = nil
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                WorkbenchSettings.shared.refresh()
+            }
+        }
         window.contentView = hosting
         defer { window.close() }
         hosting.frame = CGRect(origin: .zero, size: size)
-        for _ in 0..<5 { hosting.layoutSubtreeIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        for _ in 0..<10 { hosting.layoutSubtreeIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { throw PersonaError.unreadableImage }
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw PersonaError.unreadableImage }
