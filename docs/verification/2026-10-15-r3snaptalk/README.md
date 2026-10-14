@@ -1,0 +1,44 @@
+# Snap & Talk: added Snaps in capture order, Capture area kept
+
+Branch `claude/snaptalk-added-order-and-area`, stacked on the 15 October release train (`claude/train-1015`). Refs #358 and #63. The checks below ran on the branch's final source. Synthetic data only: temporary Snap stores, synthetic sessions and PNGs, isolated preferences suites, a fixed Screen Recording answer and the surface gallery's isolated home. No installed app, real Snap, microphone, screen capture or privacy setting was used.
+
+## What changed
+
+1. **Added Snaps join in the order they were captured.** History lists Snaps newest first, and Use selected › Add to Snap & Talk passed that order straight into the session, so five steps taken in order arrived as a deck running backwards. `ReadbackModel.importSnapSnapshots` now sorts the batch by capture time (ties by id) before `SnapReadback` appends it. The first added Snap opens for narration, as the earliest one did by accident before; keeping the old "review the last section" line after sorting would have opened the last step instead. The notice counts in the singular where it should: "Added 1 Snap." and "1 already present was skipped." Unchanged: Hand off's saved-history order (`SnapModel.handoffSnapshots`), and `SnapReadback` keeping the order it is given.
+2. **The page keeps its Capture area after you leave it.** The choice lived in the page's view state, so Add from Snap History…, or any visit to another page, put it back on Screen. The next Capture & narrate then took the whole display, and Replace screenshot… replaced a section with a full-screen capture. The choice now lives on `ReadbackModel` as `captureArea`, in memory only. It lasts for the run, through leaving the page, closing the window and switching sessions; a relaunch starts on Screen, and no preference was added. Toolbar, shortcut and panel captures still pass their own source and never change it.
+3. **docs/snap.md** says both: added Snaps join the end of the session in capture order with the first opening for narration, and the page keeps its Capture area while Workbench runs.
+
+## Renders
+
+`before/` comes from the gallery rendered on `main` before tonight's streams, and `after/` from this branch, light and dark:
+
+- `page-readback-screen-access-off-*`: the gallery's one Snap & Talk state that shows the Capture area, with Screen selected.
+- `page-readback-default-*`: the page with no session open.
+
+They are byte-identical before and after, as they should be: a fresh model starts on Screen. So are `page-readback-narrow-*`. Of the gallery's other renders, the ones that differ from the before set are outside Snap & Talk's page; the one inspected, Home's Snap & Talk card, differs only in a date the gallery takes from when it runs.
+
+Neither change has a gallery state of its own. An added batch looks like any other set of sections, and the kept area shows only after leaving and returning, which the check below does with the real page instead.
+
+## Checks
+
+| Check | Result | Fails on the train without this change? |
+| --- | --- | --- |
+| `swift build --disable-sandbox --product LocalVoice` (debug) | Passed | |
+| `.build/debug/LocalVoice --check-snap-capture` | `SNAP_CAPTURE_CHECKS_OK`: 188 checks | Yes. With the train's `ReadbackModel.swift`, "added Snaps join the end of the session in the order they were captured" fails, listing Third step, Second step, First step. Sorting but keeping the old review line fails "the first Snap captured, not the last, opens for narration". Sorting with the old notice fails "one added Snap is counted in the singular", showing "Added 1 Snaps.". With only the skipped count left plural, "one Snap already in the session is skipped in the singular" fails. "History hands selected Snaps over newest first" passes on the train by design: it pins the cause. |
+| `.build/debug/LocalVoice --check-readback` | Passed; `READBACK_CAPTURE_CHOICE_CHECKS_OK`: 81 checks | Yes. With the train's `ReadbackView.swift` (Capture area in view state), "choosing Region on the page sets the session page's Capture area" fails. Setting the model directly instead, "returning to the page shows the Region chosen before leaving" fails, because the rebuilt page shows Screen. "a relaunch starts on Screen" guards against adding relaunch persistence; it cannot fail on the train, which has no such value. |
+| `bash scripts/test-snap.sh` | `SNAP_CHECKS_OK`: 195 checks, `SNAP_REFRESH_CHECKS_OK`: 25 checks, unchanged (including "selected source order retained") | |
+| `python3 scripts/check-surfaces.py` | 688 entries OK | |
+| `grep -n '@State private var captureMode' Sources/LocalVoice/ReadbackView.swift` | No match | |
+| `.build/debug/LocalVoice --render-surfaces` | `SURFACE_GALLERY_OK`: 360 renders, 162 entries, 0 flags; Snap & Talk page renders byte-identical to the before set | |
+
+How the checks cover the two items:
+
+- **Capture order (`--check-snap-capture`).** Three Snaps are saved a minute apart in a synthetic store and handed over through the real `handoffSnapshots`, which returns them newest first. After `importSnapSnapshots`, the session's earlier section is still first, the three new sections run oldest to newest, the oldest is the one under review, and the notice begins "Added 3 Snaps.". A fourth Snap added alone gives "Added 1 Snap." with no "Snaps". Adding the fourth again with a fifth adds only the fifth and ends "1 already present was skipped.".
+- **Capture area (`--check-readback`).** A fresh session page starts on Screen. The real `ReadbackView` is hosted in a window kept off every display; its Capture area control (found by its Region, Window and Screen segments, since its label is hidden) shows Screen. Region is chosen through the control's own action, which sets the model's `captureArea`. The window is closed, a second page is hosted on the same model, and its control shows Region. A second model on the same preferences suite starts on Screen. `replaceScreenshot(_, mode: model.captureArea)` then opens the Region selector and never captures the screen.
+
+## Not verified natively
+
+On a signed Preview, by the integration owner or Ethan:
+
+- In History, take or select five screenshots taken in order, then Use selected › Add to Snap & Talk. The new sections should run in capture order, with the first of them open.
+- On the Snap & Talk page, choose Region, then Add from Snap History… and come back (or visit any other page). The picker should still show Region, and Capture & narrate should open the region selector. Quit and reopen: the picker should be back on Screen.
