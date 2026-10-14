@@ -1735,6 +1735,24 @@
     "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Reuses the Timer menu (Pause, Stop, Reset)."
   },
   {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+  },
+  {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996.2",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+  },
+  {
     "id": "LocalVoice.WorkbenchQuickPanel.PanelRecoveryRow.Button.runtime-27f7b4321a3d",
     "surface": "quick panel status rows",
     "label": null,

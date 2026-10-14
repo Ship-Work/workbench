@@ -579,6 +579,10 @@ private struct HistoryNativeAcceptanceView: View {
                     throw VoiceError.message("Turn off moved \(Int(turnOff.minX - waitingTurnOff.minX)) pt when the editor stopped waiting.")
                 }
             }
+            // The attention line colours only its symbol, never its words (#335).
+            if state.id == "microphone-denied", SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width) > 24 {
+                throw VoiceError.message("The panel's attention line draws \(Int(SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width))) pt of orange; only its symbol may be orange.")
+            }
             panels.append(try save(rep, id: state.id, title: state.title, detail: state.detail, file: "panel-\(state.id)-\(theme).png", to: output))
             try state.reset()
         }
@@ -3911,6 +3915,21 @@ private struct HistoryNativeAcceptanceView: View {
         var drawn = 0, total = 0
         for y in stride(from: top, to: bottom, by: 4) { for x in stride(from: left, to: right, by: 4) { total += 1; if pixel(x, y) != background { drawn += 1 } } }
         return total > 0 && Double(drawn) / Double(total) < 0.002
+    }
+
+    /// How wide, in points of a `width`-point render, the strongly orange pixels spread: a symbol
+    /// is a glyph wide, while orange words run the length of their sentence.
+    static func orangeExtent(_ rep: NSBitmapImageRep, width: CGFloat) -> CGFloat {
+        var low = Int.max, high = Int.min
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if colour.redComponent > 0.85, colour.greenComponent > 0.4, colour.greenComponent < 0.75, colour.blueComponent < 0.35 {
+                    low = min(low, x); high = max(high, x)
+                }
+            }
+        }
+        return high < low ? 0 : CGFloat(high - low) * width / CGFloat(rep.pixelsWide)
     }
 
     /// Pixels right of the 215-point sidebar and its divider. A route whose page matches the

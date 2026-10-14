@@ -175,8 +175,9 @@ struct WorkbenchQuickPanel: View {
                 Button("Done") { editor.end() }
                     .buttonStyle(.plain).foregroundStyle(Workbench.accent)
             }
-            Text(keyboard.message ?? "Press your combination.")
-                .font(.caption).foregroundStyle(keyboard.hasError ? .orange : .secondary).lineLimit(3)
+            // A problem's words stay primary beside the attention symbol, as on every page.
+            if keyboard.hasError { WorkbenchNote(keyboard.message ?? "", font: .caption, selectable: false).lineLimit(3) }
+            else { Text(keyboard.message ?? "Press your combination.").font(.caption).foregroundStyle(.secondary).lineLimit(3) }
             HStack {
                 // One leading slot: Cancel while the recorder waits, as it does from opening, and
                 // Change once it stops. Change would only restart the same wait, and Turn off never
@@ -331,9 +332,11 @@ struct PanelRecoveryRow: View {
     var body: some View {
         let name = WorkbenchHome.name(of: page)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(Self.headline(message)).font(.caption)
-                .foregroundStyle(warning ? Color.orange : Color.secondary)
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true).help(message)
+            // A warning colours only its symbol: orange words fail contrast on the light panel.
+            Group {
+                if warning { WorkbenchNote(Self.headline(message), font: .caption, selectable: false).lineLimit(2) }
+                else { Text(Self.headline(message)).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true) }
+            }.help(message)
             Spacer(minLength: 4)
             Button("Open \(name)…") { open(page) }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(Workbench.accent).fixedSize()
