@@ -42,6 +42,8 @@ final class CaptureHUDControls: ObservableObject {
     private var observation: AnyCancellable?
     var releaseKeyboardFocus: (() -> Void)?
     var promptDestination: (() -> TextDelivery.Target?)?
+    /// The field a dictation started from the toolbar delivers to, as the toolbar's own start uses.
+    var dictationTarget: () -> TextDelivery.Target? = { nil }
     var cancelDrag: (() -> Void)?
     var focusFirstControl: (() -> Void)?
     var dragActions = ToolbarDragActions()
@@ -291,6 +293,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
             guard let self else { return nil }
             return self.window?.isKeyWindow == true ? self.keyboardTarget : TextDelivery.capture()
         }
+        controls.dictationTarget = { [weak self] in self?.targetForDictation() }
         controls.dragActions = ToolbarDragActions(begin: { [weak self] in self?.beginDragging() },
             move: { [weak self] in self?.previewDragging() }, end: { [weak self] in self?.finishDragging() },
             cancel: { [weak self] in self?.cancelDragging() }, isCancelled: { [weak self] in self?.dragging != true },
@@ -852,7 +855,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
         coachPanel.hide()
         controls.resize = nil; controls.choosePosition = nil; controls.showPosition = nil
         controls.openChooser = nil; controls.chooserChoicesChanged = nil; controls.revealFromRest = nil
-        controls.chooserActivitiesChanged = nil; controls.chooserPerform = nil
+        controls.chooserActivitiesChanged = nil; controls.chooserPerform = nil; controls.dictationTarget = { nil }
         if model?.toolbarControls === controls { model?.toolbarControls = nil }
         positionControl.close(); chooser.close()
         controls.suspendToolbar(); cancelDragging(); releaseKeyboardFocus()
@@ -1114,7 +1117,7 @@ struct DictationResultView: View {
                     .focused($focused, equals: .retry).resultAction("Retry", controls)
             }
             if model.canRecordAgain {
-                Button("Record again") { model.recordAgain() }
+                Button("Record again") { model.recordAgain(target: controls.dictationTarget) }
                     .buttonStyle(.bordered).help("Keep this audio in Saved recordings and start a new capture")
                     .focused($focused, equals: .recordAgain).resultAction("Record again", controls)
             } else if !model.canRetry && model.canOpenMicrophoneSettings {

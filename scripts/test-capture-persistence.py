@@ -26,6 +26,8 @@ methods = model.extract([
     'toggleRecording', 'recordAgain', 'shortcutChanged',
     'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
     'importAudio(_:)', 'retryTranscription',
+    # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
+    'transcribeForShortcut',
     # Transcription, its commit and the recovery it keeps.
     'transcribe', 'admitNewCapture', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
     'discardRecordingRecovery', 'discardCaptureRecovery', 'showCaptureRecoveryFiles', 'showSavedRecordings',
@@ -97,12 +99,28 @@ assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery
     'launch restores the undelivered result after capture recovery'
 labels = model.extract(['retryCaptureLabel', 'retryCaptureHelp', 'hasCaptureRecovery', 'canRecordAgain',
                         'hasSavedRecordings', 'canDiscardCaptureRecovery'])
-request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest'])
+# Import audio opens the chosen file through the same plain-words helper the shortcut uses (#337).
+request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest', 'ImportedAudio'])
 # Exercise the actual shell callback that Persona, Draw, Present and Timer share.
 shell = SwiftFile(PROJECT / 'Sources/LocalVoice/main.swift').type('AppDelegate')
 assert re.search(r'stage\.onBeginActivity\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.beginStageActivity\(\)\s*\}',
                  shell.select(['applicationDidFinishLaunching'])[0].code), 'Stage starts use the tested shell callback'
 stage_start = shell.extract(['beginStageActivity'])
+# Record again gives one result from every door (#337): the failure card and the chooser pass the
+# field the toolbar's own start reads, so a new door that drops it fails here. The gallery drives
+# the start-only guard with its own supplier.
+record_again_sites = []
+for source in sorted((PROJECT / 'Sources/LocalVoice').glob('*.swift')):
+    if source.name in ('AppModel.swift', 'SurfaceGallery.swift'):
+        continue
+    for number, line in enumerate(source.read_text().splitlines(), 1):
+        for call in re.findall(r'\brecordAgain\([^)]*\)', line):
+            record_again_sites.append((source.name, number, call))
+assert len(record_again_sites) >= 2, record_again_sites
+record_again_dropped = [site for site in record_again_sites if site[2] != 'recordAgain(target: controls.dictationTarget)']
+assert not record_again_dropped, f'Record again without the toolbar\'s field: {record_again_dropped}'
+assert re.search(r'controls\.dictationTarget\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.targetForDictation\(\)\s*\}',
+                 (PROJECT / 'Sources/LocalVoice/CapturePanel.swift').read_text()), 'the toolbar host supplies its own start\'s field'
 
 fixture = r'''
 import AppKit
@@ -306,7 +324,7 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     var captureUsesHoldShortcut = false, isMicrophoneQuiet = false, rendering = false
     var microphoneStartFailure: ((TextDelivery.Target?) -> String?)?
     var microphoneFailure: AVAuthorizationStatus?
-    var onShowEditor: ((String) -> Void)?
+    var onShowEditor: ((String) -> Void)?, onCloseMenu: (() -> Void)?
     var undelivered = UnresolvedDeliverySlot()
     var draftRevision: UInt64 = 0
     var persistWork: DispatchWorkItem?
@@ -401,11 +419,11 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         func folder(_ name: String) -> URL { root.appendingPathComponent(name, isDirectory: true) }
-        func wave() -> Data {
-            var data = Data()
+        func wave(rate: UInt32 = 16000, seconds: UInt32 = 1) -> Data {
+            var data = Data(), bytes = rate * seconds * 2
             func tag(_ string: String) { data.append(contentsOf: string.utf8) }
             func le<T: FixedWidthInteger>(_ value: T) { var value = value.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) } }
-            tag("RIFF"); le(UInt32(32036)); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(UInt32(16000)); le(UInt32(32000)); le(UInt16(2)); le(UInt16(16)); tag("data"); le(UInt32(32000)); data.append(Data(repeating: 0, count: 32000)); return data
+            tag("RIFF"); le(36 + bytes); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(rate); le(rate * 2); le(UInt16(2)); le(UInt16(16)); tag("data"); le(bytes); data.append(Data(repeating: 0, count: Int(bytes))); return data
         }
         let wav = wave()
         let observed = CaptureHarness(directory: folder("opaque-lifecycle"))
@@ -614,6 +632,20 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         let invalidImport = root.appendingPathComponent("invalid.wav"); try Data("not audio".utf8).write(to: invalidImport)
         importing.importAudio(invalidImport)
         try check(importing.captureRecovery.pending?.id == importRecoveryID && FileManager.default.fileExists(atPath: importRecoveryURL.path), "Invalid audio import leaves current retry audio in place")
+        // Each refusal is one plain sentence (#337): an unreadable file says so with formats to try,
+        // a readable one over 30 minutes says only that it is too long, and the Transcribe shortcut
+        // throws the same sentence to Shortcuts.
+        try check(importing.attention == Attention(message: ImportedAudio.unreadable, page: .dictate, code: "dictate.audio_unreadable"),
+                  "An unreadable import says why in words: \(String(describing: importing.attention?.message))")
+        let longImport = root.appendingPathComponent("over-thirty-minutes.wav"); try wave(rate: 1000, seconds: 1801).write(to: longImport)
+        importing.importAudio(longImport)
+        try check(importing.attention == Attention(message: "Choose an audio file between 1 second and 30 minutes long.", page: .dictate, code: "dictate.audio_unreadable")
+                  && importing.captureRecovery.pending?.id == importRecoveryID && importing.engine.calls == 0,
+                  "A recording over 30 minutes is refused as too long, not unreadable: \(String(describing: importing.attention?.message))")
+        let shortcutImport = CaptureHarness(directory: folder("shortcut-import")); var shortcutRefusal = "no refusal"
+        do { _ = try await shortcutImport.transcribeForShortcut(invalidImport) } catch { shortcutRefusal = error.localizedDescription }
+        try check(shortcutRefusal == ImportedAudio.unreadable && shortcutImport.shortcutRequest.id == nil && shortcutImport.engine.calls == 0,
+                  "The Transcribe shortcut gives Shortcuts the same plain sentence for an unreadable file: \(shortcutRefusal)")
         importing.importAudio(importRecoveryURL); await finish(importing)
         try check(importing.history.count == 1 && importing.history.first?.id == importRecoveryID && !importing.hasCaptureRecovery, "Importing the current recovery transcribes with its owned identity and never moves the URL first")
         let cancelled = CaptureHarness(directory: folder("cancelled"))
@@ -1254,6 +1286,26 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         busyOpen.openTranscript(saved)
         try check(busyOpen.page == "dictate" && busyOpen.pendingTranscript?.id == saved.id && busyOpen.transcript == "Old draft" && busyOpen.attention == nil,
                   "Open goes ahead once Dictate is idle, behind Keep or Replace, and History's wait goes")
+
+        // Record again from the failure card or the chooser delivers where the toolbar's own start
+        // does (#337). The field is read once the start-only guard (#211) admits the start, so the
+        // admission and the destination see it; a refused start never reads it.
+        let fieldAgain = CaptureHarness(directory: folder("record-again-field"))
+        var admittedTarget: String?
+        fieldAgain.microphoneStartFailure = { admittedTarget = $0?.name; return nil }
+        fieldAgain.destination = nil
+        fieldAgain.recordAgain(target: { "Field fixture" })
+        try check(fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture" && admittedTarget == "Field fixture",
+                  "Record again starts toward the field the toolbar reads: \(String(describing: fieldAgain.destination?.name))")
+        var fieldReads = 0
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while requesting neither reads the field nor changes the request")
+        try fieldAgain.recorderStarted(audio: 2, peak: -20, wav: wav)
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .recording && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while recording neither reads the field nor stops the recording")
+        fieldAgain.cancelCurrentCapture()
 
         print("CAPTURE_PERSISTENCE_CHECKS_OK: \(assertions) checks; exact AppModel capture methods, real recovery files, synthetic audio, injected recognition/delivery/state writes")
     }
