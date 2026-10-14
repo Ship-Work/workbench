@@ -167,7 +167,9 @@ existing workspace; hovering another header never retargets that button.
 Each live or recoverable tool has its own visible, named commands immediately
 under its header. Dictate keeps Stop/Cancel, Copy now, saved-recording review and
 recovery, and unresolved-delivery review/copy/dismiss. Snap reviews the retained draft;
-Snap & Talk finishes/cancels the current narration and reviews its current session.
+Snap & Talk finishes/cancels the current narration and reviews its current session;
+its Cancel follows the page's rule, so a take longer than ten seconds opens Snap & Talk
+asking "Discard this narration?" there.
 Draw stops drawing. Present ends the live scene or stops an insertion. Persona
 hides, resumes or ends the live copy/set. Independent Meetings and Timer appear
 below the six tools only while they have work or recovery; they never become

@@ -455,7 +455,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var unavailableSessions: [String: String] = [:]
     var currentSessionProblem: String? { sessionURL.flatMap { unavailableSessions[$0.standardizedFileURL.path] } }
     @Published private(set) var isCapturing = false
-    @Published private(set) var isRecording = false
+    @Published private(set) var isRecording = false {
+        // The question asked about a take never outlives it, including after the 300 s auto-stop.
+        didSet { if !isRecording { pendingCancelNarration = nil } }
+    }
     @Published private(set) var recordingSectionID: UUID?
     @Published private(set) var recordingElapsed = 0.0
     @Published private(set) var recordingLevel = 0.0
@@ -469,6 +472,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var notice: String? {
         didSet { handoffFeedbackGeneration = UUID() }
     }
+    /// The take that "Discard this narration?" asks about, from the page's Cancel or the toolbar's.
+    @Published var pendingCancelNarration: String?
     private var handoffFeedbackGeneration = UUID()
     // Platform seams let checks exercise this action without the global clipboard,
     // Finder or LaunchServices. Production keeps the existing local handoff path.
@@ -1081,6 +1086,25 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             markNeedsNarration(root: context.root, sectionID: context.sectionID, message: "The narration could not be saved. \(error.localizedDescription)")
         }
         stateChanged()
+    }
+
+    /// Stop keeps a take and Cancel discards it, so every door asks first past ten seconds.
+    static func cancelAsksFirst(elapsed: Double) -> Bool { elapsed > 10 }
+
+    /// Cancel from any door: a short take is discarded at once; a longer one asks the page's
+    /// question about this take and keeps recording meanwhile. True when it asked.
+    @discardableResult func requestCancelNarration() -> Bool {
+        guard isRecording, let take = narrationIdentity else { return false }
+        guard Self.cancelAsksFirst(elapsed: recordingElapsed) else { cancelNarration(); return false }
+        pendingCancelNarration = take; stateChanged()
+        return true
+    }
+
+    /// Discard answers for the take it was asked about, never a newer one.
+    func confirmCancelNarration(_ take: String) {
+        pendingCancelNarration = nil
+        guard narrationIdentity == take else { return }
+        cancelNarration()
     }
 
     func cancelNarration() {

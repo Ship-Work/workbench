@@ -576,6 +576,7 @@ enum ReadbackChecks {
         print("READBACK_RECOVERY_CHECKS_OK: \(passed) checks")
         try await runQuitChecks()
         try await runRetakeChecks()
+        try await runCancelChecks()
     }
 
     /// With the microphone off, a section that needs narration is finished by typing a note.
@@ -649,8 +650,10 @@ enum ReadbackChecks {
     private final class SyntheticNarrationRecorder: NarrationRecording {
         let url: URL, seconds: Double, peak: Float
         private(set) var written: Data?
+        /// The meter's elapsed time, when a check moves the take along without writing longer audio.
+        var reportedTime: TimeInterval?
         init(url: URL, seconds: Double, peak: Float) { self.url = url; self.seconds = seconds; self.peak = peak }
-        var currentTime: TimeInterval { written == nil ? 0 : seconds }
+        var currentTime: TimeInterval { reportedTime ?? (written == nil ? 0 : seconds) }
         func prepareToRecord() -> Bool { true }
         func record() -> Bool {
             let rate = 16_000, count = Int(Double(rate) * seconds), amplitude = Double(Int16.max) * pow(10, Double(peak) / 20)
@@ -875,6 +878,96 @@ enum ReadbackChecks {
             .map { try String(contentsOf: words.root.appendingPathComponent(words.directory + "/history/" + $0), encoding: .utf8) }
         try check(archived == ["Earlier words, edited"], "words: the earlier edited narration is archived, not overwritten")
         print("READBACK_RETAKE_CHECKS_OK: \(passed) checks")
+    }
+
+    /// Cancel follows one rule from the page and the toolbar: a long take asks the page's
+    /// question and keeps recording, Discard answers only for that take, and the question
+    /// ends with the take, including at the 300 s auto-stop.
+    @MainActor
+    private static func runCancelChecks() async throws {
+        var passed = 0
+        func check(_ value: @autoclosure () -> Bool, _ message: String) throws {
+            guard value() else { throw ReadbackError.message("READBACK_CANCEL_CHECK_FAILED: \(message)") }
+            passed += 1
+        }
+        func waitFor(_ message: String, _ ready: () -> Bool) async throws {
+            for _ in 0..<500 {
+                if ready() { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw ReadbackError.message("READBACK_CANCEL_CHECK_FAILED: timed out waiting for \(message)")
+        }
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("Workbench-cancel-narration-\(UUID().uuidString)")
+        let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.CancelNarration.\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: domain)!
+        defer { defaults.removePersistentDomain(forName: domain); try? fm.removeItem(at: root) }
+        var manifest = try ReadbackStore.create(at: root, title: "Synthetic cancel")
+        let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+        try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+        try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+        manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+            audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+        try ReadbackStore.save(manifest, at: root)
+        defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+        var take: SyntheticNarrationRecorder?
+        let transcriber = ControlledTranscriber()
+        let model = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+            transcribeAudio: { try await transcriber.transcribe($0) }, microphoneAccess: { .authorized },
+            makeNarrationRecorder: { url, _ in
+                let recorder = SyntheticNarrationRecorder(url: url, seconds: 1.0, peak: -10); take = recorder; return recorder
+            })
+        defer { model.shutdown(); transcriber.cancel() }
+        /// Starts a take and lets the meter read `seconds`; returns its identity and pending file.
+        func record(for seconds: Double) async throws -> (String, URL) {
+            model.startNarration(for: id)
+            try check(model.isRecording, "a take starts on the synthetic recorder")
+            take?.reportedTime = seconds
+            try await waitFor("the meter to read \(seconds) s") { model.recordingElapsed == seconds }
+            let identity = model.narrationIdentity ?? ""
+            return (identity, URL(string: identity)!)
+        }
+
+        try check(!ReadbackModel.cancelAsksFirst(elapsed: 10) && ReadbackModel.cancelAsksFirst(elapsed: 10.1), "one rule: Cancel asks first past ten seconds")
+
+        // A long take asks, keeps recording and keeps its audio; Keep recording carries on.
+        let (long, longFile) = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration == long && model.isRecording && fm.fileExists(atPath: longFile.path),
+            "at 74 s Cancel asks about this take and keeps the file")
+        model.pendingCancelNarration = nil
+        try await Task.sleep(nanoseconds: 200_000_000)
+        try check(model.isRecording && model.narrationIdentity == long && fm.fileExists(atPath: longFile.path), "Keep recording keeps the take running")
+
+        // Discard answers only for the take it asked about.
+        try check(model.requestCancelNarration(), "the question can be asked again")
+        model.confirmCancelNarration("file:///synthetic/narration-pending-stale.wav")
+        try check(model.isRecording && fm.fileExists(atPath: longFile.path) && model.pendingCancelNarration == nil, "a stale Discard leaves the take recording")
+        try check(model.requestCancelNarration(), "the question is asked once more")
+        model.confirmCancelNarration(long)
+        try check(!model.isRecording && !fm.fileExists(atPath: longFile.path) && model.pendingCancelNarration == nil
+            && (try? ReadbackStore.load(from: root))?.sections[0].status == .needsNarration, "Discard removes the take it asked about and restores the section")
+
+        // A short take is discarded at once, as before.
+        let (_, shortFile) = try await record(for: 5)
+        try check(!model.requestCancelNarration() && !model.isRecording && !fm.fileExists(atPath: shortFile.path) && model.pendingCancelNarration == nil,
+            "at 5 s Cancel discards at once without asking")
+
+        // Stop ends the question with the take it kept.
+        _ = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration != nil, "a long take asks before Stop")
+        model.stopNarration()
+        try check(!model.isRecording && model.pendingCancelNarration == nil, "Stop clears the question")
+        try await waitFor("the kept take to transcribe") { transcriber.calls == 1 }
+        transcriber.complete("Synthetic kept words")
+        try await waitFor("the kept take to be ready") { (try? ReadbackStore.load(from: root).sections[0].status) == .ready }
+
+        // So does the 300 s auto-stop.
+        _ = try await record(for: 74)
+        try check(model.requestCancelNarration() && model.pendingCancelNarration != nil, "a long take asks before the auto-stop")
+        take?.reportedTime = 300
+        try await waitFor("the auto-stop") { !model.isRecording }
+        try check(model.pendingCancelNarration == nil, "the 300 s auto-stop clears the question")
+        print("READBACK_CANCEL_CHECKS_OK: \(passed) checks")
     }
 
     /// The next launch meets the real engine while Parakeet still loads: its admission refuses
