@@ -559,9 +559,36 @@ private struct HistoryNativeAcceptanceView: View {
                 pages: [], entries: [], menus: [], placement: try checkToolbarPlacement())
         }
         var panels: [SurfaceGallery.Shot] = []
+        final class PanelFrames { var byID: [String: CGRect] = [:] }
+        let panelFrames = PanelFrames()
+        var waitingTurnOff: CGRect?
         for state in panelStates() {
             try state.apply()
-            let rep = try renderPanel(state.readback, controlState: state.controlState)
+            panelFrames.byID = [:]
+            let rep = try renderPanel(state.readback, controlState: state.controlState) { id, frame in if id.hasPrefix("panel.") { panelFrames.byID[id] = frame } }
+            let editorFrames = panelFrames.byID.filter { $0.key.hasPrefix("panel.editor.") }
+            // The editor's one leading slot (#336): Cancel while it waits for keys, Change once it
+            // stops, and Turn off in the same place in both.
+            if state.id.hasPrefix("shortcut-editor") {
+                let waiting = state.id == "shortcut-editor"
+                guard (editorFrames["panel.editor.cancel"] != nil) == waiting, (editorFrames["panel.editor.change"] != nil) == !waiting,
+                      let turnOff = editorFrames["panel.editor.turn-off"] else {
+                    throw VoiceError.message("The panel's shortcut editor \(waiting ? "while waiting for keys" : "after Escape") showed \(editorFrames.keys.sorted()), not \(waiting ? "Cancel" : "Change") and Turn off.")
+                }
+                if waiting { waitingTurnOff = turnOff }
+                else if let waitingTurnOff, abs(waitingTurnOff.minX - turnOff.minX) > 8 {
+                    throw VoiceError.message("Turn off moved \(Int(turnOff.minX - waitingTurnOff.minX)) pt when the editor stopped waiting.")
+                }
+            }
+            // The attention line colours only its symbol, never its words (#335). Only its own row
+            // is measured: another row's shortcut label may be orange for its own reason.
+            if state.id == "microphone-denied" {
+                guard let row = panelFrames.byID["panel.recovery"] else { throw VoiceError.message("The denied-microphone panel showed no attention line.") }
+                let orange = SurfacePass.orangeExtent(rep, width: WorkbenchQuickPanel.width, rows: row.minY...row.maxY)
+                guard orange > 0, orange <= 24 else {
+                    throw VoiceError.message("The panel's attention line draws \(Int(orange)) pt of orange; only its symbol may be orange, and it must be.")
+                }
+            }
             panels.append(try save(rep, id: state.id, title: state.title, detail: state.detail, file: "panel-\(state.id)-\(theme).png", to: output))
             try state.reset()
         }
@@ -575,12 +602,22 @@ private struct HistoryNativeAcceptanceView: View {
         let pickers = try renderPickerStates(to: output)
         let (pickerShots, pickerHost) = try checkPickerHost(to: output)
         var pages = SurfacePass.pages.map { SurfaceGallery.Page(route: $0.0, title: $0.1, fallsThrough: false, shots: []) }
+        final class KeyboardFrames { var byID: [String: CGRect] = [:] }
         for (name, size) in SurfaceGallery.sizes {
-            let window = homeWindow(size: size)
+            let keyboardFrames = KeyboardFrames()
+            let window = homeWindow(size: size) { id, frame in if id.hasPrefix("keyboard.") { keyboardFrames.byID[id] = frame } }
             defer { window.contentViewController = nil; window.close() }
             let fallback = name == "default" ? SurfacePass.contentPixels(try renderPage(SurfaceGallery.unknownRoute, in: window).0) : nil
             for index in pages.indices {
+                // A door names Snap, which is off and sits below the list's fold (#76).
+                if pages[index].route == "shortcuts" { keyboardFrames.byID = [:]; guard keyboard.reveal("voice.8") else { throw VoiceError.message("Keyboard has no Snap shortcut to reveal.") } }
                 let (rep, drawn) = try renderPage(pages[index].route, in: window)
+                if pages[index].route == "shortcuts" {
+                    guard let list = keyboardFrames.byID["keyboard.list"], let row = keyboardFrames.byID["keyboard.selected"],
+                          keyboard.selectedID == "voice.8", !list.isEmpty, list.insetBy(dx: -1, dy: -1).contains(row) else {
+                        throw VoiceError.message("Keyboard at the \(name) size did not scroll the revealed Snap row into its list: \(keyboardFrames.byID).")
+                    }
+                }
                 if let fallback { pages[index].fallsThrough = SurfacePass.contentPixels(rep) == fallback }
                 if SurfacePass.isBlank(rep, size: size) { pages[index].blank = true }
                 pages[index].shots.append(try save(rep, id: name, title: "\(name == "default" ? "Default" : "Minimum") window, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
@@ -595,7 +632,7 @@ private struct HistoryNativeAcceptanceView: View {
         // Home's first-dictation states come before History's, which add Hand off tasks to recent work.
         if let home = pages.firstIndex(where: { $0.route == "home" }) {
             pages[home].shots += try renderHomeStates(to: output) + renderHomeChrome(to: output)
-                + [try renderHomeLargerText(to: output)]
+                + [try renderHomeLargerText(to: output)] + renderPermissionNames(to: output)
         }
         let review = try checkHomeReview(to: output)
         if let history = pages.firstIndex(where: { $0.route == "history" }) {
@@ -941,7 +978,7 @@ private struct HistoryNativeAcceptanceView: View {
             ("shelf-draft-changed", "Panel shelf: the draft changed", "A failed copy of the draft once the draft has changed: Review text opens Dictate, and there is no Copy again.",
              fromDraft.shown(in: now))] {
             let receipts = ClipboardReceiptModel(clipboardChangeCount: { 0 }, automaticallySchedules: false)
-            let view = WorkbenchClipboardShelf(receipts: receipts, unresolved: entry, review: {}, showCue: {})
+            let view = WorkbenchClipboardShelf(receipts: receipts, unresolved: entry, review: {})
                 .frame(width: 304).fixedSize(horizontal: false, vertical: true).padding(12)
             let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)))
             let window = offscreenWindow(size: host.fittingSize, styleMask: [.borderless])
@@ -963,7 +1000,9 @@ private struct HistoryNativeAcceptanceView: View {
     /// selections and the recording must come through unchanged, or the pass fails.
     func renderFoldedStates(to output: URL) throws -> [(String, [SurfaceGallery.Shot])] {
         let size = SurfaceGallery.sizes[1].size, library = model.library
-        let window = homeWindow(size: size)
+        final class Frames { var byID: [String: CGRect] = [:] }
+        let frames = Frames()
+        let window = homeWindow(size: size) { id, frame in if id.hasPrefix("home.current-work.") { frames.byID[id] = frame } }
         defer { window.contentViewController = nil; window.close(); model.phase = .idle; model.elapsed = 0 }
         var added: [DemoResource] = []
         defer {
@@ -1006,7 +1045,7 @@ private struct HistoryNativeAcceptanceView: View {
         try cleanupStore.save(.init(naturalProvider: .ollama, model: "gemma3:1b"))
         model.cleanupModels.presentDownload("gemma3:1b", fraction: 0.42)
         defer {
-            model.cleanupModels.cancel()
+            model.cleanupModels.cancel(); model.cleanupModels.clearFailure()
             if let savedCleanup { UserDefaults.standard.set(savedCleanup, forKey: CleanupConfigurationStore.key) }
             else { UserDefaults.standard.removeObject(forKey: CleanupConfigurationStore.key) }
         }
@@ -1020,11 +1059,44 @@ private struct HistoryNativeAcceptanceView: View {
         let dictateShot = try save(dictate, id: "state-writing-model-download", title: "Dictate during a writing model download, minimum window, \(Int(dictateSize.width)) × \(Int(dictateSize.height)) pt",
                                    detail: "Downloading gemma3:1b · 42% under the speech model and text style line, beside Models….",
                                    file: "page-dictate-state-writing-model-download-\(theme).png", to: output)
+        // Home, with speech ready and the first-dictation guide showing: Current work carries the
+        // line with Models…, above the guide (#335).
+        frames.byID = [:]
         let (homeDownload, homeSize) = try renderPage("home", in: window)
+        guard model.ready, model.writingModelLine == "Downloading gemma3:1b · 42%", frames.byID["home.current-work.writing-model"]?.isEmpty == false else {
+            throw VoiceError.message("Home did not show the writing model's download line with Models… in Current work while speech was ready.")
+        }
         let homeShot = try save(homeDownload, id: "state-writing-model-download", title: "Home during a writing model download, minimum window, \(Int(homeSize.width)) × \(Int(homeSize.height)) pt",
-                                detail: "The engine banner carries Downloading gemma3:1b · 42% under the speech model's line.",
+                                detail: "Speech is ready, so Current work carries Downloading gemma3:1b · 42% with its progress and Models…, above the first-dictation guide.",
                                 file: "page-home-state-writing-model-download-\(theme).png", to: output)
-        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot])]
+        // The download failed: its reason stays on Home with the attention symbol until Models clears
+        // it, while the saved Text style is Natural with Ollama.
+        model.cleanupModels.cancel()
+        let reason = "gemma3:1b couldn’t be downloaded. The synthetic Ollama server stopped responding."
+        model.cleanupModels.presentFailure(reason)
+        let savedStyle = model.preferences.cleanup
+        model.preferences.cleanup = .natural
+        defer { model.preferences.cleanup = savedStyle }
+        // Leave Home first, so the row reports where it lands afresh.
+        model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
+        frames.byID = [:]
+        let (homeFailure, failureSize) = try renderPage("home", in: window)
+        guard model.writingModelLine == reason, frames.byID["home.current-work.writing-model"]?.isEmpty == false else {
+            throw VoiceError.message("Home did not show the writing model's failure with Models… in Current work.")
+        }
+        let failureShot = try save(homeFailure, id: "state-writing-model-failure", title: "Home after a writing model download failed, minimum window, \(Int(failureSize.width)) × \(Int(failureSize.height)) pt",
+                                   detail: "The reason stays in Current work beside the attention symbol and Models…, where Download again and Cancel live.",
+                                   file: "page-home-state-writing-model-failure-\(theme).png", to: output)
+        // Another Text style takes the failure off Home, so it cannot hold Current work open.
+        model.preferences.cleanup = .light
+        model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
+        frames.byID = [:]
+        _ = try renderPage("home", in: window)
+        guard model.writingModelLine == reason, frames.byID["home.current-work.writing-model"] == nil else {
+            throw VoiceError.message("Home kept a failed writing model download in Current work after Text style changed to Light.")
+        }
+        model.cleanupModels.clearFailure()
+        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot, failureShot])]
     }
 
     // MARK: Read states
@@ -1725,7 +1797,22 @@ private struct HistoryNativeAcceptanceView: View {
         let closed = Date().addingTimeInterval(3)
         repeat { settle(root, seconds: 0.1) } while window.attachedSheet != nil && Date() < closed
         guard window.attachedSheet == nil else { throw VoiceError.message("The Dictate settings sheet did not detach cleanly after Done.") }
-        return (shot, "Settings → Dictate settings attached the production 570 × 510 sheet with a nonempty scroll viewport, consumed its request, preserved the exact draft/original/selection/capture/recovery state, and Done closed it cleanly.")
+        // The sheet's Shortcut keycap opens Settings › Keyboard on Dictate, as AppDelegate.navigate
+        // does; the sheet must leave with its page rather than cover Keyboard (#76).
+        model.focusRequest = PageFocusRequest(target: .dictateOptions)
+        let reopened = Date().addingTimeInterval(4)
+        repeat { settle(root, seconds: 0.1) } while window.attachedSheet == nil && Date() < reopened
+        guard window.attachedSheet != nil else { throw VoiceError.message("Dictate settings did not open again for the keycap check.") }
+        let door = model.onEditShortcut
+        defer { model.onEditShortcut = door }
+        model.onEditShortcut = { [keyboard = keyboard, model = model] id in keyboard.stopInteraction(); keyboard.reveal(AppDelegate.keyboardSelection(voice: id)); model.page = "shortcuts" }
+        model.onEditShortcut?(1)
+        let left = Date().addingTimeInterval(3)
+        repeat { settle(root, seconds: 0.1) } while window.attachedSheet != nil && Date() < left
+        guard window.attachedSheet == nil, keyboard.selectedID == "voice.1", !keyboard.isInteracting else {
+            throw VoiceError.message("Dictate settings' Shortcut keycap left the sheet attached (\(window.attachedSheet != nil)) or opened Keyboard on \(keyboard.selectedID).")
+        }
+        return (shot, "Settings → Dictate settings attached the production 570 × 510 sheet with a nonempty scroll viewport, consumed its request, preserved the exact draft/original/selection/capture/recovery state, and Done closed it cleanly. Its Shortcut keycap closed the sheet and opened Keyboard on Dictate, idle.")
     }
 
     // MARK: Home states
@@ -2321,7 +2408,7 @@ private struct HistoryNativeAcceptanceView: View {
             }
         }
         pages[homeIndex].shots += try renderHomeChrome(to: output) + renderHomeStates(to: output)
-            + [renderHomeLargerText(to: output)]
+            + [renderHomeLargerText(to: output)] + renderPermissionNames(to: output)
         let review = try checkHomeReview(to: output)
         if let history = pages.firstIndex(where: { $0.route == "history" }) {
             pages[history].shots.append(review.shot)
@@ -2334,6 +2421,50 @@ private struct HistoryNativeAcceptanceView: View {
         return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: [], host: [], pickers: [], pickerHost: [],
             pages: pages, entries: entries(), menus: [], checks: try review.checks + checkToolbarVisibility() + [
                 "Home and History visits preserve the pending recording and its journal byte for byte; Retry and explicit Discard remain available on Dictate."])
+    }
+
+    /// Home's Permissions at the minimum window with the sidebar expanded, where its half column is
+    /// narrowest, for this pass's permissions and a work Mac's: every name must show whole, wrapped
+    /// if need be, since it is the word to find in Privacy & Security (#335).
+    func renderPermissionNames(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let kept = (page: model.page, reader: MacPermissionReader.current)
+        defer { model.page = kept.page; MacPermissionReader.current = kept.reader }
+        var shots: [SurfaceGallery.Shot] = []
+        for (id, reader) in [("pass", kept.reader), ("work-mac", Self.workMacPermissions)] {
+            MacPermissionReader.current = reader
+            final class Frames { var byID: [String: CGRect] = [:] }
+            let frames = Frames()
+            let window = homeWindow(size: SurfaceGallery.sizes[1].size) { name, frame in if name.hasPrefix("home.permissions.") { frames.byID[name] = frame } }
+            defer { window.contentViewController = nil; window.close() }
+            let (rep, drawn) = try renderPage("home", in: window)
+            let names = frames.byID.filter { $0.key.hasSuffix(".name") }
+            guard !names.isEmpty else { throw VoiceError.message("Home's Permissions reported no names at the minimum window (\(id)).") }
+            let clipped = Self.clippedPermissionNames(names)
+            guard clipped.isEmpty else { throw VoiceError.message("Home's Permissions clipped \(clipped.joined(separator: ", ")) at the minimum window (\(id)).") }
+            if id == "work-mac" {
+                shots.append(try save(rep, id: "state-work-mac-narrow", title: "Permissions on a work Mac, minimum window, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
+                    detail: "The half column at its narrowest: each name wraps whole, with its badge beside it or below it, and every action stays in place.",
+                    file: "page-home-state-work-mac-narrow-\(theme).png", to: output))
+            }
+        }
+        return shots
+    }
+
+    /// Permission names whose text, measured at the width it was given, needs more height than it
+    /// has, or whose longest word is wider than that width: either means the name was cut.
+    static func clippedPermissionNames(_ frames: [String: CGRect]) -> [String] {
+        let font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .semibold)
+        return frames.keys.sorted().compactMap { key in
+            let raw = key.replacingOccurrences(of: "home.permissions.", with: "").replacingOccurrences(of: ".name", with: "")
+            guard let permission = MacPermission(rawValue: raw), let frame = frames[key] else { return key }
+            func size(_ text: String, width: CGFloat) -> CGRect {
+                NSAttributedString(string: text, attributes: [.font: font])
+                    .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading])
+            }
+            let needed = size(permission.name, width: frame.width).height
+            let widestWord = permission.name.split(separator: " ").map { size(String($0), width: .greatestFiniteMagnitude).width }.max() ?? 0
+            return needed > frame.height + 1 || frame.width + 0.5 < widestWord ? "\(permission.name) in \(Int(frame.width)) × \(Int(frame.height)) pt" : nil
+        }
     }
 
     /// Both sidebar widths and the local-profile sheet, without ordering a window on screen,
@@ -3117,8 +3248,10 @@ private struct HistoryNativeAcceptanceView: View {
             PanelState(id: "meeting-recording", title: "Meeting recording", detail: "A meeting recording app audio, which shows the meeting status row.", readback: readback,
                        apply: { [self] in model.meetings = recordingMeetings; try drive(recordingMeetings, start: true) },
                        reset: { [self] in try drive(recordingMeetings, start: false); model.meetings = meetings }),
-            PanelState(id: "shortcut-editor", title: "Shortcut editor", detail: "Snap's shortcut label clicked: the inline editor waits for keys. Closing the panel ends it.", readback: readback,
-                       apply: { [self] in panelEditor.change("voice.8") }, reset: { [self] in panelEditor.end() })]
+            PanelState(id: "shortcut-editor", title: "Shortcut editor", detail: "Snap's shortcut label clicked: the inline editor waits for keys, with Cancel and Turn off. Closing the panel ends it.", readback: readback,
+                       apply: { [self] in panelEditor.change("voice.8") }, reset: { [self] in panelEditor.end() }),
+            PanelState(id: "shortcut-editor-stopped", title: "Shortcut editor after Escape", detail: "Snap's editor once it stops waiting: Change returns in Cancel's place and Turn off stays put.", readback: readback,
+                       apply: { [self] in panelEditor.change("voice.8"); keyboard.stopInteraction() }, reset: { [self] in panelEditor.end() })]
     }
 
     // MARK: Rendering
@@ -3129,8 +3262,9 @@ private struct HistoryNativeAcceptanceView: View {
     }
 
     /// The popover's own material is not drawn; the panel sits on the window background.
-    func renderPanel(_ readback: ReadbackModel, controlState: WorkbenchControlState? = nil) throws -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: quickPanel(readback, controlState: controlState).background(Color(nsColor: .windowBackgroundColor)))
+    func renderPanel(_ readback: ReadbackModel, controlState: WorkbenchControlState? = nil, sectionFrames: ((String, CGRect) -> Void)? = nil) throws -> NSBitmapImageRep {
+        let host = NSHostingView(rootView: quickPanel(readback, controlState: controlState).background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.pageSectionFrames, sectionFrames))
         let window = offscreenWindow(size: host.fittingSize, styleMask: [.borderless])
         window.contentView = host
         settle(host)
@@ -4120,6 +4254,24 @@ private struct HistoryNativeAcceptanceView: View {
         return total > 0 && Double(drawn) / Double(total) < 0.002
     }
 
+    /// How wide, in points of a `width`-point render, the strongly orange pixels spread within
+    /// `rows` (points from the top): a symbol is a glyph wide, while orange words run the length
+    /// of their sentence.
+    static func orangeExtent(_ rep: NSBitmapImageRep, width: CGFloat, rows: ClosedRange<CGFloat>) -> CGFloat {
+        let scale = CGFloat(rep.pixelsWide) / width
+        let top = max(0, Int(rows.lowerBound * scale)), bottom = min(rep.pixelsHigh, Int((rows.upperBound * scale).rounded(.up)))
+        var low = Int.max, high = Int.min
+        for y in stride(from: top, to: bottom, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if colour.redComponent > 0.85, colour.greenComponent > 0.4, colour.greenComponent < 0.75, colour.blueComponent < 0.35 {
+                    low = min(low, x); high = max(high, x)
+                }
+            }
+        }
+        return high < low ? 0 : CGFloat(high - low) * width / CGFloat(rep.pixelsWide)
+    }
+
     /// Pixels right of the 215-point sidebar and its divider. A route whose page matches the
     /// unknown route's page has no content of its own.
     static func contentPixels(_ rep: NSBitmapImageRep) -> Data {
@@ -4228,7 +4380,7 @@ private struct HistoryNativeAcceptanceView: View {
         list += [action(panel, "Shortcut label on each row", "Edits that shortcut inside the panel"),
                  page(panel, "Open Workbench", "home"), page(panel, "Settings", "settings"), page(panel, "Shortcuts", "shortcuts"),
                  action(panel, WorkbenchUpdates.shared.panelTitle, "Checks for updates"), action(panel, "Quit", "Quits Workbench"),
-                 page(panel, "Clipboard receipt · Review text", "history"), action(panel, "Clipboard receipt · Show cue", "Shows the clipboard cue"),
+                 page(panel, "Clipboard receipt · Review text", "history"),
                  page(panel, "Recovery · Open Dictate…, for a dictation error", "dictate"),
                  page(panel, "Recovery · Open History…, for a transcript removal or export", "history"),
                  page(panel, "Recovery · Open Home…, when the speech model could not be prepared", "home"),

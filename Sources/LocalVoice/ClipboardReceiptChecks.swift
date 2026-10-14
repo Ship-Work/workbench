@@ -27,14 +27,8 @@ enum ClipboardReceiptChecks {
         clock += 0.1; model.expireHUD(firstEvent)
         try check(!model.isHUDVisible && model.receipt?.isClipboardCurrent == true && model.pendingExpiry == nil,
                   "copied HUD expires at its deadline but current clipboard shelf remains")
-        let retainedID = model.receipt?.id
-        model.revealHUD()
-        try check(model.isHUDVisible && model.receipt?.id == retainedID && model.receipt?.canSuggestPaste == true
-                  && clipboardCount == 10, "reveal reopens the same safe-to-paste receipt without recopying")
         clipboardCount = 11; model.refreshClipboardOwnership()
         try check(model.receipt == nil && !model.isHUDVisible, "unrelated copy clears the stale shelf")
-        model.revealHUD()
-        try check(model.receipt == nil && !model.isHUDVisible, "reveal cannot resurrect a stale clipboard receipt")
 
         clipboardCount = 12
 
