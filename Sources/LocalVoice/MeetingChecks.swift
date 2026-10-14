@@ -468,11 +468,13 @@ enum MeetingChecks {
         home.isReleasedWhenClosed = false
         var hides = 0
         home.onHide = { hides += 1; review.pause() }
+        // The window observes on the main operation queue, which delivers after this task yields;
+        // a busy CI runner needs more than one turn, so wait for the hide, bounded at 5 s.
         NotificationCenter.default.post(name: NSApplication.willHideNotification, object: NSApplication.shared)
-        await Task.yield()
+        await waitUntil { hides > 0 }
         try expect(hides == 1 && !review.playing, "hiding Workbench (⌘H) pauses recording review once")
         NotificationCenter.default.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
-        await Task.yield()
+        try? await Task.sleep(nanoseconds: 200_000_000)
         try expect(hides == 1 && !review.playing, "unhiding Workbench never resumes recording review")
         home.onHide = nil; home.close()
         review.toggle()
