@@ -3,8 +3,11 @@ import AppKit
 extension AppModel {
     /// An explicit reuse of the reviewed text, with the existing transient
     /// clipboard receipt. It has no dictation target or unresolved-delivery state.
-    func copySavedResult(_ text: String, jobID: UUID) {
-        status = HistoryResultReuse.copy(text, jobID: jobID, receipts: clipboardReceipt).message
+    @discardableResult
+    func copySavedResult(_ text: String, jobID: UUID) -> TextDelivery.Outcome {
+        let outcome = HistoryResultReuse.copy(text, jobID: jobID, receipts: clipboardReceipt)
+        status = outcome.message
+        return outcome
     }
 }
 

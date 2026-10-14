@@ -237,6 +237,9 @@ struct CaptureSettings {
     }
     static func capture() -> Target? { "Frontmost fixture field" }
     static func copy(_ text: String) -> Int? { copies.append(text); return copyFails ? nil : copies.count }
+    /// The pasteboard a copy was given; a check's own private board, never the user's clipboard.
+    static var lastPasteboard: NSPasteboard?
+    static func copy(_ text: String, to pasteboard: NSPasteboard) -> Int? { lastPasteboard = pasteboard; return copy(text) }
     static func deliver(_ text: String, target: Target?, mode: DeliveryMode, restoreClipboard: Bool,
                         fit: InsertionBoundary.Context? = nil) async -> Outcome {
         lastMode = mode; lastTarget = target?.name; lastFit = fit
@@ -1222,6 +1225,27 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         TextDelivery.copyFails = false
         draft.copyTranscript()
         try check(draft.unresolvedDelivery == nil, "copying the unchanged draft again resolves it")
+
+        // History confirms a Copy by what it wrote (#338): the outcome, never the status line,
+        // which an empty copy leaves saying the last copy's words.
+        let historyCopy = CaptureHarness(directory: folder("history-copy"))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let words = Transcript(id: UUID(), text: "Synthetic words to copy again.", seconds: 1, rawText: "synthetic words to copy again")
+        let copiesBeforeHistory = TextDelivery.copies.count
+        let wrote = historyCopy.copyCapture(words, pasteboard: board)
+        try check(wrote?.failure == nil && wrote?.message == TextDelivery.copiedMessage && TextDelivery.copies.last == words.text
+                  && TextDelivery.copies.count == copiesBeforeHistory + 1 && TextDelivery.lastPasteboard === board,
+                  "a transcript copy writes its exact words to the pasteboard it is given and reports the write")
+        let empty = Transcript(id: UUID(), text: "", seconds: 1, rawText: "")
+        try check(historyCopy.copyCapture(empty, pasteboard: board) == nil && TextDelivery.copies.count == copiesBeforeHistory + 1
+                  && historyCopy.status == TextDelivery.copiedMessage,
+                  "an empty transcript attempts nothing and reports nothing, though the status still says the last copy's words")
+        TextDelivery.copyFails = true
+        let refused = historyCopy.copyCapture(words, pasteboard: board)
+        TextDelivery.copyFails = false
+        try check(refused?.failure == .copyFailed && refused?.message == historyCopy.status && refused?.message != TextDelivery.copiedMessage,
+                  "a refused write reports the failure it shows")
 
         // T4's fallback: a lesson the host drops after asking gives this attempt's cue after all.
         let dropped = CaptureHarness(directory: folder("hold-lesson-dropped"), tips: tips("dropped"))
