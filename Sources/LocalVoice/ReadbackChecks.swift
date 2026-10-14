@@ -646,9 +646,10 @@ enum ReadbackChecks {
         print("READBACK_TYPED_NOTE_CHECKS_OK: \(passed) checks")
     }
 
-    /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it.
+    /// Writes a synthetic mono 16 kHz take where the real recorder would, and meters it. The surface
+    /// gallery's toolbar checks use it too, so a chooser command can act on a take with no microphone.
     @MainActor
-    private final class SyntheticNarrationRecorder: NarrationRecording {
+    final class SyntheticNarrationRecorder: NarrationRecording {
         let url: URL, seconds: Double, peak: Float
         private(set) var written: Data?
         /// The meter's elapsed time, when a check moves the take along without writing longer audio.

@@ -4190,6 +4190,59 @@ private struct HistoryNativeAcceptanceView: View {
             plain.accessory(plain.live) == nil ? nil : "Snap & Talk offers an accessory with no session open",
             review == .review ? nil : "the open session offers \(review.map(\.title) ?? "nothing"), not Review",
             routes == ["readback"] ? nil : "Review opened \(routes), not the session's review"])
+        checkChooserCancelNarration(toolbar: toolbar, routes: { routes }, clearRoutes: { routes.removeAll() }, expect: expect)
+    }
+
+    /// The chooser's Cancel narration follows the page's rule (#342). Past ten seconds it keeps the
+    /// take and opens Snap & Talk with the page's own question; a short take is discarded at once.
+    /// A synthetic recorder stands in for the microphone, and its meter is moved, not waited for.
+    func checkChooserCancelNarration(toolbar: (ReadbackModel) -> FloatingToolbar, routes: () -> [String], clearRoutes: () -> Void,
+                                     expect: (String, [String?]) -> Void) {
+        let title = "Snap & Talk's Cancel narration in the chooser"
+        do {
+            let root = home.appendingPathComponent("Snap & Talk cancel \(theme)", isDirectory: true)
+            var manifest = try ReadbackStore.create(at: root, title: "Synthetic narration")
+            let id = UUID(), directory = "items/\(id.uuidString.lowercased())"
+            try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(directory), includingParents: false)
+            try ReadbackStore.writePrivate(Data("Synthetic screenshot".utf8), to: root.appendingPathComponent(directory + "/screen.png"))
+            manifest.sections = [ReadbackSection(id: id, capturedAt: Date(), displayName: "Synthetic", directory: directory, screenshot: directory + "/screen.png",
+                audio: nil, originalTranscript: nil, transcript: nil, status: .needsNarration, failure: nil, deletedAt: nil)]
+            try ReadbackStore.save(manifest, at: root)
+            let defaults = try SurfaceGallery.isolatedDefaults("SnapTalkCancel", home: home)
+            defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
+            var take: ReadbackChecks.SyntheticNarrationRecorder?
+            let narrating = ReadbackModel(engine: model.engine, defaults: defaults,
+                captureDisplay: { throw ReadbackError.message("The surface gallery never captures the screen.") },
+                transcribeAudio: { _ in throw ReadbackError.message("The surface gallery never transcribes audio.") },
+                screenAccess: .fixed(true), microphoneAccess: { .authorized },
+                makeNarrationRecorder: { url, _ in
+                    let recorder = ReadbackChecks.SyntheticNarrationRecorder(url: url, seconds: 1, peak: -10); take = recorder; return recorder
+                })
+            defer { narrating.shutdown() }
+            /// Starts a take whose meter reads `seconds`, chooses Cancel narration in the chooser and
+            /// returns the take it acted on.
+            func cancel(at seconds: Double) -> (take: String, file: URL)? {
+                narrating.startNarration(for: id)
+                guard narrating.isRecording, let identity = narrating.narrationIdentity, let file = URL(string: identity) else { return nil }
+                take?.reportedTime = seconds
+                let deadline = Date().addingTimeInterval(5)
+                while narrating.recordingElapsed != seconds && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+                clearRoutes()
+                toolbar(narrating).chooserCommands.first { $0.value.id == "snap-talk.cancel" }?.run()
+                return (identity, file)
+            }
+            guard let long = cancel(at: 74) else { return expect(title, ["the synthetic take did not start"]) }
+            let asked = narrating.isRecording && narrating.pendingCancelNarration == long.take && FileManager.default.fileExists(atPath: long.file.path)
+            let openedPage = routes() == ["readback"]
+            narrating.confirmCancelNarration(long.take)
+            guard let short = cancel(at: 5) else { return expect(title, ["the second synthetic take did not start"]) }
+            expect(title, [
+                asked ? nil : "at 74 s Cancel narration did not keep the take and ask about it",
+                openedPage ? nil : "at 74 s Cancel narration did not open Snap & Talk",
+                !narrating.isRecording && !FileManager.default.fileExists(atPath: short.file.path) && narrating.pendingCancelNarration == nil
+                    ? nil : "at 5 s Cancel narration did not discard the take at once",
+                routes().isEmpty ? nil : "at 5 s Cancel narration opened \(routes())"])
+        } catch { expect(title, ["the synthetic session could not be prepared: \(error.localizedDescription)"]) }
     }
 
     /// One Home window per size, set up like AppDelegate's. As in the app, pages change inside it
