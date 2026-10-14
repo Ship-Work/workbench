@@ -4468,16 +4468,32 @@ extension SurfacePass {
         return try BugReportMedia.image(try BugReportMedia.encodePNG(context.makeImage()!), scale: 2, sourceLimit: BugReportLimits.importBytes)
     }
 
-    /// Dictate's problem banner with Report a problem… beside it, carrying the problem's code.
+    /// Dictate's problem banner with a kept capture's Retry and Report a problem… beside it, carrying the problem's code.
     func renderDictateProblemDoor(to output: URL) throws -> SurfaceGallery.Shot {
         let kept = model.page
-        defer { model.dismissError(); model.page = kept }
+        defer { model.dismissError(); model.canRetry = false; model.page = kept }
         model.report("Recording stopped. Original audio was kept for retry. The input device was disconnected.", on: .dictate, code: "dictate.recording_stopped")
+        model.canRetry = true
         let window = homeWindow(size: SurfaceGallery.sizes[1].size)
         defer { window.contentViewController = nil; window.close() }
         let (rep, drawn) = try renderPage("dictate", in: window)
-        return try save(rep, id: "problem-door", title: "Dictate problem with Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
-                        detail: "The same door as Help › Report a Problem…, beside a recoverable problem; it opens the composer with dictate.recording_stopped.",
+        // Retry sits in the banner, the top band of the page, only where the page fills a
+        // Dictate draft. Offscreen SwiftUI exposes no accessibility tree to walk, so the band
+        // is compared with Retry unavailable: Capture recovery and its own Retry lie below it.
+        func banner(_ route: String, retry: Bool) throws -> Data {
+            model.canRetry = retry
+            let (page, _) = try renderPage(route, in: window)
+            guard let bytes = page.bitmapData else { throw VoiceError.message("The \(route) page did not draw.") }
+            return Data(bytes: bytes, count: page.bytesPerRow * page.pixelsHigh * 12 / 100)
+        }
+        guard try banner("dictate", retry: true) != banner("dictate", retry: false) else {
+            throw VoiceError.message("The Dictate banner does not offer Retry transcription beside a kept capture's problem.")
+        }
+        guard try banner("dictionary", retry: true) == banner("dictionary", retry: false) else {
+            throw VoiceError.message("Your dictionary's banner offers Retry, which fills a Dictate draft it does not show.")
+        }
+        return try save(rep, id: "problem-door", title: "Dictate problem with Retry transcription and Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
+                        detail: "The kept capture's Retry transcription sits beside the problem that promises it, the same action as Capture recovery's; beside it, the same door as Help › Report a Problem…, which opens the composer with dictate.recording_stopped.",
                         file: "page-dictate-problem-door-\(theme).png", to: output)
     }
 }
