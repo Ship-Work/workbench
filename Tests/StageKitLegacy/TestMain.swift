@@ -985,7 +985,7 @@ struct TestRunner {
         } else if scenesOnly {
             tests = Array(tests.prefix { $0.0 != "line hit testing" })
         } else if hostedCI {
-            print("SKIP live menu-bar popover regression in --ci mode; run scripts/test.zsh on an interactive Mac for full coverage")
+            print("SKIP live menu-bar popover regression in --ci mode; run bash scripts/test-stage.sh (no arguments) on an interactive Mac for full coverage")
         } else {
             tests.append(("menu bar and non-destructive quick adjustments", integration.testMenuBarAccessAndQuickAdjustmentsPreserveBoard))
         }

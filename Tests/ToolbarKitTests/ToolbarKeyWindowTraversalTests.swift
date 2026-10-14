@@ -68,7 +68,7 @@ final class ToolbarKeyWindowTraversalTests: XCTestCase {
             runs[name] = path
         }
         XCTAssertEqual(runs["Draw with Tools"], ["primary", "accessory", "launcher", "accessory", "primary", "launcher"])
-        XCTAssertEqual(runs["Read, no accessory"], ["primary", "launcher", "primary", "launcher"])
+        XCTAssertEqual(runs["Snap, no accessory"], ["primary", "launcher", "primary", "launcher"])
         XCTAssertEqual(runs["Draw at the right-hand dock"], ["primary", "accessory", "launcher", "accessory", "primary", "launcher"])
     }
 }
