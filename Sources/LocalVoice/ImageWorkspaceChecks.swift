@@ -334,6 +334,32 @@ enum ImageWorkspaceChecks {
         try check(runs.undoStack.count == steps + 1 && runs.redoStack.isEmpty, "an edit after Undo starts a new step and clears Redo")
         runs.undo()
         try check(runs.draft.edit == restored, "the state Undo restored stays reachable after the next edit")
+        // The toolbar's Text puts the new caption's field first with "Your text" selected, so the
+        // first keystroke replaces it, both when the field is still to appear and when a caption has focus.
+        preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
+        preview.beginEditing(); try await settle(preview)
+        if let typing = preview.editing, let typingPanel = preview.panel {
+            func addCaption() async throws -> NSTextView? {
+                typing.addTextForTyping(); try await settle(preview)
+                return typingPanel.firstResponder as? NSTextView
+            }
+            let whole = NSRange(location: 0, length: 9)
+            let first = try await addCaption(), firstID = typing.selected
+            try check(first?.string == "Your text" && first?.selectedRange() == whole && first?.isFieldEditor == false && typing.captionFocusRequest == nil,
+                      "Text puts the new caption's field first with its whole caption selected")
+            first?.insertText("Login", replacementRange: first?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Login", "the first keystroke replaces Your text")
+            typing.undo()
+            try check(typing.selectedMark?.text == "Your text" && typing.selected == firstID, "one Undo returns Your text with its box selected")
+            let captionHadFocus = first != nil && typingPanel.firstResponder === first
+            let second = try await addCaption()
+            try check(captionHadFocus && second?.string == "Your text" && second?.selectedRange() == whole && typing.selected != firstID,
+                      "Text while a caption has focus selects the new box's whole caption")
+            second?.insertText("Sign up", replacementRange: second?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Sign up" && typing.draft.edit.marks.first { $0.id == firstID }?.text == "Your text",
+                      "typing replaces only the new caption")
+        } else { try check(false, "the editor opens for the caption focus checks") }
+        preview.approveDiscard = { true }; preview.cancelEditing(); try await settle(preview)
         preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
         preview.beginEditing(); try await settle(preview); preview.editing?.addText()
         let openEditor = preview.editing, openPanel = preview.panel

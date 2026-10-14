@@ -31,7 +31,7 @@ struct SnapEditorView: View {
                 ForEach(ImageWorkspaceTool.allCases) { tool in
                     Button {
                         editing.showingOriginal = false
-                        if tool == .text { editing.addText(); textFocused = true }
+                        if tool == .text { editing.addTextForTyping(); textFocused = true }
                         else { editing.tool = tool; editing.selected = nil }
                     } label: { Label(tool.title, systemImage: tool.symbol).font(.callout) }
                     .buttonStyle(.bordered)
@@ -94,6 +94,7 @@ struct SnapEditorView: View {
                     TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected("text") { $0.text = String(value.prefix(10_000)) } }))
                         .font(.body).frame(height: 120).focused($textFocused)
                         .onChange(of: textFocused) { _, focused in if !focused { editing.endEditRun() } }
+                        .background(CaptionFocus(request: editing.captionFocusRequest) { editing.captionFocusRequest = nil })
                         .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Text on image")
                     Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected("background") { $0.background = value } })) {
@@ -141,6 +142,47 @@ struct SnapEditorView: View {
         })) { ForEach(["red", "yellow", "blue", "white", "black"], id: \.self) { Text($0.capitalized).tag($0) } }
             // Native popup labels can retain their previous colour when appearance changes.
             .id(appearance.colorScheme)
+    }
+}
+
+/// Puts the caption field first with its whole caption selected when the toolbar's Text asks.
+/// FocusState alone cannot select text, and may not reach a field mounted by the same update,
+/// so this finds the AppKit text view of the TextEditor it sits behind.
+private struct CaptionFocus: NSViewRepresentable {
+    let request: UUID?
+    let done: () -> Void
+    final class Coordinator { var handled: UUID? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        guard let request, request != context.coordinator.handled else { return }
+        context.coordinator.handled = request
+        focus(behind: view, attempts: 20)
+    }
+    /// Runs after this update, once the text view shows the new caption. A field still mounting
+    /// gets a few more tries; the request is cleared either way, so it never fires later.
+    private func focus(behind view: NSView, attempts: Int, after delay: TimeInterval = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard let window = view.window, let textView = Self.textView(behind: view, in: window) else {
+                if attempts > 0 { focus(behind: view, attempts: attempts - 1, after: 0.02) } else { done() }
+                return
+            }
+            window.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
+            done()
+        }
+    }
+    private static func textView(behind view: NSView, in window: NSWindow) -> NSTextView? {
+        let centre = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        func search(_ candidate: NSView) -> NSTextView? {
+            if let text = candidate as? NSTextView, text.isEditable {
+                let frame = text.enclosingScrollView ?? text
+                if frame.convert(frame.bounds, to: nil).contains(centre) { return text }
+            }
+            for subview in candidate.subviews { if let found = search(subview) { return found } }
+            return nil
+        }
+        return window.contentView.flatMap(search)
     }
 }
 
