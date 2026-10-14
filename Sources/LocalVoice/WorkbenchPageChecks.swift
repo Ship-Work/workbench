@@ -119,6 +119,9 @@ enum WorkbenchPageChecks {
                   "a recovery row keeps only the first sentence")
         try check(PanelRecoveryRow.headline("Preparing speech · first setup may take a few minutes") == "Preparing speech · first setup may take a few minutes",
                   "a one-sentence message is shown whole")
+        // A Cancel that left live words is a Dictate attention; the row's one sentence says why.
+        try check(PanelRecoveryRow.headline(LiveDictationDelivery.wordsLeftMessage(in: "TextEdit")) == "Cancelled, but words already written in TextEdit remain.",
+                  "a Cancel that left live words says so in the recovery row's sentence")
         try check(WorkbenchControlTool.allCases.compactMap(\.mode) == ToolbarMode.allCases, "the panel's rows follow the toolbar's modes in moment order")
         try check(WorkbenchControlTool.timer.mode == nil && !WorkbenchHome.navItems.contains { $0.title == WorkbenchControlTool.timer.title },
                   "Timer is a panel row, not a page")

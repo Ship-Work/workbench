@@ -2363,8 +2363,51 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("transcripts", "History, Transcripts", "As Dictate's History… opens it.", snaps: snap, door: HistoryDoor(filter: .transcripts))
         // A problem History owns: primary words with an orange symbol at the top of the page (#279).
         model.report("Workbench couldn’t move the recording for this synthetic interview to the Trash. The transcript is kept; try Remove again from its row.", on: .history)
-        try shot("error", "History, a removal that did not finish", "The page's own problem in primary words with an orange symbol; red stays for recording and removal.",
+        try shot("error", "History, a removal that did not finish", "The page's own problem in primary words with an orange symbol, in a card with its × to put it away; red stays for recording and removal.",
                  snaps: snap, door: HistoryDoor(filter: .transcripts))
+        // The note carries its × at the right of its row, level with its orange symbol, alone after
+        // the Spacer, as Dictate's and Meetings' banners do. Offscreen SwiftUI offers neither an
+        // accessibility tree to press nor a synthetic click it accepts, so the row is read instead:
+        // the rightmost mark must be glyph-sized with clear space before it, not the message's end.
+        do {
+            let window = offscreenWindow(size: size, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
+            window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
+            defer { window.contentViewController = nil; window.close() }
+            window.contentViewController = NSHostingController(rootView: WorkbenchHome(model: model, stage: stage, keyboard: keyboard, readback: readback, snap: snap))
+            window.setContentSize(size)
+            let frame = window.contentView?.superview ?? window.contentView!
+            settle(frame, seconds: 1)
+            let rep = try snapshot(frame)
+            guard let bytes = rep.bitmapData, rep.bitsPerSample == 8, rep.samplesPerPixel >= 3, !rep.isPlanar else {
+                throw VoiceError.message("History's render is not in a format the dismiss check can read.")
+            }
+            let scale = CGFloat(rep.pixelsWide) / frame.bounds.width, points = { (value: CGFloat) in Int(value * scale) }
+            func rgb(_ x: Int, _ y: Int) -> [Double] {
+                let pixel = bytes + y * rep.bytesPerRow + x * rep.samplesPerPixel
+                return (0..<3).map { Double(pixel[$0]) / 255 }
+            }
+            let orange = { (c: [Double]) in c[0] > 0.85 && c[1] > 0.35 && c[1] < 0.75 && c[2] < 0.35 }
+            guard let symbol = (0..<rep.pixelsHigh / 2).lazy.compactMap({ y in
+                (rep.pixelsWide / 6..<rep.pixelsWide).first { orange(rgb($0, y)) }.map { (x: $0, y: y) } }).first else {
+                throw VoiceError.message("History's problem note has no orange symbol to find its row by.")
+            }
+            let background = rgb(symbol.x - points(6), symbol.y + points(6))
+            let rows = max(0, symbol.y - points(8))..<min(rep.pixelsHigh, symbol.y + points(24))
+            let marked = { (x: Int) in rows.contains { y in zip(rgb(x, y), background).contains { abs($0 - $1) > 0.35 } } }
+            // The rightmost mark in the row at least a few points wide: a glyph, not an edge or a scroller.
+            var right = rep.pixelsWide - points(12), found: (left: Int, right: Int)?
+            while found == nil, right > symbol.x {
+                guard let end = stride(from: right, to: symbol.x, by: -1).first(where: marked) else { break }
+                var start = end
+                while start > symbol.x, (1...points(2)).contains(where: { marked(start - $0) }) { start -= 1 }
+                if end - start >= points(6) { found = (start, end) }
+                right = start - 1
+            }
+            guard let (left, end) = found, end - left <= points(16),
+                  !(max(symbol.x, left - points(24))..<left).contains(where: marked) else {
+                throw VoiceError.message("History's problem note has no × of its own at the right of its row.")
+            }
+        }
         model.dismissError()
         shots.append(try renderHistoryLargerText(to: output))
 
@@ -4468,16 +4511,41 @@ extension SurfacePass {
         return try BugReportMedia.image(try BugReportMedia.encodePNG(context.makeImage()!), scale: 2, sourceLimit: BugReportLimits.importBytes)
     }
 
-    /// Dictate's problem banner with Report a problem… beside it, carrying the problem's code.
+    /// Dictate's problem banner with a kept capture's Retry and Report a problem… beside it, carrying the problem's code.
     func renderDictateProblemDoor(to output: URL) throws -> SurfaceGallery.Shot {
-        let kept = model.page
-        defer { model.dismissError(); model.page = kept }
+        let kept = model.page, keptRetry = model.canRetry
+        defer { model.dismissError(); model.canRetry = keptRetry; model.page = kept }
         model.report("Recording stopped. Original audio was kept for retry. The input device was disconnected.", on: .dictate, code: "dictate.recording_stopped")
+        model.canRetry = true
         let window = homeWindow(size: SurfaceGallery.sizes[1].size)
         defer { window.contentViewController = nil; window.close() }
         let (rep, drawn) = try renderPage("dictate", in: window)
-        return try save(rep, id: "problem-door", title: "Dictate problem with Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
-                        detail: "The same door as Help › Report a Problem…, beside a recoverable problem; it opens the composer with dictate.recording_stopped.",
+        // Retry sits in the banner, the top band of the page, only where the page fills a
+        // Dictate draft. Offscreen SwiftUI exposes no accessibility tree to walk, so the band
+        // is compared with Retry unavailable: Capture recovery and its own Retry lie below it.
+        func banner(_ route: String, retry: Bool) throws -> Data {
+            model.canRetry = retry
+            let (page, _) = try renderPage(route, in: window)
+            guard let bytes = page.bitmapData else { throw VoiceError.message("The \(route) page did not draw.") }
+            return Data(bytes: bytes, count: page.bytesPerRow * page.pixelsHigh * 12 / 100)
+        }
+        // Two renders without Retry bracket the one with it and must match, so a band that
+        // changes by itself reads as that, never as Retry offered or withheld.
+        func offersRetry(_ route: String) throws -> Bool {
+            let before = try banner(route, retry: false), with = try banner(route, retry: true), after = try banner(route, retry: false)
+            guard before == after else {
+                throw VoiceError.message("The \(route) page's top band changes between identical renders, so it cannot show whether Retry is offered.")
+            }
+            return with != after
+        }
+        guard try offersRetry("dictate") else {
+            throw VoiceError.message("The Dictate banner does not offer Retry transcription beside a kept capture's problem.")
+        }
+        guard try !offersRetry("dictionary") else {
+            throw VoiceError.message("Your dictionary's banner offers Retry, which fills a Dictate draft it does not show.")
+        }
+        return try save(rep, id: "problem-door", title: "Dictate problem with Retry transcription and Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
+                        detail: "The kept capture's Retry transcription sits beside the problem that promises it, the same action as Capture recovery's; beside it, the same door as Help › Report a Problem…, which opens the composer with dictate.recording_stopped.",
                         file: "page-dictate-problem-door-\(theme).png", to: output)
     }
 }

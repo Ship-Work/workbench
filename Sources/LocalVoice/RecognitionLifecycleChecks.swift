@@ -90,6 +90,32 @@ enum RecognitionLifecycleChecks {
             }
         }
 
+        // A download that did not finish says so, not that the model failed to load (#15).
+        let stall = DownloadError.stalled(path: "Encoder.mlmodelc/weights/weight.bin", window: 120)
+        let unfinished: [DownloadError] = [stall, .rateLimited(statusCode: 429, message: "Synthetic limit"),
+            .downloadFailed(path: "Synthetic.bin", underlying: NSError(domain: "HTTP", code: 503)),
+            .downloadFailed(path: "Synthetic.bin", underlying: NSError(domain: "HTTP", code: 403)),
+            .invalidResponse, .htmlErrorResponse(path: "", snippet: "<html>"), .invalidArtifact(path: "Synthetic.bin", reason: "size mismatch")]
+        for error in unfinished {
+            let failure = RecognitionFailure.classify(error, acquiring: true)
+            try check(failure.kind == .network && failure.details == error.localizedDescription
+                      && !["could not be prepared", "previous files", "connection"].contains { failure.message.contains($0) },
+                      "an unfinished download says it did not finish, without blaming the model or the connection: \(error.localizedDescription)")
+        }
+        let offline = RecognitionFailure.classify(URLError(.notConnectedToInternet), acquiring: true)
+        try check(offline.kind == .network && offline.message == "The download did not finish. Retry when a connection is available.",
+                  "a connection error keeps its connection text")
+        for error in [DownloadError.modelNotFound(path: "Synthetic.bin") as Error, NSError(domain: "com.apple.CoreML", code: 0)] {
+            try check(RecognitionFailure.classify(error, acquiring: true).kind == .load, "a missing or unloadable model stays a load failure")
+        }
+        let stalledEngine = RecognitionEngine(store: .init(defaults: defaults), services: .init(prepareCached: { _ in throw CheckFailure.expectedRefusal },
+            acquire: { _ in throw stall }, send: { _ in throw CheckFailure.expectedRefusal }))
+        try? await stalledEngine.acquireSelectedModel()
+        let stalled = await stalledEngine.snapshot()
+        try check(stalled.failure?.kind == .network && stalled.line == "The download did not finish. Your saved work is unchanged; try Download again later."
+                  && stalled.admission == .unavailable && !stalled.canTranscribe,
+                  "a stalled Download leaves speech unavailable and says the download did not finish")
+
         let cache = root.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         let sentinel = cache.appendingPathComponent("old-cache")

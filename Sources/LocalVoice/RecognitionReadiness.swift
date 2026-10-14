@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import FluidAudio
 
 /// A value projected from RecognitionEngine; it is not another readiness owner.
 struct RecognitionSnapshot: Equatable, Sendable {
@@ -36,6 +37,19 @@ struct RecognitionFailure: Error, LocalizedError, Equatable, Sendable {
 
     static func classify(_ error: Error, acquiring: Bool) -> RecognitionFailure {
         if let failure = error as? RecognitionFailure { return failure }
+        // FluidAudio's own transfer errors are outside NSURLErrorDomain. A download that
+        // stalled, was refused or came back wrong did not finish: it is not a model that
+        // failed to load, and a first download has no previous files (#15).
+        if let download = error as? DownloadError {
+            switch download {
+            case .rateLimited:
+                return .init(kind: .network, message: "The model host is busy. Try Download again in a few minutes.", details: error.localizedDescription)
+            case .stalled, .downloadFailed, .invalidResponse, .htmlErrorResponse, .invalidArtifact:
+                return .init(kind: .network, message: "The download did not finish. Your saved work is unchanged; try Download again later.", details: error.localizedDescription)
+            case .modelNotFound, .networkDisabled, .modelMissing:
+                break
+            }
+        }
         let value = error as NSError
         if value.domain == NSURLErrorDomain {
             return .init(kind: .network, message: "The download did not finish. Retry when a connection is available.", details: error.localizedDescription)
