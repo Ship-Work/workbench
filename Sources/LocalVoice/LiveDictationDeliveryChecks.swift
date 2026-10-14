@@ -9,7 +9,7 @@ enum LiveDictationDeliveryChecks {
         var eligible = true, settable = true, readable = true
         var failSelection = false, failReplacement = false, mutateThenFail = false
         var mutateBeforeReplacement = false
-        var inputOnSelect = false
+        var inputOnSelect = false, copyFails = false
         var selectCalls = 0, replaceCalls = 0, reads = 0, copies: [String] = [], stops = 0
         var now = 0.0
         var onInput: (() -> Void)?, onCheck: (() -> Void)?
@@ -36,7 +36,7 @@ enum LiveDictationDeliveryChecks {
                   }, observe: { input, check in
                       self.onInput = input; self.onCheck = check
                       return { self.stops += 1; self.onInput = nil; self.onCheck = nil }
-                  }, copy: { self.copies.append($0); return self.copies.count }, now: { self.now })
+                  }, copy: { self.copies.append($0); return self.copyFails ? nil : self.copies.count }, now: { self.now })
         }
         func owner() -> LiveDictationDelivery? { .init(initial: state, destinationName: "Fixture", system: system) }
         func next() { now += 1 }
@@ -80,7 +80,10 @@ enum LiveDictationDeliveryChecks {
         let stopped = movedOwner.finish("Two.", restoreClipboard: true)
         try expect(movedOwner.invalidated && moved.replaceCalls == 1 && !stopped.wasPasted && stopped.pasteWasAttempted,
                    "focus changes permanently stop writes and final paste")
-        try expect(movedOwner.cancel() != nil && moved.state.value == "prefix one suffix", "invalidated cancel never rewrites destination")
+        try expect(moved.copies == ["Two."] && stopped.clipboardChangeCount != nil && stopped.failure == .pasteUnconfirmed,
+                   "a stopped writer copies the words as dictated even when the clipboard would be restored")
+        try expect(movedOwner.cancel() == LiveDictationDelivery.wordsLeftMessage(in: "Fixture") && moved.state.value == "prefix one suffix",
+                   "invalidated cancel never rewrites destination and says the words remain")
 
         let typed = Field(); let typedOwner = typed.owner()!
         typedOwner.preview("spoken"); let spokenState = typed.state
@@ -125,6 +128,30 @@ enum LiveDictationDeliveryChecks {
         let initialChanged = Field(); let captured = initialChanged.state; initialChanged.state.value! += "changed"
         let changedInitialOwner = LiveDictationDelivery(initial: captured, destinationName: "Fixture", system: initialChanged.system)
         try expect(changedInitialOwner?.invalidated == true, "changed captured value remains a stopped owner rather than falling back")
+        // A writer that never wrote leaves nothing uncertain: the words are copied,
+        // as the ⌘V path leaves them when the field changed, and nothing is pasted.
+        func expectCopied(_ field: Field, _ outcome: TextDelivery.Outcome, _ message: String) throws {
+            try expect(field.copies == ["Words."] && outcome.clipboardChangeCount == 1 && !outcome.wasPasted && !outcome.pasteWasAttempted
+                       && outcome.failure == .focusChanged && outcome.message == "Copied. " + TextDelivery.copiedDetail(.focusChanged)
+                       && field.selectCalls == 0 && field.replaceCalls == 0, message)
+        }
+        try expectCopied(initialChanged, changedInitialOwner!.finish("Words.", restoreClipboard: true),
+                         "an owner born stopped copies the final words without touching the field")
+        let interrupted = Field(); let interruptedOwner = interrupted.owner()!
+        interrupted.onInput?()
+        try expectCopied(interrupted, interruptedOwner.finish("Words.", restoreClipboard: true),
+                         "an owner stopped by input before any preview copies the final words without touching the field")
+        let uncopied = Field(); uncopied.copyFails = true; let uncopiedOwner = uncopied.owner()!
+        uncopied.onInput?()
+        let notCopied = uncopiedOwner.finish("Words.", restoreClipboard: true)
+        try expect(notCopied.failure == .copyFailed && notCopied.clipboardChangeCount == nil && notCopied.message.contains("saved in History"),
+                   "a copy that fails after nothing was written says the words are in History")
+        let uncopiedWrite = Field(); uncopiedWrite.copyFails = true; let uncopiedWriteOwner = uncopiedWrite.owner()!
+        uncopiedWriteOwner.preview("one"); uncopiedWrite.onInput?()
+        let stoppedUncopied = uncopiedWriteOwner.finish("One.", restoreClipboard: true)
+        try expect(stoppedUncopied.failure == .pasteUnconfirmed && stoppedUncopied.clipboardChangeCount == nil
+                   && stoppedUncopied.message.contains("saved in History") && !stoppedUncopied.message.contains("copied"),
+                   "a copy that fails after a live write keeps the History wording")
         let badRange = Field("😀", NSRange(location: 1, length: 0))
         try expect(badRange.owner() == nil, "split-surrogate selection is refused")
 

@@ -1047,7 +1047,7 @@ final class DragHandleView: NSView {
 }
 
 /// A dictation's result, revealed from the toolbar's place (#134 T4): the failure that needs
-/// attention, with Retry, Record again or Open Workbench and Dismiss, or the clipboard receipt
+/// attention, with Retry, Record again or Open Dictate… and Dismiss, or the clipboard receipt
 /// with Review, its pin and its dismiss. Each keeps the message and commands it had in the
 /// dictation panel; recording and processing are the toolbar row's own now.
 struct DictationResultView: View {
@@ -1125,9 +1125,9 @@ struct DictationResultView: View {
                     .focused($focused, equals: .openWorkbench).resultAction("Microphone Settings…", controls)
             } else if !model.canRetry || model.hasCaptureRecovery {
                 Button { model.dismissCaptureFailure(); model.onShowEditor?("dictate") } label: {
-                    Text("Open Workbench").font(.system(size: 12)).frame(minHeight: 28)
+                    Text("Open Dictate…").font(.system(size: 12)).frame(minHeight: 28)
                 }.buttonStyle(.bordered)
-                    .focused($focused, equals: .openWorkbench).resultAction("Open Workbench", controls)
+                    .focused($focused, equals: .openWorkbench).resultAction("Open Dictate…", controls)
             }
             Button { model.dismissCaptureFailure() } label: { Image(systemName: "xmark").frame(width: 28, height: 28) }
                 .buttonStyle(.plain).accessibilityLabel("Dismiss dictation error")
