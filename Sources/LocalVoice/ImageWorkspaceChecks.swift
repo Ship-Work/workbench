@@ -368,6 +368,15 @@ enum ImageWorkspaceChecks {
             second?.insertText("Sign up", replacementRange: second?.selectedRange() ?? whole)
             try check(typing.selectedMark?.text == "Sign up" && typing.draft.edit.marks.first { $0.id == firstID }?.text == "Your text",
                       "typing replaces only the new caption")
+            // At the mark limit Text adds nothing, so no request is left to seize a caption selected later.
+            let kept = typing.draft.edit.marks
+            typing.draft.edit.marks += (kept.count..<1_000).map { _ in
+                SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+            }
+            typing.addTextForTyping(); try await settle(preview)
+            try check(typing.draft.edit.marks.count == 1_000 && typing.captionFocusRequest == nil,
+                      "Text refused at the mark limit leaves no caption request behind")
+            typing.draft.edit.marks = kept
         } else { try check(false, "the editor opens for the caption focus checks") }
         preview.approveDiscard = { true }; preview.cancelEditing(); try await settle(preview)
         preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)

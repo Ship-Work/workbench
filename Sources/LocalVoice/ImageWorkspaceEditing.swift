@@ -154,8 +154,9 @@ final class ImageWorkspaceEditing: ObservableObject {
         mutate { $0.marks.append(mark) }; select(mark.id); tool = .select; showingDetails = true
     }
     /// The toolbar's Text: a new box ready to type into. The gallery and checks call addText()
-    /// on its own, so their renders keep an unfocused field.
-    func addTextForTyping() { addText(); captionFocusRequest = UUID() }
+    /// on its own, so their renders keep an unfocused field. A box the mark limit refuses raises
+    /// no request, since no field would appear to clear it.
+    func addTextForTyping() { addText(); if selectedMark?.kind == .text { captionFocusRequest = UUID() } }
     func zoom(_ command: CaptureImagePreviewModel.Command) {
         switch command { case .fit: canvas?.fit(); case .actualSize: canvas?.zoom(to: 1)
         case .zoomIn: canvas?.zoom(to: (canvas?.magnification ?? 1) * 1.25)
