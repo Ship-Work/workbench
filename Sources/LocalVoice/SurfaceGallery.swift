@@ -1030,6 +1030,20 @@ private struct HistoryNativeAcceptanceView: View {
         let modelsShot = try save(models, id: "state-dictating", title: "Models while a dictation records, minimum window, \(Int(modelsSize.width)) × \(Int(modelsSize.height)) pt",
                                   detail: "A recording holds the speech model: the controls wait until it finishes.", file: "page-models-state-dictating-\(theme).png", to: output)
         model.phase = .idle; model.elapsed = 0
+        // Copy build details confirmed under its row, so the buttons and the link above sit where they
+        // do at rest (#338). A private pasteboard and a frozen, silent owner; both are put back after.
+        let updates = WorkbenchUpdates.shared, keptUpdates = (feedback: updates.copyFeedback, write: updates.writeDetails)
+        let board = NSPasteboard.withUniqueName()
+        updates.copyFeedback = TranscriptReviewFeedback(clock: { 0 }, announce: { _ in })
+        updates.writeDetails = { board.clearContents(); return board.setString($0, forType: .string) }
+        updates.copyDetails()
+        let (copied, copiedSize) = try renderPage("settings", in: window)
+        updates.copyFeedback = keptUpdates.feedback; updates.writeDetails = keptUpdates.write; board.releaseGlobally()
+        let copiedShot = try save(copied, id: "state-copied", title: "General after Copy build details, minimum window, \(Int(copiedSize.width)) × \(Int(copiedSize.height)) pt",
+                                  detail: "✓ Copied under Copy build details, in space the card always keeps; the buttons and the link sit where they do at rest.",
+                                  file: "page-settings-state-copied-\(theme).png", to: output)
+        // Leave Settings, so its next render reads the restored owner.
+        model.page = "models"; settle(window.contentView?.superview ?? window.contentView!, seconds: 0.05)
         // General before any dictation: Show me a first dictation sits beside Dictate settings… (#15).
         let before = (history: model.history, guide: model.preferences.firstDictationGuide)
         model.history = []; model.preferences.firstDictationGuide = nil
@@ -1096,7 +1110,7 @@ private struct HistoryNativeAcceptanceView: View {
             throw VoiceError.message("Home kept a failed writing model download in Current work after Text style changed to Light.")
         }
         model.cleanupModels.clearFailure()
-        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [generalShot]), ("dictate", [dictateShot]), ("home", [homeShot, failureShot])]
+        return [("library", [libraryShot]), ("models", [modelsShot, downloadShot]), ("settings", [copiedShot, generalShot]), ("dictate", [dictateShot]), ("home", [homeShot, failureShot])]
     }
 
     // MARK: Read states
@@ -2765,6 +2779,7 @@ private struct HistoryNativeAcceptanceView: View {
         }
         model.dismissError()
         shots.append(try renderHistoryLargerText(to: output))
+        shots += try renderHistoryCopied(to: output)
 
         jobs.cancel()
         try wait("the running task to stop") { !jobs.isBusy }
@@ -2790,6 +2805,51 @@ private struct HistoryNativeAcceptanceView: View {
         return try save(try snapshot(host), id: "state-larger-text", title: "History at 1.35 times the text size, minimum window's content column",
                         detail: "Transcripts drawn 1.35 times larger in the same column: the date line, links and More grow together and nothing clips.",
                         file: "page-history-state-larger-text-\(theme).png", to: output)
+    }
+
+    /// Copy and Copy result confirming beside the control pressed (#338), at standard and 1.35
+    /// times the text size: the newest transcript's row in the minimum window's content column,
+    /// History's narrowest, and an expanded result in a window as narrow. The reserved ✓ Copied
+    /// must leave each action row whole.
+    func renderHistoryCopied(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let column = NSSize(width: SurfaceGallery.sizes[1].size.width - 216, height: SurfaceGallery.sizes[1].size.height)
+        let newest = model.history.max { $0.date < $1.date }?.id
+        var shots: [SurfaceGallery.Shot] = []
+        for (scale, suffix, text) in [(CGFloat(1), "", "standard"), (CGFloat(1.35), "-larger-text", "1.35 times the")] {
+            // Each page takes the door when it appears, so each is given its own.
+            model.historyDoor = HistoryDoor(filter: .transcripts); model.page = "history"
+            // A frozen clock keeps the label for the capture, and nothing is announced.
+            let feedback = TranscriptReviewFeedback(clock: { 0 }, announce: { _ in })
+            feedback.finish("Copied")
+            let page = HistoryView(model: model, snap: snap, copyFeedback: feedback, copied: newest, applySuggestedMetadata: { _, _ in })
+                .frame(width: column.width / scale, height: column.height / scale).scaleEffect(scale, anchor: .topLeading)
+                .frame(width: column.width, height: column.height, alignment: .topLeading)
+                .background(Workbench.background).tint(Workbench.accent).workbenchTheme()
+            let host = NSHostingView(rootView: page)
+            let window = offscreenWindow(size: column, styleMask: [.borderless])
+            window.contentView = host
+            settle(host, seconds: 1)
+            shots.append(try save(try snapshot(host), id: "state-copied\(suffix)", title: "History, a transcript copied, \(text) text size",
+                                  detail: "The newest row's Copy confirms ✓ Copied after More, in space every row keeps; the row's links and trash stay whole.",
+                                  file: "page-history-state-copied\(suffix)-\(theme).png", to: output))
+            window.contentView = nil; window.close()
+
+            let result = HandoffResultPreview(
+                text: "Follow-up for Sam\n\nWe agreed to review the pilot on Friday.\nSam will share the revised notes before the review.",
+                context: "Synthetic follow-up", confirmation: "Copied", copyText: {})
+                .padding(16).frame(width: 620 / scale, alignment: .topLeading).scaleEffect(scale, anchor: .topLeading)
+                .frame(width: 620, height: 260, alignment: .topLeading).workbenchTheme()
+            let preview = NSHostingView(rootView: result)
+            let resultWindow = offscreenWindow(size: NSSize(width: 620, height: 260), styleMask: [.borderless])
+            resultWindow.contentView = preview
+            resultWindow.appearance = NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+            settle(preview)
+            shots.append(try save(snapshot(preview), id: "state-result-copied\(suffix)", title: "History, a result copied, \(text) text size",
+                                  detail: "An expanded result's Copy result confirms ✓ Copied beside it.",
+                                  file: "page-history-state-result-copied\(suffix)-\(theme).png", to: output))
+            resultWindow.contentView = nil; resultWindow.close()
+        }
+        return shots
     }
 
     /// Mount native result actions in an invisible window, as the real History
