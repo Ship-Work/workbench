@@ -217,7 +217,7 @@ enum KeyboardCoachChecks {
         editor.change("stage.pen"); editor.end()
         suspensions = []
         let before = keyboard.revealRequest
-        try check(keyboard.reveal("voice.5") && keyboard.selectedID == "voice.5", "Snap & Talk's Change shortcut… selects Snap & Talk after the panel edited Pen")
+        try check(keyboard.reveal(AppDelegate.keyboardSelection(voice: 5)) && keyboard.selectedID == "voice.5", "Snap & Talk's Change shortcut… selects Snap & Talk after the panel edited Pen")
         try check(keyboard.interaction == .idle && keyboard.message == nil && keyboard.practice == nil && keyboard.revealRequest == before + 1,
                   "a door shows the shortcut idle, without the last visit's message, and asks the list to scroll once")
         try check(suspensions.isEmpty, "showing a shortcut never pauses or resumes global actions")
@@ -228,6 +228,11 @@ enum KeyboardCoachChecks {
         try check(keyboard.reveal("voice.1") && keyboard.selectedID == "voice.1" && keyboard.interaction == .idle,
                   "a door during recording stops it and selects its own shortcut")
         try check(suspensions == [false], "a door during recording resumes global actions exactly once")
+        let failing = AppDelegate.keyboardSelection(failingStage: [("arrow", nil), ("pen", "Used by another app."), ("timer", "Used by another app.")])
+        try check(failing == "stage.pen" && keyboard.reveal(failing!) && keyboard.selectedID == "stage.pen",
+                  "Draw's failure banner selects its first failing action")
+        try check(AppDelegate.keyboardSelection(failingStage: [("arrow", nil), ("pen", nil)]) == nil,
+                  "with no failing Draw key the banner names nothing, so Keyboard keeps its selection")
     }
     /// Dictate, Quick controls, Snap & Talk and Present start on Option keys; an update moves untouched ones once.
     static func checkPresenterFirstVoiceDefaults() throws {

@@ -1563,7 +1563,7 @@ private struct HistoryNativeAcceptanceView: View {
         guard window.attachedSheet != nil else { throw VoiceError.message("Dictate settings did not open again for the keycap check.") }
         let door = model.onEditShortcut
         defer { model.onEditShortcut = door }
-        model.onEditShortcut = { [keyboard = keyboard, model = model] id in keyboard.stopInteraction(); keyboard.reveal("voice.\(id)"); model.page = "shortcuts" }
+        model.onEditShortcut = { [keyboard = keyboard, model = model] id in keyboard.stopInteraction(); keyboard.reveal(AppDelegate.keyboardSelection(voice: id)); model.page = "shortcuts" }
         model.onEditShortcut?(1)
         let left = Date().addingTimeInterval(3)
         repeat { settle(root, seconds: 0.1) } while window.attachedSheet != nil && Date() < left
