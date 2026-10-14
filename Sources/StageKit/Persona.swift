@@ -63,6 +63,7 @@ enum PersonaGeometry {
 
 enum PersonaError: LocalizedError {
     case invalidSettings, changedOnDisk, unreadableImage, outsidePreparedGroup, alreadyAdded, libraryUnavailable
+    case noSavedPersona, emptyGroup
     var errorDescription: String? {
         switch self {
         case .invalidSettings: return "The saved personas contain unsupported or invalid settings. The original files are unchanged."
@@ -71,6 +72,9 @@ enum PersonaError: LocalizedError {
         case .outsidePreparedGroup: return "Choose a persona in the prepared group."
         case .alreadyAdded: return "This persona is already in your library."
         case .libraryUnavailable: return "The saved personas are missing, unreadable or from a newer Workbench. Reopen Workbench before adding a persona."
+        case .noSavedPersona: return "Nothing to show yet. Add a persona first."
+        // The panel line can be seen by others, so it never names the private group.
+        case .emptyGroup: return "This group has no personas yet. Choose its members first."
         }
     }
 }
@@ -1148,7 +1152,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
         let guest = requested.flatMap { id in group.map { $0.personaIDs.contains(id) } == false ? id : nil }
         let candidateIDs = group.map { (guest.map { [$0] } ?? []) + $0.personaIDs } ?? items.map(\.id)
         guard let initialID = (requested ?? selectedID).flatMap({ candidateIDs.contains($0) ? $0 : nil }) ?? candidateIDs.first
-        else { throw PersonaError.unreadableImage }
+        else { throw items.isEmpty ? PersonaError.noSavedPersona : PersonaError.emptyGroup }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         let deck = PersonaCardDeck(candidates: candidateIDs.compactMap { byID[$0] }, root: root,
                                    budget: cardImageBudget, label: publicLabel(for:))
