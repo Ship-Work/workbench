@@ -415,10 +415,10 @@ struct ReadbackView: View {
                         Button("Save image to Library…") { imageResult = onSaveImageToLibrary(preview(section, number: number)) }
                     }
                     Divider()
-                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id) } }.disabled(changing)
+                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id, mode: captureMode) } }.disabled(changing)
                     Button(section.audio == nil ? "Record narration" : "Re-record narration") { model.startNarration(for: section.id) }
                         .disabled(changing || model.microphonePermission != .authorized)
-                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id) } }.disabled(changing)
+                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id, mode: captureMode) } }.disabled(changing)
                     Divider()
                     Button("Move to Recently Deleted") { model.deleteSection(section.id) }.disabled(changing)
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -431,7 +431,8 @@ struct ReadbackView: View {
             }
             if let imageResult { Text(imageResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             if let failure = section.failure { WorkbenchNote(failure) }
-            if section.status == .ready {
+            // One branch keeps the editor's focus when a typed note finishes a section that needs narration.
+            if section.status == .ready || (section.status == .needsNarration && section.audio == nil) {
                 HStack {
                     WorkbenchSectionTitle(section.audio == nil ? "Notes" : "Narration")
                     Spacer()
@@ -456,7 +457,8 @@ struct ReadbackView: View {
                     }
                     if let copyResult { Text(copyResult).font(.caption).foregroundStyle(.secondary) }
                 } else {
-                    Text(section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
+                    Text(section.status == .needsNarration ? "Type notes or record narration to finish this section."
+                         : section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else if section.status == .failed, section.audio != nil {
