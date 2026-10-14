@@ -113,7 +113,7 @@ enum MeetingRecovery {
             for gap in gaps {
                 let end = min(timing.startSeconds + seconds, gap.startSeconds + gap.seconds)
                 guard end > gap.startSeconds else { continue }
-                let note = "\(source.rawValue): \(gap.reason) Gap at \(String(format: "%.2f", gap.startSeconds))s for \(String(format: "%.2f", end - gap.startSeconds))s; the saved timeline includes silence."
+                let note = MeetingGapNote.line(source: source, reason: gap.reason, start: gap.startSeconds, seconds: end - gap.startSeconds)
                 if !result.gaps.contains(note) { result.gaps.append(note) }
             }
             let previous = manifest.tracks.first { $0.source == source }
@@ -280,8 +280,8 @@ struct MeetingProcessor {
             next.formatVersion = 2; next.liveText = text
         }
         if next != manifest { try await persist(next, replacing: manifest); manifest = next }
-        var details = notes(manifest)
-        if !checkpoint.originalsAvailable { details.append("Original audio is missing. This saved text remains available; playback and retranscription are unavailable.") }
+        let details = notes(manifest, adding: checkpoint.originalsAvailable ? []
+            : ["Original audio is missing. This saved text remains available; playback and retranscription are unavailable."])
         if text.isEmpty {
             next = manifest
             next.failure = checkpoint.originalsAvailable ? "No speech was recognised. Original audio was kept in the Meetings folder." : "No speech was recognised. Original audio is unavailable."
@@ -335,7 +335,10 @@ struct MeetingProcessor {
         } catch { return nil }
     }
 
-    private func notes(_ manifest: MeetingManifest) -> [String] { manifest.gaps + MeetingSummary.gaps(for: manifest) }
+    /// Every outcome's notes pass through History's bounds, so a retry can always save.
+    private func notes(_ manifest: MeetingManifest, adding extra: [String] = []) -> [String] {
+        MeetingSummary.historyNotes(manifest.gaps + MeetingSummary.gaps(for: manifest) + extra, appName: manifest.appName)
+    }
     private func check() throws {
         try Task.checkCancellation()
         guard isCurrent() else { throw CancellationError() }

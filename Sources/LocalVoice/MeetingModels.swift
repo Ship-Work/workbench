@@ -554,4 +554,67 @@ enum MeetingSummary {
         }
         return notes
     }
+
+    /// History keeps at most 32 notes of 500 characters, but a long call can pause or reconnect
+    /// hundreds of times, and every retry rebuilt the same refused list. The manifest keeps every
+    /// gap; History gets one line per source with the count and total length, and drops the
+    /// person's own Stop & keep note, which is a choice rather than a limitation.
+    static func historyNotes(_ notes: [String], appName: String?) -> [String] {
+        var lines: [String] = [], gapLines = Set<String>()
+        var gaps: [MeetingTrackSource: (count: Int, seconds: Double, line: Int)] = [:]
+        for note in notes {
+            if let gap = MeetingGapNote.parse(note) {
+                guard gapLines.insert(note).inserted else { continue }
+                if let total = gaps[gap.source] { gaps[gap.source] = (total.count + 1, total.seconds + gap.seconds, total.line) }
+                else { gaps[gap.source] = (1, gap.seconds, lines.count); lines.append("") }
+            } else if note != MeetingModel.keptForLater {
+                lines.append(note)
+            }
+        }
+        for (source, total) in gaps {
+            let name = source == .local ? "Your microphone" : appName.flatMap { $0.isEmpty ? nil : $0 } ?? "The app"
+            let length = MeetingGapNote.length(total.seconds)
+            lines[total.line] = total.count == 1
+                ? "\(name) had one gap (a pause or reconnection) of \(length); the recording keeps it as silence."
+                : "\(name) had \(total.count) gaps (pauses or reconnections), \(length) in all; the recording keeps them as silence."
+        }
+        var kept: [String] = [], seen = Set<String>()
+        for line in lines {
+            let plain = String(String.UnicodeScalarView(line.unicodeScalars.map {
+                CharacterSet.controlCharacters.contains($0) ? " " : $0
+            })).trimmingCharacters(in: .whitespaces)
+            let note = plain.count > 500 ? plain.prefix(499).trimmingCharacters(in: .whitespaces) + "…" : plain
+            guard !note.isEmpty, seen.insert(note).inserted else { continue }
+            kept.append(note)
+        }
+        guard kept.count > 32 else { return kept }
+        return Array(kept.prefix(31)) + ["\(kept.count - 31) more notes about this recording were left out here."]
+    }
+}
+
+/// The manifest's sentence for one gap in a source's saved audio, and its reverse, so History
+/// can summarise gaps without guessing at their wording. Earlier builds wrote the same form.
+enum MeetingGapNote {
+    private static let ending = "s; the saved timeline includes silence."
+
+    static func line(source: MeetingTrackSource, reason: String, start: Double, seconds: Double) -> String {
+        "\(source.rawValue): \(reason) Gap at \(String(format: "%.2f", start))s for \(String(format: "%.2f", seconds))" + ending
+    }
+
+    static func parse(_ line: String) -> (source: MeetingTrackSource, seconds: Double)? {
+        guard line.hasSuffix(ending), let colon = line.firstIndex(of: ":"),
+              let source = MeetingTrackSource(rawValue: String(line[..<colon])),
+              let marker = line.range(of: " Gap at ", options: .backwards), marker.lowerBound > colon else { return nil }
+        let timing = line[marker.upperBound..<line.index(line.endIndex, offsetBy: -ending.count)].components(separatedBy: "s for ")
+        guard timing.count == 2, let start = Double(timing[0]), let seconds = Double(timing[1]),
+              start.isFinite, seconds.isFinite, seconds >= 0 else { return nil }
+        return (source, seconds)
+    }
+
+    static func length(_ seconds: Double) -> String {
+        let whole = Int(seconds.rounded())
+        if whole < 1 { return "under a second" }
+        if whole < 60 { return "\(whole) s" }
+        return whole % 60 == 0 ? "\(whole / 60) min" : "\(whole / 60) min \(whole % 60) s"
+    }
 }

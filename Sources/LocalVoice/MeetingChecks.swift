@@ -353,6 +353,7 @@ enum MeetingChecks {
 
         try await recordingReviewChecks(root: root, expect: expect)
         try await phaseRecoveryChecks(root: root.appendingPathComponent("phase-recovery"), expect: expect)
+        try await captureNoteChecks(root: root.appendingPathComponent("capture-notes"), expect: expect)
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
@@ -1168,6 +1169,103 @@ enum MeetingChecks {
                    "only the documented Core Audio permission constant offers permission settings; arbitrary codes stay unknown")
         }
         await model.prepareForShutdown(); await audioModel.prepareForShutdown(); await admissionModel.prepareForShutdown()
+    }
+
+    /// Pauses and reconnections can outnumber History's 32 notes. Every outcome still saves
+    /// through the real History stores, and the manifest keeps every gap. Synthetic audio and words.
+    private static func captureNoteChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        try MeetingStore.createPrivateDirectory(root)
+        let gapLines = (0..<20).flatMap { index in
+            [MeetingTrackSource.local, .remote].map {
+                MeetingGapNote.line(source: $0, reason: "Resuming the selected audio sources.", start: Double(index * 30 + 2), seconds: 3)
+            }
+        }
+        let crash = "Workbench stopped before this recording finished. Saved audio was recovered; the final in-memory audio buffer may be missing."
+        let quiet = "Your microphone stayed quiet for the whole recording."
+        let long = String(repeating: "A synthetic limitation. ", count: 28) + "\nAfter a line break."
+        let raw = gapLines + [MeetingModel.keptForLater, crash, quiet, long]
+        do {
+            _ = try TranscriptMetadata(purpose: .meeting, captureNotes: raw).validated()
+            throw MeetingError.message("Raw per-gap notes were accepted")
+        } catch let refusal as WorkbenchHistoryError {
+            try expect(refusal == .invalid("too many capture notes"), "History refuses a long call's raw per-gap notes")
+        }
+        let projected = MeetingSummary.historyNotes(raw, appName: "Synthetic Call")
+        try expect((try? TranscriptMetadata(purpose: .meeting, captureNotes: projected).validated()) != nil && projected.count == 5
+                   && projected[4].count == 500 && projected[4].hasSuffix("…") && !projected[4].contains("\n"),
+                   "projected notes pass History's bounds, with a long note clamped to one line")
+        try expect(projected[0] == "Your microphone had 20 gaps (pauses or reconnections), 1 min in all; the recording keeps them as silence."
+                   && projected[1].hasPrefix("Synthetic Call had 20 gaps") && projected[2] == crash && projected[3] == quiet
+                   && !projected.contains { $0.contains("cancelled") || $0.contains("local:") || $0.contains("remote:") },
+                   "gaps fold into a count and length per named source, keeping real limitations without the Stop & keep note")
+        try expect(MeetingSummary.historyNotes([gapLines[1], gapLines[1]], appName: nil)
+                   == ["The app had one gap (a pause or reconnection) of 3 s; the recording keeps it as silence."]
+                   && MeetingGapNote.parse(crash) == nil && MeetingGapNote.parse(gapLines[0])?.source == .local,
+                   "a repeated gap counts once, and only the shared gap form is read as a gap")
+        let many = (1...40).map { "Synthetic note \($0)." }
+        let capped = MeetingSummary.historyNotes(many + many, appName: nil)
+        try expect(capped.count == 32 && capped.last == "9 more notes about this recording were left out here."
+                   && (try? TranscriptMetadata(purpose: .meeting, captureNotes: capped).validated()) != nil
+                   && MeetingSummary.historyNotes(capped, appName: nil) == capped,
+                   "more than 32 distinct notes end with one fold line, and projecting again changes nothing")
+
+        // The production writer (AppModel.retainMeetingTranscript): details first, and refused details throw.
+        let historyStore = StateStore(directory: root.appendingPathComponent("History"))
+        let details = WorkbenchHistoryModel(directory: root.appendingPathComponent("History"))
+        let sessions = root.appendingPathComponent("Sessions")
+        try MeetingStore.createPrivateDirectory(sessions)
+        var recognized = 0
+        let model = MeetingModel(directory: sessions, defaults: UserDefaults(suiteName: root.appendingPathComponent("Preferences").path)!,
+            processSource: ProcessFixture(), transcribe: { file in
+                recognized += 1
+                return file.lastPathComponent.hasPrefix("you-") ? "Synthetic local words" : "Synthetic call words"
+            }, microphonePermission: { false }, captureFactory: { CaptureFixture() }, microphoneStatus: { .denied })
+        model.saveTranscript = { [unowned model] item, purpose in
+            details.setMetadata(.init(purpose: purpose == "call" ? .call : .meeting, captureNotes: model.pendingTranscriptNotes), for: item.id)
+            if let error = details.error { throw MeetingError.message(error) }
+            var state = try historyStore.load(); state.history.append(item); try historyStore.save(state)
+        }
+        model.loadSavedTranscript = { id in
+            guard let item = try historyStore.load().history.first(where: { $0.id == id }) else { return nil }
+            return (item, try details.store.load().transcripts.first(where: { $0.id == id })?.metadata.captureNotes ?? [])
+        }
+        func savedNotes(_ id: UUID) throws -> [String] {
+            try details.store.load().transcripts.first(where: { $0.id == id })?.metadata.captureNotes ?? []
+        }
+
+        var meeting = manifest(); meeting.appName = "Synthetic Call"
+        let session = try MeetingStore.create(root: sessions, manifest: meeting)
+        let local = try audio(source: .local, seconds: 1, rate: 16_000, value: 0.2, offset: 0, session: session)
+        let remote = try audio(source: .remote, seconds: 1, rate: 16_000, value: 0.3, offset: 0, session: session)
+        var stopped = meeting; stopped.tracks = [local, remote]; stopped.seconds = 1
+        stopped.gaps = gapLines + [MeetingModel.keptForLater]
+        try MeetingStore.save(stopped, at: session, replacing: meeting)
+        await model.retry(try MeetingRecovery.inspect(session: session))
+        let notes = try savedNotes(meeting.id)
+        try expect(model.completedTranscriptID == meeting.id && details.error == nil && recognized > 0
+                   && (try historyStore.load().history.contains { $0.id == meeting.id }),
+                   "a recording with 40 gaps transcribes and saves to History from Kept for later")
+        try expect(notes.count <= 32 && notes == model.pendingTranscriptNotes && notes.contains { $0.hasPrefix("Synthetic Call had 20 gaps") }
+                   && !notes.contains { $0.contains("cancelled") } && (try MeetingStore.load(from: session).gaps.count) == 41,
+                   "History gets the folded notes while the recording keeps all 41 of its own")
+
+        var missing = manifest(state: .recognized); missing.appName = "Synthetic Call"; missing.seconds = 600.1
+        missing.tracks = [.init(source: .remote, file: "tracks/remote.caf", startSeconds: 10, seconds: 590.1,
+                                sampleRate: 16_000, peak: 0.2, droppedSeconds: 0)]
+        missing.segments = MeetingSegmentPlan.plan(totalSeconds: 600.1).map {
+            .init(index: $0.index, file: MeetingSegmentPlan.filename(index: $0.index), startSeconds: $0.start,
+                  seconds: $0.seconds, bytes: $0.bytes, text: $0.index == 0 ? "Complete mixed wording" : "")
+        }
+        missing.gaps = gapLines + [MeetingModel.keptForLater]
+        let missingSession = try MeetingStore.create(root: sessions, manifest: missing)
+        let before = recognized
+        await model.retry(try MeetingRecovery.inspect(session: missingSession))
+        let missingNotes = try savedNotes(missing.id)
+        try expect(model.completedTranscriptID == missing.id && details.error == nil && recognized == before
+                   && missingNotes.count <= 32 && missingNotes.contains { $0.hasPrefix("Original audio is missing") }
+                   && missingNotes.contains { $0.hasPrefix("Synthetic Call had 20 gaps") } && (try MeetingStore.load(from: missingSession).gaps.count) == 41,
+                   "saved words with missing originals also save with bounded notes")
+        await model.prepareForShutdown()
     }
 
     private static func waitUntil(_ condition: () -> Bool) async {

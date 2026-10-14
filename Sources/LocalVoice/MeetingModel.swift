@@ -80,7 +80,7 @@ final class MeetingModel: ObservableObject {
     var onStateChange: (() -> Void)?
 
     static let detectionKey = "workbench.meeting.detect.v1"
-    static let keptForLater = "Recording was cancelled. Original audio was kept."
+    nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
     /// The one refusal whose fix is in System Settings, so the page can offer it beside this message only.
     static let microphoneRefused = MeetingProblem.microphoneDenied.message
     static let disabledAppsKey = "workbench.meeting.disabled-apps.v1"

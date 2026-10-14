@@ -434,7 +434,7 @@ final class MeetingTrackRecorder: @unchecked Sendable {
 
     var gaps: [String] {
         lock.lock(); defer { lock.unlock() }
-        var notes = savedGaps.map { "\(source.rawValue): \($0.reason) Gap at \(String(format: "%.2f", $0.startSeconds))s for \(String(format: "%.2f", $0.seconds))s; the saved timeline includes silence." }
+        var notes = savedGaps.map { MeetingGapNote.line(source: source, reason: $0.reason, start: $0.startSeconds, seconds: $0.seconds) }
         if previewOmitted { notes.append("Live preview could not keep up; the original audio was preserved for transcription.") }
         return notes
     }
