@@ -30,7 +30,7 @@ Parakeet v2 remains the model. The adapter requests a provisional update after r
 
 The selected model is reserved until capture and its last live request finish. The loopback server remains a file-transcription option and does not silently switch to Parakeet. A live processing backlog, missing word timings, callback overflow or failed checkpoint write leaves completion false and retains the original audio. Meetings checks journal identity and each source's saved duration before skipping batch recognition. An incomplete live journal is supporting recovery data, never a complete History result.
 
-Pause and route gaps retain real elapsed time. The source writer records structured gap intervals and pads the corresponding original track with silence; it does not compress later speech across a missing interval. Device changes attempt to rebind the same authorized app and microphone. An unavailable source has a bounded recovery period before capture stops with retained audio and an explanation. This cannot recover speech that never reached the Mac or arrived while a device was unavailable.
+Pause and route gaps retain real elapsed time. The source writer records structured gap intervals and pads the corresponding original track with silence; it does not compress later speech across a missing interval. Device changes attempt to rebind the same authorized app and microphone. An unavailable source has a bounded recovery period before capture stops with retained audio and an explanation; a meeting also saves the words heard with the interruption noted. This cannot recover speech that never reached the Mac or arrived while a device was unavailable.
 
 ## Acceptance
 

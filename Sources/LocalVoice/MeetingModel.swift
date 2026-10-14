@@ -80,7 +80,7 @@ final class MeetingModel: ObservableObject {
     var onStateChange: (() -> Void)?
 
     static let detectionKey = "workbench.meeting.detect.v1"
-    static let keptForLater = "Recording was cancelled. Original audio was kept."
+    nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
     /// The one refusal whose fix is in System Settings, so the page can offer it beside this message only.
     static let microphoneRefused = MeetingProblem.microphoneDenied.message
     static let disabledAppsKey = "workbench.meeting.disabled-apps.v1"
@@ -242,6 +242,13 @@ final class MeetingModel: ObservableObject {
             else { appEnumeration = .failed(issue.message) }
         }
         refreshAdmission()
+    }
+
+    /// Returning to Workbench rereads the audio apps (CoreAudio metadata only, no permission or
+    /// capture) so the picker and Ready to record match what is running now.
+    func refreshSourcesOnReturn() {
+        guard !isBusy, !shuttingDown else { refreshAdmission(); return }
+        refreshApps()
     }
 
     func start(expectedApp: MeetingAudioApp? = nil) async {
@@ -632,7 +639,7 @@ final class MeetingModel: ObservableObject {
                 else if let message = capture.recoveryMessage {
                     self.voiceSession.phase = .reconnecting; self.voiceSession.message = message
                 } else if self.voiceSession.phase == .reconnecting { self.voiceSession.phase = .listening; self.voiceSession.message = nil }
-                var reason = capture.stopReason
+                var reason = capture.stopReason, lowDisk = false
                 if self.elapsed >= MeetingSegmentPlan.maximumMeetingSeconds { reason = "The two-hour recording limit was reached." }
                 ticks += 1
                 if ticks % 4 == 0, let app = self.recordingApp {
@@ -644,9 +651,12 @@ final class MeetingModel: ObservableObject {
                     let root = self.directory
                     let bytes = try? await MeetingFileWork.run { MeetingDiskBudget.availableBytes(at: root) }
                     guard self.generation == token, self.isRecording else { return }
-                    if let bytes, bytes < MeetingDiskBudget.stopFloorBytes { reason = "Recording stopped because disk space is running low." }
+                    if let bytes, bytes < MeetingDiskBudget.stopFloorBytes { reason = "Recording stopped because disk space is running low."; lowDisk = true }
                 }
-                if let reason { await self.finishCapture(process: false, reason: reason); return }
+                // A meeting that ends itself (the time limit, a source that could not reconnect, microphone
+                // access removed) finishes like Finish meeting, with the reason as a note. Low disk keeps
+                // the recording for later, and if processing fails it falls back to Kept for later as before.
+                if let reason { await self.finishCapture(process: !lowDisk, reason: reason); return }
                 if self.autoFinishSeconds == 0 {
                     await self.finishCapture(process: true); return
                 }
