@@ -127,7 +127,7 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
         }
         #endif
     }
-    /// Copy build details' four-second “Copied”, beside the Settings button; from the app menu,
+    /// Copy build details' four-second “Copied”, under the Settings button's row; from the app menu,
     /// VoiceOver hears it, or why the copy failed. Checks give it their own clock.
     var copyFeedback = TranscriptReviewFeedback()
     /// Where the details go. Checks write to a private pasteboard, or refuse.
