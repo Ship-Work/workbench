@@ -44,7 +44,7 @@ extension FloatingToolbar {
         }
         if model.phase == .idle, model.captureFailure != nil {
             if model.canRetry { command(model.retryCaptureLabel, id: "dictate.retry", .dictate, identity: model.retryCaptureLabel) { model.retryTranscription() } }
-            if model.canRecordAgain { command("Record again", id: "dictate.record-again", .dictate) { model.recordAgain() } }
+            if model.canRecordAgain { command("Record again", id: "dictate.record-again", .dictate) { model.recordAgain(target: controls.dictationTarget) } }
             command("Dismiss message", id: "dictate.dismiss", .dictate) { model.dismissCaptureFailure() }
         }
         if model.hasCaptureRecovery { command("Review recordings", id: "dictate.review", .dictate) { model.onShowEditor?("dictate") } }

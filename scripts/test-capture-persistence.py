@@ -103,6 +103,21 @@ shell = SwiftFile(PROJECT / 'Sources/LocalVoice/main.swift').type('AppDelegate')
 assert re.search(r'stage\.onBeginActivity\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.beginStageActivity\(\)\s*\}',
                  shell.select(['applicationDidFinishLaunching'])[0].code), 'Stage starts use the tested shell callback'
 stage_start = shell.extract(['beginStageActivity'])
+# Record again gives one result from every door (#337): the failure card and the chooser pass the
+# field the toolbar's own start reads, so a new door that drops it fails here. The gallery drives
+# the start-only guard with its own supplier.
+record_again_sites = []
+for source in sorted((PROJECT / 'Sources/LocalVoice').glob('*.swift')):
+    if source.name in ('AppModel.swift', 'SurfaceGallery.swift'):
+        continue
+    for number, line in enumerate(source.read_text().splitlines(), 1):
+        for call in re.findall(r'\brecordAgain\([^)]*\)', line):
+            record_again_sites.append((source.name, number, call))
+assert len(record_again_sites) >= 2, record_again_sites
+record_again_dropped = [site for site in record_again_sites if site[2] != 'recordAgain(target: controls.dictationTarget)']
+assert not record_again_dropped, f'Record again without the toolbar\'s field: {record_again_dropped}'
+assert re.search(r'controls\.dictationTarget\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.targetForDictation\(\)\s*\}',
+                 (PROJECT / 'Sources/LocalVoice/CapturePanel.swift').read_text()), 'the toolbar host supplies its own start\'s field'
 
 fixture = r'''
 import AppKit
@@ -1254,6 +1269,26 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         busyOpen.openTranscript(saved)
         try check(busyOpen.page == "dictate" && busyOpen.pendingTranscript?.id == saved.id && busyOpen.transcript == "Old draft" && busyOpen.attention == nil,
                   "Open goes ahead once Dictate is idle, behind Keep or Replace, and History's wait goes")
+
+        // Record again from the failure card or the chooser delivers where the toolbar's own start
+        // does (#337). The field is read once the start-only guard (#211) admits the start, so the
+        // admission and the destination see it; a refused start never reads it.
+        let fieldAgain = CaptureHarness(directory: folder("record-again-field"))
+        var admittedTarget: String?
+        fieldAgain.microphoneStartFailure = { admittedTarget = $0?.name; return nil }
+        fieldAgain.destination = nil
+        fieldAgain.recordAgain(target: { "Field fixture" })
+        try check(fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture" && admittedTarget == "Field fixture",
+                  "Record again starts toward the field the toolbar reads: \(String(describing: fieldAgain.destination?.name))")
+        var fieldReads = 0
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while requesting neither reads the field nor changes the request")
+        try fieldAgain.recorderStarted(audio: 2, peak: -20, wav: wav)
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .recording && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while recording neither reads the field nor stops the recording")
+        fieldAgain.cancelCurrentCapture()
 
         print("CAPTURE_PERSISTENCE_CHECKS_OK: \(assertions) checks; exact AppModel capture methods, real recovery files, synthetic audio, injected recognition/delivery/state writes")
     }

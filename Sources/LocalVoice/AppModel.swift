@@ -318,9 +318,11 @@ final class AppModel: NSObject, ObservableObject {
     /// Record again, from a failure's own controls or More: only ever a start. They were drawn, or
     /// More was built, while nothing ran, so a recording begun since, by the shortcut say, is left
     /// alone rather than cancelled or stopped by the toggle, as Home's Quick start does (#211).
-    func recordAgain() {
+    /// `target` gives the field the toolbar's own start delivers to (#337). It is read only after
+    /// that guard, so a stale press neither starts nor moves the keyboard.
+    func recordAgain(target: () -> TextDelivery.Target? = { nil }) {
         guard phase == .idle else { return }
-        toggleRecording()
+        toggleRecording(target: target())
     }
     /// `time` is the key event's own timestamp (NSEvent or Carbon), in
     /// seconds since the Mac started. A hold is timed from the press that

@@ -3866,13 +3866,19 @@ private struct HistoryNativeAcceptanceView: View {
         // a recording began, by the shortcut say, it leaves that recording alone. A recording begins
         // with its microphone request, which the plain toggle would cancel, then records, which it
         // would stop; the gallery's recording has no recorder, so the request is the telling case.
+        // Nor does it read the field, which would hand the keyboard back (#337).
+        var fieldReads = 0
+        let dictationTarget = controls.dictationTarget
+        controls.dictationTarget = { fieldReads += 1; return nil }
         for phase in [AppModel.Phase.requesting, .recording] {
             model.phase = phase
-            model.recordAgain()
+            model.recordAgain(target: controls.dictationTarget)
             expect("Record again chosen once a recording has begun, \(phase.rawValue)", [
-                model.phase == phase ? nil : "Record again turned the \(phase.rawValue) into \(model.phase.rawValue)"])
+                model.phase == phase ? nil : "Record again turned the \(phase.rawValue) into \(model.phase.rawValue)",
+                fieldReads == 0 ? nil : "Record again read the field for a start it refused"])
             model.phase = .idle
         }
+        controls.dictationTarget = dictationTarget
         settle(.resting)
         // The coaching card beside the compact mark (#134 T5).
         let coach = model.coach
