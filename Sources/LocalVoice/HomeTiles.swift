@@ -73,7 +73,8 @@ struct HomeMeetingTile: View {
     @ObservedObject var library: WorkbenchHistoryModel
     @ObservedObject var jobs: HandoffJobsModel
     var prepareFollowUp: (UUID) -> Void
-    @State private var copied: UUID?
+    /// Copy transcript's four-second confirmation, on the owner Meetings' Copy transcript uses.
+    @StateObject private var copyFeedback = TranscriptReviewFeedback()
     /// A copy failure, kept with the meeting it was for.
     @State private var copyProblem: (id: UUID, message: String)?
     /// Meetings picked from History only when History or its details change, never on a level or
@@ -158,12 +159,14 @@ struct HomeMeetingTile: View {
                     .accessibilityIdentifier("home.meeting.followup")
             }
             Spacer(minLength: 4)
-            if copied == last.id {
-                WorkbenchStatusBadge(text: "Copied transcript", tone: .done).transition(.opacity)
-            }
         }.controlSize(.small)
+            // A confirmation belongs to the meeting it copied.
+            .onChange(of: last.id) { copyFeedback.finish(nil) }
+        // Confirmed under its control, in space kept for it, as Meetings does (Fit rule 7).
         if let copyProblem, copyProblem.id == last.id {
             WorkbenchNote(copyProblem.message, font: .caption)
+        } else {
+            ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied transcript"]).font(.caption)
         }
     }
 
@@ -185,15 +188,10 @@ struct HomeMeetingTile: View {
     static func stamp(_ date: Date) -> String { date.formatted(date: .abbreviated, time: .shortened) }
 
     /// History's complete current record, through the copy Meetings uses. A success is confirmed
-    /// beside the button for four seconds; a failure stays until the next try.
+    /// under the buttons for four seconds, as Meetings does; a failure stays until the next try.
     private func copy(_ id: UUID) {
         copyProblem = model.copyMeetingTranscript(id).map { (id, $0) }
-        guard copyProblem == nil else { return }
-        withAnimation { copied = id }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            if copied == id { withAnimation { copied = nil } }
-        }
+        copyFeedback.finish(copyProblem == nil ? "Copied transcript" : nil)
     }
 }
 

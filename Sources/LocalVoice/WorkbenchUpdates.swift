@@ -127,9 +127,17 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
         }
         #endif
     }
-    func copyDetails() {
+    /// Copy build details' four-second “Copied”, beside the Settings button; from the app menu,
+    /// VoiceOver hears it. Checks give it their own clock.
+    var copyFeedback = TranscriptReviewFeedback()
+    /// Where the details go. Checks write to a private pasteboard, or refuse.
+    var writeDetails: (String) -> Bool = { details in
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(build.details, forType: .string)
+        return NSPasteboard.general.setString(details, forType: .string)
+    }
+    func copyDetails() {
+        if writeDetails(build.details) { copyFeedback.finish("Copied") }
+        else { copyFeedback.finish(nil, problem: "Build details could not be copied. Try again.") }
     }
     var panelTitle: String {
         if !build.released { return "Update · Local Build" }
@@ -258,6 +266,7 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
 
 struct WorkbenchUpdateSettings: View {
     @ObservedObject private var updates = WorkbenchUpdates.shared
+    @ObservedObject private var copyFeedback = WorkbenchUpdates.shared.copyFeedback
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(updates.build.label)
@@ -275,9 +284,11 @@ struct WorkbenchUpdateSettings: View {
             HStack {
                 Button(updates.buttonTitle) { updates.checkForUpdates() }.disabled(!updates.canCheck)
                 Button("Copy build details") { updates.copyDetails() }
+                ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"])
                 Button("Release notes and downloads") { NSWorkspace.shared.open(URL(string: "https://github.com/Ship-Work/workbench/releases")!) }
                     .buttonStyle(.workbenchLink)
             }
+            if let problem = copyFeedback.problem { WorkbenchNote(problem, font: .caption) }
         }
     }
 }

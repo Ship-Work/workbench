@@ -19,24 +19,37 @@ struct TranscriptReview: Identifiable {
 
 /// Feedback belongs to this review visit. Success is brief; a failed copy or
 /// export remains here until another explicit attempt succeeds or review ends.
+/// Copy build details, Copy permission details and Home's Copy transcript
+/// confirm through the same owner.
 @MainActor
 final class TranscriptReviewFeedback: ObservableObject {
     @Published private(set) var confirmation: LocalConfirmation<String>?
     @Published private(set) var problem: String?
-    private let expiry = NoticeExpiry()
+    private let clock: MonotonicClock
+    private let announce: @MainActor (String) -> Void
+    private let expiry: NoticeExpiry
+
+    init(clock: @escaping MonotonicClock = Monotonic.now, announce: @escaping @MainActor (String) -> Void = { FeedbackAnnouncement.post($0) }) {
+        self.clock = clock; self.announce = announce
+        expiry = NoticeExpiry(clock: clock)
+    }
 
     func finish(_ success: String?, problem: String? = nil) {
         expiry.cancel()
         self.problem = problem
         guard let success else { confirmation = nil; return }
-        let confirmation = LocalConfirmation(success, at: Monotonic.now())
+        let confirmation = LocalConfirmation(success, at: clock())
         self.confirmation = confirmation
-        expiry.schedule(confirmation.lifetime) { [weak self] event in
-            guard self?.confirmation?.lifetime.event == event else { return }
-            self?.confirmation = nil
-        }
-        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
-                             userInfo: [.announcement: success, .priority: NSAccessibilityPriorityLevel.low.rawValue])
+        expiry.schedule(confirmation.lifetime) { [weak self] event in self?.expire(event) }
+        // The label goes after four seconds; VoiceOver still hears what happened.
+        announce(success)
+    }
+
+    /// Ends the confirmation only if it is still this one and it is due.
+    func expire(_ event: UUID) {
+        guard let confirmation, confirmation.lifetime.event == event else { return }
+        if confirmation.lifetime.isDue(at: clock()) { self.confirmation = nil }
+        else { expiry.schedule(confirmation.lifetime) { [weak self] event in self?.expire(event) } }
     }
 }
 
