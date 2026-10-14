@@ -112,9 +112,11 @@ test('install and update copy matches what the app does, on the home page and in
   };
   const feedPreview = { ...preview, feed_url: 'https://workbench-mac.vercel.app/updates/preview.xml', feed_sha256: 'c'.repeat(64) };
   const forbidden = ['Signed by Apple', 'about a minute', 'minute away', 'in a minute', 'compact links',
-    'when you open a session', 'In Preview:', '{{'];
+    'when you open a session', 'In Preview:', 'Everything else works without it', '{{'];
   const required = {
-    index: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder', 'Request capture access'],
+    // Snap & Talk narration is transcribed by the same speech model as Dictate and Meetings.
+    index: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder', 'Request capture access',
+      'Snap &amp; Talk narration turn speech into text'],
     guide: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder']
   };
   for (const record of [production, feedPreview]) {
@@ -122,9 +124,10 @@ test('install and update copy matches what the app does, on the home page and in
       const result = renderPublishedRelease(html, record);
       for (const phrase of forbidden) assert.ok(!result.includes(phrase), `${name} (${record.tag}) still says ${phrase}`);
       for (const phrase of required[name]) assert.ok(result.includes(phrase), `${name} (${record.tag}) lacks ${phrase}`);
-      // 2.4.1 still has the old heading, so the only mention is the one that names that version.
-      const old = [...result.matchAll(/Workbench updates/g)].map(match => result.slice(match.index, match.index + 30));
-      assert.ok(old.every(text => text.includes('in 2.4.1')), `${name} (${record.tag}) names the old heading without its version`);
+      // 2.3.0 through 2.4.1 have the old heading (2.4.0 and 2.4.1 are on the production feed),
+      // so the only mention is the one that names every version before 2.5.0.
+      const old = [...result.matchAll(/Workbench updates/g)].map(match => result.slice(match.index, match.index + 32));
+      assert.ok(old.every(text => text.includes('before 2.5.0')), `${name} (${record.tag}) names the old heading without its versions`);
     }
   }
   assert.ok(renderPublishedRelease(pages.index, preview).includes('no automatic updater'));
