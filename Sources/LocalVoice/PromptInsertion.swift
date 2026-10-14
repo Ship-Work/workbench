@@ -14,7 +14,8 @@ struct PromptInsertionPlan {
         expectedValue = value; self.selection = selection; remaining = text[...]
     }
     /// Two Characters first, to learn that the field takes confirmed writes, then doubling to
-    /// at most 256: a long prompt lands in about a second, and every write is still confirmed.
+    /// at most 256, and every write is still confirmed. With the 45 ms confirmation, a 2,000-Character
+    /// prompt lands in about a second; one at the 50,000-Character limit takes 202 writes, about ten seconds.
     /// The exponent stops at 7, so the size cannot overflow on a 50,000-Character prompt.
     var nextChunk: String { String(remaining.prefix(confirmedWrites == 0 ? 2 : 2 << min(confirmedWrites, 7))) }
     mutating func acknowledge(_ chunk: String) {

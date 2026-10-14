@@ -7,9 +7,9 @@ Branch `claude/install-update-report-prompts`, based on `main` at `edc15df`. Ref
 1. **Site, guide and README (#287).**
    - The trust strip says *Notarized by Apple*, and no page promises setup in a minute.
    - A first install goes Finder › Go › Home into the Applications folder there. A replacement stays in the same Applications folder, including /Applications.
-   - Dictate and Meetings offer the one-time ~450 MB speech download.
+   - Dictate, Meetings and Snap & Talk narration use the one-time ~450 MB speech download; everything else works without it.
    - Snap & Talk asks for access when you choose *Request capture access*.
-   - Updates point to the sidebar's *Update to* and to Settings › General › Updates. The old heading is named only as the 2.4.1 location.
+   - Updates point to the sidebar's *Update to* and to Settings › General › Updates. The old *Settings → Workbench updates* heading is named as the place to update before 2.5.0.
    - The guide describes the current Home and drops the *In Preview* labels on History review and Resources. Its update help reads quit, move, reopen, retry.
    - The signed feed notes (`site/updates/*.xml`) are untouched.
 2. **Update failures (#287).** A copy running from Downloads or a read-only location says to quit, move it into Applications, open that copy and check again. A cancelled installer authorization says *Update not installed* and that nothing changed. Sparkle's raw `SUSparkleErrorDomain error 4007` no longer shows. A connection or certificate cause nested inside Sparkle's download error gets one sentence each. Anything else keeps its description and recovery suggestion.
@@ -58,6 +58,10 @@ Each check below passed on this branch. "Fails on main" says how the new asserti
 ## Independent review
 
 One finding, P1, fixed. The first sizing, `min(256, 2 << confirmedWrites)`, kept shifting after the size reached 256. At the 63rd write `2 << 62` is `Int.min`, so any prompt longer than 14,334 Characters stopped Workbench partway through insertion. The exponent now stops at 7. A new check inserts a prompt at the Library's 50,000-Character limit, which traps on the old expression and passes now.
+
+## Integration review
+
+A cross-stream review of the integrated branch found three copy slips, all fixed in `2aaba1d`: the home page now says Snap & Talk narration also needs the speech model; the Prompts contract no longer promises a long prompt in about a second (a 50,000-Character prompt takes 202 checked writes); and the old update heading is named for every version before 2.5.0, not only 2.4.1.
 
 ## Not verified natively
 
