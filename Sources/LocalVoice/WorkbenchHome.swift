@@ -714,7 +714,7 @@ struct WorkbenchHomePage: View {
             WorkbenchSectionTitle("Current work")
             // Active input. Stop only stops: a click that lands after the recording ended starts nothing.
             if model.phase == .recording {
-                liveRow("Dictating · " + time(model.elapsed), "record.circle.fill", recording: true) { Button("Stop") { model.stopRecording() } }
+                liveRow("Dictating · " + time(model.elapsed), "record.circle.fill", recording: true) { Button("Finish dictation") { model.stopRecording() } }
             }
             if readback.isRecording {
                 liveRow("Narrating · " + time(readback.recordingElapsed), "record.circle.fill", recording: true) { Button("Stop narration") { readback.stopNarration() } }
@@ -840,12 +840,13 @@ struct WorkbenchHomePage: View {
             Text("Record a thought, then copy your words into any app.").foregroundStyle(.secondary)
             if !model.ready && ![.requesting, .recording].contains(model.phase) { engineBanner } else {
                 HStack(spacing: 16) {
+                    // The toolbar's and Dictate's names, spoken as shown (#357).
+                    let dictationTitle = model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Finish dictation" : "Start dictating"
                     Button { model.toggleRecording() } label: {
-                        Label(model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Stop" : "Start dictating",
-                              systemImage: model.phase == .requesting ? "xmark" : model.phase == .recording ? "stop.fill" : "mic.fill")
+                        Label(dictationTitle, systemImage: model.phase == .requesting ? "xmark" : model.phase == .recording ? "stop.fill" : "mic.fill")
                     }.buttonStyle(.borderedProminent).controlSize(.large)
                         .disabled(![.idle, .requesting, .recording].contains(model.phase) || readback.blocksDictation)
-                        .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Stop recording" : "Start recording")
+                        .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : dictationTitle)
                     if model.phase == .recording {
                         WaveBars(level: model.level).frame(width: 100, height: 22)
                         Text(time(model.elapsed)).monospacedDigit()

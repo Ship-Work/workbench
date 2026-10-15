@@ -1661,11 +1661,11 @@
     "note": "Option: a door on Home to History, shown once right after the first dictation so its result can be found again; it opens History on Transcripts, where that dictation is newest (#15). Same words as the recent transcript's Open in Dictate."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-690989861a19",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-424786ff12f9",
     "surface": "window home",
     "label": null,
-    "expression": "model . phase == . requesting ? \"Cancel\" : model . phase == . recording ? \"Stop\" : \"Start dictating\"",
-    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9).",
+    "expression": "dictationTitle",
+    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9): Start dictating, Finish dictation or Cancel, the toolbar's names, and VoiceOver speaks the words shown (#357).",
     "kind": "capability",
     "belongsTo": "dictate"
   },
@@ -1703,12 +1703,12 @@
     "note": "Option: hides Home's first-dictation guide and saves that choice with the Dictate preferences; Show me a first dictation brings it back until the first dictation (#15)."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.finish-dictation",
     "surface": "window home",
-    "label": "Stop",
+    "label": "Finish dictation",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9)."
+    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Quality rename (#357): Stop became the toolbar's and panel's Finish dictation for the same action, as the strip's other rows name theirs in full."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop-drawing",

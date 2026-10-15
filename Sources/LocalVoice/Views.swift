@@ -216,7 +216,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .disabled(!model.canToggleRecording)
-            .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Finish dictation" : "Start recording")
+            .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Finish dictation" : "Start dictating")
             VStack(alignment: .leading, spacing: 5) {
                 Text(captureTitle).font(Workbench.sectionTitle)
                 if model.phase == .recording {
