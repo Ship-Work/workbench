@@ -1215,7 +1215,9 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(unsureHeard.count == 1 && unsureHeard.first?.hasPrefix("Paste unconfirmed. Check the destination") == true,
                   "an unconfirmed paste is heard once, with where to look")
         let (_, stoppedHeard, _) = try await heard("heard-stopped", TextDelivery.Outcome(message: "Delivery stopped. The transcript is in History.", clipboardChangeCount: nil, failure: .cancelled))
-        try check(stoppedHeard == ["Delivery stopped. Delivery stopped. The transcript is in History."], "stopped delivery is heard once")
+        try check(stoppedHeard == ["Delivery stopped. The transcript is in History."], "stopped delivery is heard once, without its title twice")
+        let (_, sentHeard, _) = try await heard("heard-sent", TextDelivery.Outcome(message: "Sent to Notes · still copied.", destinationName: "Notes", pasteWasAttempted: true))
+        try check(sentHeard == ["Sent to Notes · still copied."], "a paste sent where it cannot be confirmed is heard once, without its title twice")
         let (_, shortcutHeard, _) = try await heard("heard-shortcut", TextDelivery.Outcome(), shortcut: true)
         try check(shortcutHeard.isEmpty, "a Shortcuts run returns its words to Shortcuts and announces nothing")
         let windowBoard = NSPasteboard.withUniqueName()

@@ -712,7 +712,7 @@ final class AppModel: NSObject, ObservableObject {
                     status = delivered.message
                     clipboardReceipt.record(outcome: delivered, wordCount: TextRules.wordCount(result))
                     // The cue's own words, heard once without interrupting; a confirmed paste stays quiet (#165).
-                    if clipboardReceipt.isHUDVisible, let receipt = clipboardReceipt.receipt { announceFeedback(receipt.title + ". " + receipt.detail) }
+                    if clipboardReceipt.isHUDVisible, let receipt = clipboardReceipt.receipt { announceFeedback(receipt.spokenText) }
                     undelivered.note(outcome, text: result, from: .transcript(captureID), in: deliveryRecords)
                 }
                 phase = .idle; voiceSession.phase = .completed; onPhaseChange?()

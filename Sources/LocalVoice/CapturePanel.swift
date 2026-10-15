@@ -1230,7 +1230,7 @@ struct ClipboardCueHUD: View {
             .contentShape(Rectangle())
             .background(PointerPresence { hovering = $0; receipts.holdHUD($0 || voiceOverFocused) })
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(receipt.title + ". " + receipt.detail)
+            .accessibilityLabel(receipt.spokenText)
             .accessibilityFocused($voiceOverFocused)
             .onChange(of: voiceOverFocused) { _, focused in receipts.holdHUD(focused || hovering) }
             .onDisappear { receipts.holdHUD(false) }

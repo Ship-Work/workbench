@@ -18,6 +18,9 @@ struct ClipboardReceipt: Identifiable, Equatable {
     /// transcript, Library for a prompt.
     var source: Source = .transcript
     enum Source: Equatable { case transcript, prompt, result(UUID) }
+    /// The cue as VoiceOver hears it: the title, then the detail, without saying the title
+    /// twice when the detail already starts with it ("Sent to Notes · still copied.").
+    var spokenText: String { detail.hasPrefix(title) ? detail : title + ". " + detail }
 }
 
 /// A brief delivery cue. Confirmed insertion stays quiet; clipboard fallback gives
