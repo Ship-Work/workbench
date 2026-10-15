@@ -2593,7 +2593,14 @@ private struct HistoryNativeAcceptanceView: View {
         var shots: [SurfaceGallery.Shot] = []
         final class Frames { var byID: [String: CGRect] = [:] }
         let frames = Frames()
-        let measure: (String, CGRect) -> Void = { id, frame in if id.hasPrefix("home.current-work.") { frames.byID[id] = frame } }
+        let measure: (String, CGRect) -> Void = { id, frame in if id.hasPrefix("home.current-work.") || id == "home.decks.cover" { frames.byID[id] = frame } }
+        /// Your decks' cover keeps its slot's width by 10/16 of it in every state: the sample's
+        /// 190 points and the newest deck's 140, never squeezed by a tall tile in its column.
+        func checkCover(_ id: String, width: CGFloat) throws {
+            guard let cover = frames.byID["home.decks.cover"], abs(cover.width - width) <= 1, abs(cover.height - cover.width / 1.6) <= 1 else {
+                throw VoiceError.message("Home's deck cover in state \(id) is \(frames.byID["home.decks.cover"].map { "\($0.width) × \($0.height)" } ?? "missing"), not \(width) points wide at 16:10.")
+            }
+        }
         func shot(_ id: String, _ title: String, _ detail: String, session: ReadbackModel? = nil, then change: (() -> Void)? = nil) throws {
             let window = offscreenWindow(size: size, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
             window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
@@ -2605,6 +2612,7 @@ private struct HistoryNativeAcceptanceView: View {
             let frame = window.contentView?.superview ?? window.contentView!
             settle(frame, seconds: 1)
             if let change { change(); settle(frame, seconds: 1) }
+            try checkCover(id, width: session == nil ? 190 : 140)
             shots.append(try save(try snapshot(frame), id: "state-\(id)", title: title, detail: detail, file: "page-home-state-\(id)-\(theme).png", to: output))
         }
         model.history = []; model.transcript = ""; model.rawTranscript = ""
