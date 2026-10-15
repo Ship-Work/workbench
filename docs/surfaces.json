@@ -289,6 +289,14 @@
     "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself. Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed."
   },
   {
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.sound-settings",
+    "surface": "floating toolbar live controls",
+    "label": "Sound Settings…",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#156): a second silent dictation in a row opens Sound settings where the person acted, in place of Open Dictate…, the same label and pane as Meetings."
+  },
+  {
     "id": "LocalVoice.CleanupModelSettingsView.CleanupModelSettingsView.Button.cancel",
     "surface": "settings page",
     "label": "Cancel",

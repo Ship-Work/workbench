@@ -50,6 +50,11 @@ struct ContentView: View {
                         Button("Microphone Settings…") { model.openMicrophoneSettings() }.controlSize(.small)
                             .help("Open Privacy & Security › Microphone in System Settings")
                     }
+                    // Two silent dictations in a row name Sound, where Dictate's input is chosen (#156).
+                    if bannerAttention?.code == AppModel.repeatedSilenceCode {
+                        Button("Sound Settings…") { model.openSoundSettings() }.controlSize(.small)
+                            .help("Open Sound in System Settings to check the input")
+                    }
                     // A kept capture's Retry sits beside the message that promises it, the same
                     // action as Capture recovery's. Only on Dictate, whose draft it fills.
                     if model.page == "dictate" && hasCurrentRecovery && model.canRetry {

@@ -1126,6 +1126,12 @@ struct DictationResultView: View {
                     Text("Microphone Settings…").font(.system(size: 12)).frame(minHeight: 28)
                 }.buttonStyle(.bordered).help("Open Privacy & Security › Microphone in System Settings")
                     .focused($focused, equals: .openWorkbench).resultAction("Microphone Settings…", controls)
+            } else if !model.canRetry && model.captureFailure != nil && model.canOpenSoundSettings {
+                // Two silent dictations in a row name Sound, where Dictate's input is chosen (#156).
+                Button { model.openSoundSettings() } label: {
+                    Text("Sound Settings…").font(.system(size: 12)).frame(minHeight: 28)
+                }.buttonStyle(.bordered).help("Open Sound in System Settings to check the input")
+                    .focused($focused, equals: .openWorkbench).resultAction("Sound Settings…", controls)
             } else if !model.canRetry || model.hasCaptureRecovery {
                 Button { model.dismissCaptureFailure(); model.onShowEditor?("dictate") } label: {
                     Text("Open Dictate…").font(.system(size: 12)).frame(minHeight: 28)

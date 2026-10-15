@@ -116,6 +116,8 @@ final class AppModel: NSObject, ObservableObject {
     /// to exercise cancellation without constructing any audio capture.
     var readSpeechAdmission: @MainActor (RecognitionEngine) async -> Bool = { await $0.isReady }
     var openMicrophonePrivacy: () -> Bool = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!) }
+    /// Meetings' Sound pane, where Dictate's input is chosen: it records from the system default (#156).
+    var openSoundSettingsPane: () -> Bool = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
     /// The writing model's one download, Ollama's, owned here as Parakeet's setup is: leaving
     /// Settings › Models changes nothing, and its line reaches wherever readiness shows (#134).
     private(set) lazy var cleanupModels: CleanupModelManager = {
@@ -1049,6 +1051,16 @@ final class AppModel: NSObject, ObservableObject {
         }
         dismissCaptureFailure()
     }
+    /// Two silent dictations in a row name System Settings › Sound, so that failure opens it (#156).
+    /// It follows the typed code the failure is raised with, so every report that replaces it ends it.
+    var canOpenSoundSettings: Bool { attention?.code == Self.repeatedSilenceCode }
+    func openSoundSettings() {
+        guard openSoundSettingsPane() else {
+            let message = "System Settings could not be opened. Open it manually and choose Sound › Input."
+            captureFailure = message; report(message, on: .dictate); return
+        }
+        dismissCaptureFailure()
+    }
     func exportTranscript() -> String? {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Transcript.txt"
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
@@ -1258,11 +1270,12 @@ final class AppModel: NSObject, ObservableObject {
     /// microphone, or a closed lid, than a pause, so it gets the explicit panel
     /// that says where to look instead of another brief cue.
     private var quietCapturesInARow = 0
+    static let repeatedSilenceCode = "dictate.no_speech_repeated"
     func endWithoutSpeech(_ reason: CaptureCue.Reason, teachesHold: Bool = false) {
         if case .tooQuiet = reason { quietCapturesInARow += 1 } else { quietCapturesInARow = 0 }
         if quietCapturesInARow >= 2 {
             quietCapturesInARow = 0
-            fail("No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook.", code: "dictate.no_speech_repeated")
+            fail("No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook.", code: Self.repeatedSilenceCode)
             return
         }
         if let id = shortcutRequest.id {

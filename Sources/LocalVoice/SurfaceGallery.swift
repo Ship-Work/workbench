@@ -670,6 +670,7 @@ private struct HistoryNativeAcceptanceView: View {
         // The entries and menus above press Present without a scene. Its phone states add one, so they come last.
         let catalogue = entries() + menuEntries
         if let dictate = pages.firstIndex(where: { $0.route == "dictate" }) { pages[dictate].shots.append(try renderDictateProblemDoor(to: output)) }
+        if let dictate = pages.firstIndex(where: { $0.route == "dictate" }) { pages[dictate].shots += try renderDictateSoundDoor(to: output) }
         if let present = pages.firstIndex(where: { $0.route == "present" }) { pages[present].shots += try renderPresentStates(to: output) }
         var pass = SurfaceGallery.Pass(theme: theme, panels: panels, toolbar: toolbar, host: host, pickers: pickers + pickerShots, pickerHost: pickerHost,
                                        pages: pages, entries: catalogue, menus: listings, placement: placement, checks: checks)
@@ -5086,5 +5087,49 @@ extension SurfacePass {
         return try save(rep, id: "problem-door", title: "Dictate problem with Retry transcription and Report a problem…, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
                         detail: "The kept capture's Retry transcription sits beside the problem that promises it, the same action as Capture recovery's; beside it, the same door as Help › Report a Problem…, which opens the composer with dictate.recording_stopped.",
                         file: "page-dictate-problem-door-\(theme).png", to: output)
+    }
+
+    /// Two silent dictations in a row (#156): Dictate's banner and the toolbar's failure card offer
+    /// Sound Settings… beside the message that names it, and a failed open says where to go instead.
+    func renderDictateSoundDoor(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let kept = model.page, keptRetry = model.canRetry, keptOpener = model.openSoundSettingsPane
+        defer { model.dismissCaptureFailure(); model.dismissError(); model.canRetry = keptRetry; model.page = kept; model.openSoundSettingsPane = keptOpener }
+        // Nothing here opens System Settings.
+        var opened = 0
+        model.openSoundSettingsPane = { opened += 1; return true }
+        let message = "No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook."
+        // The gallery's model is idle, so the failure is raised as fail() raises it, without two captures.
+        model.canRetry = false; model.captureFailure = message
+        model.report(message, on: .dictate, code: AppModel.repeatedSilenceCode)
+        guard model.canOpenSoundSettings, !model.canOpenMicrophoneSettings else {
+            throw VoiceError.message("Two silent dictations in a row lack their Sound Settings… door.")
+        }
+        var shots: [SurfaceGallery.Shot] = []
+        let window = homeWindow(size: SurfaceGallery.sizes[1].size)
+        defer { window.contentViewController = nil; window.close() }
+        let (rep, drawn) = try renderPage("dictate", in: window)
+        shots.append(try save(rep, id: "sound-door", title: "Dictate after two silent dictations, \(Int(drawn.width)) × \(Int(drawn.height)) pt",
+                              detail: "The message names System Settings › Sound, so Sound Settings… sits beside it, Meetings' label and pane.",
+                              file: "page-dictate-sound-door-\(theme).png", to: output))
+        let controls = CaptureHUDControls(defaults: .standard)
+        let size = CaptureHUDLayout.message
+        let host = NSHostingView(rootView: FloatingResultView(result: .dictationFailure, model: model, controls: controls)
+            .frame(width: size.width, height: size.height).background(Color(nsColor: .windowBackgroundColor)))
+        let card = offscreenWindow(size: size, styleMask: [.borderless])
+        card.contentView = host
+        defer { card.contentView = nil; card.close() }
+        settle(host)
+        shots.append(try save(try snapshot(host), id: "floating-dictation-silent", title: "Floating: two silent dictations in a row",
+                              detail: "Sound Settings… takes Open Dictate…'s place, where the person acted; Dictate would only repeat the message.",
+                              file: "panel-floating-dictation-silent-\(theme).png", to: output))
+        model.openSoundSettings()
+        guard opened == 1, model.captureFailure == nil else { throw VoiceError.message("Sound Settings… did not open Sound or left the failure showing.") }
+        model.captureFailure = message
+        model.report(message, on: .dictate, code: AppModel.repeatedSilenceCode)
+        model.openSoundSettingsPane = { false }; model.openSoundSettings()
+        guard model.captureFailure?.contains("choose Sound › Input") == true, !model.canOpenSoundSettings else {
+            throw VoiceError.message("A failed Sound Settings opening was reported as success.")
+        }
+        return shots
     }
 }

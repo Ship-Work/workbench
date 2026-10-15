@@ -42,6 +42,8 @@ methods = model.extract([
     'fail', 'captureCue', 'captureCueClock', 'captureCueExpiry', 'announceForAccessibility', 'quietCapturesInARow',
     'endWithoutSpeech', 'showDroppedLessonCue', 'showCaptureCue', 'holdCaptureCue', 'dismissCaptureCue',
     'scheduleCaptureCueExpiry',
+    # Two silent captures in a row name System Settings › Sound and open it (#156).
+    'repeatedSilenceCode', 'canOpenSoundSettings', 'dismissError',
     'saveNow', 'session', 'shutdown',
     # Preparing the speech model, whose failure is Home's (#134).
     'prepare', 'acceptRecognition', 'dismissCaptureFailure',
@@ -95,6 +97,9 @@ writers = undelivered_writers(model)
 # Launch restores the undelivered result only once capture recovery has settled the draft,
 # so a draft that recovery replaced drops a draft entry instead of showing it.
 launch = model.select(['init(preferences:startSpeechLifecycle:)'])[0].code
+# The recorder's start, which these checks script, clears the attention, and with it the
+# Sound Settings… door that follows the repeated-silence code (#156).
+assert 'attention = nil' in model.select(['startRecording(_:)'])[0].code, 'a new start clears the attention'
 assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery()') < launch.index('undelivered.restore('), \
     'launch restores the undelivered result after capture recovery'
 labels = model.extract(['retryCaptureLabel', 'retryCaptureHelp', 'hasCaptureRecovery', 'canRecordAgain',
@@ -933,21 +938,36 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(tap.captureCue?.reason == .tooShort && tap.captureFailure == nil && tap.error == nil && tap.phase == .idle
                   && !tap.canRetry && tap.engine.calls == 0, "An accidental tap is a routine cue, not a failure")
         try check(announced == ["No speech heard"] && tap.captureCue?.message == "No speech heard", "VoiceOver hears the cue's own words, once")
+        try check(!tap.canOpenSoundSettings, "A tap offers no Sound Settings…")
         try check(!FileManager.default.fileExists(atPath: tapURL.path) && !tap.captureRecovery.hasRecovery, "A tap keeps nothing, as before")
         let hush = CaptureHarness(directory: folder("no-speech-quiet")); hush.announceForAccessibility = { _ in }
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue?.reason == .tooQuiet && hush.captureFailure == nil && hush.error == nil && hush.status.contains("Sound"),
                   "Silence is a routine cue, with the microphone hint in the status")
+        try check(!hush.canOpenSoundSettings, "One silence offers no Sound Settings…")
         // A second silent capture in a row points at the microphone, not a pause.
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue == nil && hush.captureFailure?.contains("twice in a row") == true && hush.error != nil,
                   "A second silent capture in a row gets the explicit panel with where to look")
+        try check(hush.canOpenSoundSettings && hush.attention?.code == "dictate.no_speech_repeated" && !hush.canRetry,
+                  "That panel and Dictate's banner offer Sound Settings…, where the input is chosen (#156)")
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue?.reason == .tooQuiet && hush.captureFailure == nil,
                   "After that panel the count starts again, so the next silence is a cue")
+        try check(!(hush.captureFailure != nil && hush.canOpenSoundSettings), "The next silence's cue shows no Sound Settings… card")
+        // The door follows the failure's code, so Dismiss and any later report end it.
+        let muted = CaptureHarness(directory: folder("no-speech-muted")); muted.announceForAccessibility = { _ in }
+        for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
+        try check(muted.canOpenSoundSettings, "Two silences in a row offer Sound Settings…")
+        muted.dismissError()
+        try check(!muted.canOpenSoundSettings, "Dismissing the problem takes Sound Settings… with it")
+        for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
+        muted.phase = .recording; muted.fail("Synthetic engine failure.")
+        try check(!muted.canOpenSoundSettings && muted.captureFailure == "Synthetic engine failure.",
+                  "A later failure with another code offers no Sound Settings…")
 
         let nothing = CaptureHarness(directory: folder("no-speech-recognised")); nothing.announceForAccessibility = { _ in }
         nothing.engine.result = ""
@@ -955,6 +975,7 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         nothing.run(nothingURL, owned: true); await finish(nothing)
         try check(nothing.captureCue?.reason == .nothingRecognised(keptAudio: true) && nothing.captureFailure == nil && nothing.error == nil
                   && nothing.phase == .idle && nothing.history.isEmpty, "Sound that came back as no words is a routine cue, not a failure")
+        try check(!nothing.canOpenSoundSettings, "No words recognised offers no Sound Settings…")
         try check(nothing.canRetry && nothing.retryCaptureLabel == "Retry transcription" && (try Data(contentsOf: nothingURL)) == wav,
                   "Its recording is kept exactly, with Retry on the Dictate page")
         nothing.dismissCaptureCue()
