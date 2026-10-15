@@ -79,6 +79,13 @@ enum MacPermission: String, CaseIterable, Identifiable {
         if #available(macOS 15, *) { return "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only" }
         return "Privacy & Security"
     }
+    /// The list that holds call audio, in the words macOS uses on this version: from macOS 15 it is
+    /// Screen & System Audio Recording; before that macOS's own request calls it Audio Recording.
+    /// Meetings names it when a call's app stays silent (docs/live-voice.md § Voice experience).
+    static var callAudioListName: String {
+        if #available(macOS 15, *) { return "Screen & System Audio Recording" }
+        return "Audio Recording"
+    }
 }
 
 /// Only the distinctions macOS actually reports, plus the one fact about this account that

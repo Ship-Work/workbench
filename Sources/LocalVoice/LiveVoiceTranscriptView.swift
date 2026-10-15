@@ -35,9 +35,17 @@ extension LiveVoiceSnapshot {
 struct LiveVoiceSourcesView: View {
     let sources: [LiveVoiceSourceStatus]
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 18) { rows }
-            VStack(alignment: .leading, spacing: 8) { rows }
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 18) { rows }
+                VStack(alignment: .leading, spacing: 8) { rows }
+            }
+            // A source's explanation is on the page under its line, not only in its tooltip (Fit rule 2).
+            ForEach(sources.filter { $0.message?.isEmpty == false }, id: \.source) { source in
+                Text(source.message ?? "").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("voice.source-note." + source.source.rawValue)
+            }
         }
     }
     private var rows: some View {
