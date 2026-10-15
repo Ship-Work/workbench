@@ -112,6 +112,7 @@ struct SnapSnapshot {
     let item: SnapItem
     let originalPNG: Data
     let imagePNG: Data
+    var sourceReference: String { "workbench-snap:\(item.id.uuidString.lowercased())" }
 }
 
 struct SnapLibraryRead {

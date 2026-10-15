@@ -20,8 +20,11 @@ public enum PackLimits {
     public static let maximumComponentLength = 96
     /// The receipt embeds its complete manifest.
     public static let maximumReceiptBytes = 4 * 1_048_576
+    public static let maximumPointerBytes = 65_536
     /// Retained immutable revisions, including the active one.
     public static let maximumRetainedRevisions = 3
+    /// Content-cache files kept after an interrupted install.
+    public static let maximumCachedFiles = 64
 
     /// Checked addition. A manifest must not be able to describe an aggregate
     /// that overflows or that we would refuse to store anyway.

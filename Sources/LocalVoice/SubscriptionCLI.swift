@@ -1259,6 +1259,8 @@ enum SubscriptionCLI {
     /// Injection seam for the checks: logical command in, bounded result out.
     typealias ProbeRunner = @Sendable (URL, [String]) async -> Probe?
 
+    static let claudeImagesVerified = true
+
     static func versionArguments() -> [String] { ["--version"] }
 
     static func authArguments(for provider: SubscriptionProvider) -> [String] {

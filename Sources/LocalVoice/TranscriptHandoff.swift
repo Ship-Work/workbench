@@ -89,6 +89,7 @@ enum TranscriptHandoffSkills {
 /// Structural validation for any skill used as a handoff entry point. Bundled
 /// deck packs additionally keep their exact-payload check.
 enum TranscriptHandoffSkillCheck {
+    static let bundledDeckIdentifiers = [ReadbackSkillPackReference.neutral.id, ReadbackSkillPackReference.serviceNow.id]
     static let reservedPaths = ["handoff.json", "readme.md", "skill-pack.json", "session.json"]
 
     static func validate(_ snapshot: ReadbackSkillPackSnapshot) throws {

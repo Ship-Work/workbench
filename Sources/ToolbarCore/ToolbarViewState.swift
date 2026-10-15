@@ -64,6 +64,10 @@ public enum ToolbarShortcut: Equatable, Sendable {
         case .unavailable: return "Shortcut unavailable"
         }
     }
+    public var isUsable: Bool {
+        if case .assigned = self { return true }
+        return false
+    }
     /// Gesture words are part of the hint, so a release is never described as a press.
     public static func actionHint(key: String, holdToStart: Bool = false, releaseToFinish: Bool = false) -> String {
         if releaseToFinish { return "Release " + key }

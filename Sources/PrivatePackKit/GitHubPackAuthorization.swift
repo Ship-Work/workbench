@@ -72,7 +72,7 @@ public struct GitHubPackAuthorization: Sendable {
     }
     public func login(accessToken: String) async throws -> String {
         let request = try PackHTTPRequest(url: URL(string: "https://api.github.com/user")!, host: "api.github.com",
-            accept: GitHubPackClient.jsonAccept, authorization: accessToken, limit: 65_536)
+            accept: "application/vnd.github+json", authorization: accessToken, limit: 65_536)
         let response = try await client.send(request)
         try GitHubStatus.check(response, what: "your GitHub account")
         struct User: Decodable { let login: String }
