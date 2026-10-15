@@ -484,7 +484,7 @@ enum MeetingChecks {
         model.mayPlayRecording = { admitted }
         model.updateRecordingPlaybackAdmission()
         await Task.yield()
-        try expect(!model.canPlayRecording && !review.playing, "competing capture or Read admission pauses recording playback")
+        try expect(!model.canPlayRecording && !review.playing, "competing Dictate, meeting or Snap & Talk work pauses recording playback")
         admitted = true; model.updateRecordingPlaybackAdmission()
         await Task.yield()
         try expect(model.canPlayRecording && !review.playing, "ending competing work never resumes the recording automatically")

@@ -174,6 +174,8 @@ enum WorkbenchControlChecks {
             try check(homeResume.isAdmitted(in: live), "Home admits an unchanged enabled Show personas")
             live.mayPresent = false
             try check(!homeResume.isAdmitted(in: live), "Home rejects a rendered Show personas when its owner becomes busy")
+            try check(["Dictate", "Snap & Talk", "shortcut change"].allSatisfy { live.personaDetail.contains($0) },
+                      "a refused Show personas names each kind of work that holds it")
             live.overlaysPaused = false
             let homeHide = HomePersonaControl(live)
             try check(homeHide.isAdmitted(in: live), "Home keeps Hide personas admitted while new starts are blocked")
