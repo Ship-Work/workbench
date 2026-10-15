@@ -56,8 +56,8 @@ final class TimerTransportTests {
     private var timerVisible: Bool { NSApp.windows.contains { $0.title == "Workbench · Timer" && $0.isVisible } }
 
     /// Lets the periodic countdown update run, as it does between the presenter's clicks.
-    private func settle(until ready: () -> Bool = { false }) {
-        let deadline = Date().addingTimeInterval(ready() ? 0 : 0.6)
+    private func settle(seconds: TimeInterval = 0.6, until ready: () -> Bool = { false }) {
+        let deadline = Date().addingTimeInterval(ready() ? 0 : seconds)
         while !ready() && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
     }
 
@@ -426,9 +426,17 @@ final class TimerTransportTests {
 }
 
 extension TimerTransportTests {
+    /// The keep-awake's re-evaluation waits on the main run loop and is due in `seconds`, so
+    /// the hold really ends when no one fires it by hand.
+    private func scheduled(_ timer: Timer?, in seconds: TimeInterval) -> Bool {
+        guard let timer, timer.isValid else { return false }
+        let onMain = CFRunLoopContainsTimer(CFRunLoopGetMain(), unsafeBitCast(timer, to: CFRunLoopTimer.self), .commonModes)
+        return onMain && abs(timer.fireDate.timeIntervalSinceNow - seconds) < 2
+    }
+
     /// A break countdown on screen keeps the display awake, so the room still sees it while
-    /// nobody touches the Mac (#174). Pause, Hide, Stop and closing the window let it sleep
-    /// again, and Time is up holds it for five minutes, not until someone stops the timer.
+    /// nobody touches the Mac (#174). Pause, Hide, Stop, minimising and closing the window let
+    /// it sleep again, and Time is up holds it for five minutes, not until someone stops the timer.
     func testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen() throws {
         var counted: KeepAwake?
         try withTimer { app, settings, clock, display in
@@ -457,15 +465,24 @@ extension TimerTransportTests {
             XCTAssertEqual(display.held, 0, "A hidden running countdown never keeps it awake")
             app.revealTimer()
             XCTAssertEqual(display.held, 1, "Show timer while it runs keeps it awake again")
+            let window = NSApp.windows.first { $0.title == "Workbench · Timer" && $0.isVisible }
+            window?.miniaturize(nil)
+            settle(seconds: 5) { window?.isMiniaturized == true && display.held == 0 }
+            XCTAssertEqual(window?.isMiniaturized, true)
+            XCTAssertEqual(display.held, 0, "Minimising it lets the display sleep")
+            window?.deminiaturize(nil)
+            settle(seconds: 5) { window?.isMiniaturized == false && display.held == 1 }
+            XCTAssertEqual(display.held, 1, "Restoring it while it runs keeps it awake again")
 
             clock.now += 61
             settle { app.timerFinished }
             XCTAssertEqual(app.timerTransport, .finished)
             XCTAssertEqual(display.held, 1, "Time is up keeps it awake")
-            XCTAssertTrue(app.timeUpKeepAwakeEnd != nil, "for a bounded time")
+            XCTAssertTrue(scheduled(app.timeUpKeepAwakeEnd, in: AppCoordinator.timeUpKeepAwake), "for a bounded time")
             clock.now += AppCoordinator.timeUpKeepAwake - 10
             app.timeUpKeepAwakeEnd?.fire()
             XCTAssertEqual(display.held, 1, "An early re-evaluation keeps the hold for the time left")
+            XCTAssertTrue(scheduled(app.timeUpKeepAwakeEnd, in: 10), "and looks again when that time is up")
             app.hideTimer()
             XCTAssertEqual(display.held, 0, "Hide at Time is up lets it sleep")
             XCTAssertTrue(app.timeUpKeepAwakeEnd == nil, "and drops the re-evaluation")

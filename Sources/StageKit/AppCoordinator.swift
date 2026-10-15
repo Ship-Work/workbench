@@ -677,6 +677,13 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             timerPositionPanel.close(); timerShown = false; updateTimerKeepAwake()
         }
     }
+    /// A minimised timer window shows no countdown, so it lets the display sleep (#174).
+    func windowDidMiniaturize(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === timerWindow { updateTimerKeepAwake() }
+    }
+    func windowDidDeminiaturize(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === timerWindow { updateTimerKeepAwake() }
+    }
     private func refreshPalette() {
         let shouldShow = !embedded && !boardExportInProgress && isDrawing && (!boards.isEmpty ? settings.value.boardPalette != .hide : settings.value.showDrawingPalette)
         guard shouldShow else { palette?.orderOut(nil); return }
@@ -817,13 +824,14 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         updateTimerKeepAwake(now: now)
     }
     /// The display stays awake while the timer's window shows a running countdown, and for
-    /// timeUpKeepAwake after Time is up; Pause, Hide, Stop and closing the window let it sleep
-    /// (#174). Decided from the current state each time, so a stale re-evaluation cannot end a
+    /// timeUpKeepAwake after Time is up; Pause, Hide, Stop, minimising and closing the window let
+    /// it sleep (#174). Decided from the current state each time, so a stale re-evaluation cannot end a
     /// newer countdown's hold, and only a change begins or ends the one activity.
     private func updateTimerKeepAwake(now: Date? = nil) {
         let now = now ?? timerClock()
         let timeUpLeft = timerFinished ? timerFinishedAt.map { Self.timeUpKeepAwake - now.timeIntervalSince($0) } ?? 0 : 0
-        let wanted = !shuttingDown && timerShown && (timerRunning || timeUpLeft > 0)
+        let onScreen = timerShown && timerWindow?.isMiniaturized != true
+        let wanted = !shuttingDown && onScreen && (timerRunning || timeUpLeft > 0)
         timeUpKeepAwakeEnd?.invalidate(); timeUpKeepAwakeEnd = nil
         if wanted && !timerRunning {
             let end = Timer(timeInterval: timeUpLeft, repeats: false) { [weak self] _ in self?.updateTimerKeepAwake() }
