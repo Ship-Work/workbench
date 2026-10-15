@@ -12,8 +12,8 @@ views embedded in it); the Draw, Present, Persona and Timer menus that the
 rows, the floating toolbar and the app menu bar open, with any native views
 embedded in them, and the Saved Prompts picker Library and Present's toolbar Prompts open; the
 floating toolbar's modes (its launcher's chooser), next action and hover
-labels, accessory and More menu, and the live dictation, narration and
-reading controls shown in the same window; the app menu bar and any status
+labels and accessory, and the live dictation and narration controls shown
+in the same window; the app menu bar and any status
 item menu built in AppDelegate; the window sidebar and the section switchers of
 pages with sections, both from the page record in WorkbenchHome; every control
 on Home and on the Settings page, including views embedded in them; the global shortcut

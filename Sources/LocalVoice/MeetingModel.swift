@@ -85,7 +85,6 @@ final class MeetingModel: ObservableObject {
     nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
     /// The one refusal whose fix is in System Settings, so the page can offer it beside this message only.
     static let microphoneRefused = MeetingProblem.microphoneDenied.message
-    static let disabledAppsKey = "workbench.meeting.disabled-apps.v1"
     private let directory: URL
     private let defaults: UserDefaults
     private let detector: MeetingDetector
@@ -141,7 +140,6 @@ final class MeetingModel: ObservableObject {
         self.startupNoticeDelayNanoseconds = startupNoticeDelayNanoseconds
         detectionEnabled = defaults.bool(forKey: Self.detectionKey)
         automaticallyFinishCalls = defaults.object(forKey: "workbench.meeting.auto-finish.v1") as? Bool ?? true
-        detector.disabledBundleIDs = Set(defaults.stringArray(forKey: Self.disabledAppsKey) ?? [])
         configureDetection()
         recoveryTask = Task { [weak self] in await self?.refreshRecovery() }
         refreshAdmission()
@@ -769,11 +767,6 @@ final class MeetingModel: ObservableObject {
 
     func dismissOffer() { if let offer { detector.dismiss(offer) }; offer = nil }
     func snoozeOffers() { detector.snooze(); offer = nil }
-    func disableOffers(for app: MeetingAudioApp) {
-        detector.disable(app)
-        defaults.set(Array(detector.disabledBundleIDs).sorted(), forKey: Self.disabledAppsKey)
-        offer = nil
-    }
 
     /// The app's terminateLater hook awaits this before replying to macOS.
     func prepareForShutdown() async {

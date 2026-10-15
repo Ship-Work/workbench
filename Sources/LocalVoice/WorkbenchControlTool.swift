@@ -162,7 +162,7 @@ struct WorkbenchControlState {
     }
 
     /// Home's Persona controls use the same own-capability projection as the
-    /// menu: another input operation cannot claim its Hide or Show action.
+    /// menu: another capability's live work cannot claim its Hide or Show action.
     var personaAction: ToolbarNextAction { nextAction(.persona)! }
 
     /// What the Persona action does, for its tooltip. It follows the same
@@ -170,7 +170,7 @@ struct WorkbenchControlState {
     var personaDetail: String {
         switch personaAction.operation {
         case .pauseOverlays: return "Hide the set without ending it."
-        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish the current input operation before showing the set again."
+        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish Dictate, Snap & Talk or the shortcut change before showing the set again."
         case .hidePersona: return "Hide the persona without ending the scene."
         case .cancelPersonaCamera: return "Cancel the camera request."
         case .hidePersonaCamera: return "Hide the bubble and release the camera."

@@ -1,6 +1,20 @@
-import Foundation
+import AppKit
 
 enum HandoffSessionEvidence {
+    /// The native session chooser. It only picks a folder; the Hand off review
+    /// reads it, so a folder that is not a session shows why beside the review.
+    @MainActor static func chooseSessionFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Snap & Talk Session"
+        panel.prompt = "Use Session"
+        panel.message = "The whole current session is copied as evidence: every current screenshot with the narration recorded for it. Recently Deleted sections and replaced files are not copied, and the original session is not changed."
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url?.standardizedFileURL
+    }
+
     /// Only the live screenshots and their own saved words are selected. Audio
     /// recordings and removed/replaced items never enter the text/image job.
     static func snapshots(at url: URL) throws -> [HandoffSourceSnapshot] {

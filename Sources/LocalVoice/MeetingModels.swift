@@ -20,9 +20,6 @@ struct MeetingKnownApp {
     let bundleID: String
     let name: String
     let kind: MeetingAppKind
-    /// False until remote-stream capture from this app has been checked on real
-    /// hardware. Nothing in this module may claim a verified two-sided recording.
-    let remoteAudioVerified: Bool
     /// The app's own audio processes that are not named `<bundle>.helper`, such
     /// as new Teams' module host.
     var audioProcesses: [String] = []
@@ -39,29 +36,31 @@ struct MeetingKnownApp {
 }
 
 enum MeetingAppCatalogue {
+    /// Remote-stream capture from these apps has not been verified on real hardware;
+    /// nothing here may claim a verified two-sided recording.
     static let supported: [MeetingKnownApp] = [
-        MeetingKnownApp(bundleID: "us.zoom.xos", name: "Zoom", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.teams", name: "Microsoft Teams", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", kind: .communication, remoteAudioVerified: false,
+        MeetingKnownApp(bundleID: "us.zoom.xos", name: "Zoom", kind: .communication),
+        MeetingKnownApp(bundleID: "com.microsoft.teams", name: "Microsoft Teams", kind: .communication),
+        MeetingKnownApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", kind: .communication,
                         audioProcesses: ["com.microsoft.teams2.modulehost"]),
-        MeetingKnownApp(bundleID: "com.cisco.webexmeetingsapp", name: "Webex", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.webex.meetingmanager", name: "Webex Meetings", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.hnc.Discord", name: "Discord", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.brave.Browser", name: "Brave", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.vivaldi.Vivaldi", name: "Vivaldi", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.operasoftware.Opera", name: "Opera", kind: .browser, remoteAudioVerified: false)
+        MeetingKnownApp(bundleID: "com.cisco.webexmeetingsapp", name: "Webex", kind: .communication),
+        MeetingKnownApp(bundleID: "com.webex.meetingmanager", name: "Webex Meetings", kind: .communication),
+        MeetingKnownApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", kind: .communication),
+        MeetingKnownApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", kind: .communication),
+        MeetingKnownApp(bundleID: "com.hnc.Discord", name: "Discord", kind: .communication),
+        MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication),
+        MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication),
+        MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication),
+        MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser),
+        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser),
+        MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser),
+        MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser),
+        MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser),
+        MeetingKnownApp(bundleID: "com.brave.Browser", name: "Brave", kind: .browser),
+        MeetingKnownApp(bundleID: "com.vivaldi.Vivaldi", name: "Vivaldi", kind: .browser),
+        MeetingKnownApp(bundleID: "com.operasoftware.Opera", name: "Opera", kind: .browser)
     ]
 
     /// Never list, tap or detect Workbench itself, in any edition.
@@ -91,19 +90,6 @@ enum MeetingAppCatalogue {
     static func isExcluded(_ bundleID: String) -> Bool {
         if excludedBundleIDs.contains(bundleID) { return true }
         return bundleID == Bundle.main.bundleIdentifier || excludedBundleIDs.contains(where: { bundleID.hasPrefix($0 + ".") })
-    }
-
-    /// The single sentence the surface shows next to a chosen source. It names
-    /// the limits instead of implying a proven two-sided recording.
-    static func sourceCaution(for app: MeetingAudioApp) -> String? {
-        guard let known = known(app.bundleID) else { return nil }
-        if known.kind == .browser {
-            return "\(known.name) records everything that browser plays, including other tabs."
-        }
-        if !known.remoteAudioVerified {
-            return "Recording other people from \(known.name) has not been checked on this Mac yet. Play back the result before relying on it."
-        }
-        return nil
     }
 }
 

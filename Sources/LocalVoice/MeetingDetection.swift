@@ -61,7 +61,8 @@ final class MeetingDetector {
 
     let source: MeetingProcessSource
     let options: Options
-    /// Persisted per-app opt-outs. The model owns loading and saving them.
+    /// Apps the detector stops offering for this run. In memory only;
+    /// nothing persists them.
     var disabledBundleIDs: Set<String> = []
     var snoozedUntil: Date?
     /// Detection stays off until the person turns it on.
@@ -215,12 +216,6 @@ final class MeetingDetector {
     /// Turning detection off forgets every observation immediately.
     func forgetObservations() {
         streaks.removeAll()
-    }
-
-    /// The wording the surface shows. It claims a possibility, never a fact.
-    static func offerText(for app: MeetingAudioApp) -> String {
-        if isCallService(app) { return "A FaceTime or phone call may be active on this Mac. Review the audio source before recording." }
-        return "\(app.name) is using the microphone, so a call may be running. Record this meeting?"
     }
 
     static func offerTitle(for app: MeetingAudioApp) -> String {

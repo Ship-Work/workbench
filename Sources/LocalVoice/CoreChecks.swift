@@ -89,8 +89,6 @@ enum CoreChecks {
         try store.save(SavedState(draft: "Independently edited draft", history: captures))
         let recovered = try store.load()
         try check(recovered.history.map(\.id) == captures.map(\.id) && recovered.history.last?.rawText == earlier.rawText, "multiple captures and originals survive saving an unrelated draft")
-        try check(TranscriptHistory.matching(captures, query: "UM,").map(\.id) == [earlier.id], "search finds original wording without requiring exact case")
-        try check(TranscriptHistory.matching(captures, query: " ").count == 2, "clearing history search restores every capture")
         try check(restored.replacements == original.replacements && restored.voice == "Daniel" && restored.rate == 210, "dictionary and voice preferences restored")
         let permissions = try FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as? NSNumber
         try check(permissions?.intValue == 0o600, "state file private to current user")

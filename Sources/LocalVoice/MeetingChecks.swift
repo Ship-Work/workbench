@@ -141,8 +141,7 @@ enum MeetingChecks {
                    "both directions must remain present for a fresh full streak")
         let call = calls.evaluate(now: now)
         try expect(call?.id == 950 && call?.bundleID == "com.apple.avconferenced"
-                   && MeetingDetector.offerTitle(for: call!) == "Possible call on this Mac"
-                   && MeetingDetector.offerText(for: call!).contains("FaceTime or phone call"),
+                   && MeetingDetector.offerTitle(for: call!) == "Possible call on this Mac",
                    "a two-way call on this Mac is offered as a call from its own source")
         calls.dismiss(call!, now: now)
         for _ in 0..<4 { _ = calls.evaluate(now: now) }
@@ -515,7 +514,7 @@ enum MeetingChecks {
         model.mayPlayRecording = { admitted }
         model.updateRecordingPlaybackAdmission()
         await Task.yield()
-        try expect(!model.canPlayRecording && !review.playing, "competing capture or Read admission pauses recording playback")
+        try expect(!model.canPlayRecording && !review.playing, "competing Dictate, meeting or Snap & Talk work pauses recording playback")
         admitted = true; model.updateRecordingPlaybackAdmission()
         await Task.yield()
         try expect(model.canPlayRecording && !review.playing, "ending competing work never resumes the recording automatically")
