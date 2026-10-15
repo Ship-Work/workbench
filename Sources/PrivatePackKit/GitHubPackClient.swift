@@ -59,7 +59,7 @@ public struct GitHubPackClient: PackContentSource {
 
     public func currentRevision() async throws -> PackRevision {
         let response = try await send(path: ["commits", "HEAD"], query: nil, accept: Self.shaAccept,
-                                      limit: 64 * 1_024, what: "this pack repository")
+                                      limit: PackLimits.maximumPointerBytes, what: "this pack repository")
         return try Self.revision(from: response.body)
     }
 

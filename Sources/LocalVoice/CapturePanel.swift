@@ -238,10 +238,6 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
     var isAnimatingToolbar: Bool { motion.target != nil }
     /// The gallery reads where the chooser opened and opens it invisibly (#134).
     var chooserFrame: NSRect? { chooser.shownFrame }
-    var chooserOffscreenForChecks: Bool {
-        get { chooser.offscreenForChecks }
-        set { chooser.offscreenForChecks = newValue }
-    }
     /// Where the tools rest: a named dock, or a free position with its side.
     var toolsPosition: ToolbarPosition {
         if controls.anchor == nil, let freePosition { return .free(freePosition) }
