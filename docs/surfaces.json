@@ -1357,13 +1357,13 @@
     "note": "Quality: the shelf's title is the receipt's own title, such as Copied, so the panel, Home and the floating receipt agree (#165). Runtime label from receipt . title; no rendered text assumed."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-036523842dab",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-041b2865004f",
     "surface": "quick panel status rows",
     "label": null,
-    "expression": "\"\\(receipt.wordCount) \\(receipt.wordCount == 1 ? \"word\" : \"words\")\"",
+    "expression": "TextRules . wordCountLabel ( receipt . wordCount )",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165). Runtime label; no rendered text assumed."
+    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165), from the one wordCountLabel that Dictate, History and Transcript review use, so one word reads 1 word everywhere (#357). Runtime label; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-09d99a85b0f2",
