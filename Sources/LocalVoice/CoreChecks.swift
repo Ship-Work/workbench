@@ -60,9 +60,20 @@ enum CoreChecks {
         try TranscriptExport.write(exportCapture, version: .cleaned, to: exportURL)
         try check(String(decoding: try Data(contentsOf: exportURL), as: UTF8.self) == exportCapture.text,
                   "plain-text export preserves UTF-8 Unicode and line breaks")
-        try check(TranscriptExport.defaultFilename == "Workbench Transcript.txt"
-                  && !TranscriptExport.defaultFilename.localizedCaseInsensitiveContains("café"),
-                  "transcript export filename does not reveal captured words")
+        // The suggested name says which transcript it is, from purpose and time only (#357).
+        let utc = TimeZone(secondsFromGMT: 0)!
+        var gregorian = Calendar(identifier: .gregorian); gregorian.timeZone = utc
+        let ten = gregorian.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 10, minute: 0))!
+        try check(TranscriptExport.filename(purpose: .meeting, date: ten, timeZone: utc) == "Meeting 2026-10-15 at 10.00.txt",
+                  "transcript export suggests its purpose and capture time")
+        let exportNames = [TranscriptExport.filename(purpose: .meeting, date: ten, timeZone: utc),
+                           TranscriptExport.filename(purpose: .meeting, date: ten.addingTimeInterval(60), timeZone: utc),
+                           TranscriptExport.filename(purpose: .prompt, date: ten, timeZone: utc),
+                           TranscriptExport.filename(purpose: .prompt, date: exportCapture.date)]
+        try check(Set(exportNames.prefix(3)).count == 3
+                  && exportNames.allSatisfy { !$0.contains("/") && !$0.contains(":") && $0.hasSuffix(".txt") && !$0.localizedCaseInsensitiveContains("café") },
+                  "transcript export names differ by purpose and minute, with no '/', ':' or captured words")
+        try check(TranscriptExportVersion.cleaned.rawValue == "Current text", "the current export is named current text, as Review transcript names it")
         try rejects("transcript export reports filesystem write errors") {
             try TranscriptExport.write(exportCapture, version: .cleaned, to: directory.appendingPathComponent("missing/export.txt"))
         }

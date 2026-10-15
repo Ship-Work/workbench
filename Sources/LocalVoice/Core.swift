@@ -73,12 +73,22 @@ enum AtomicPrivateFile {
     }
 }
 enum TranscriptExportVersion: String {
-    case cleaned = "Cleaned text"
+    /// The transcript as it reads now: cleaned, a meeting's conversation, or as heard with cleanup off.
+    case cleaned = "Current text"
     case original = "Original wording"
 }
 
 enum TranscriptExport {
-    static let defaultFilename = "Workbench Transcript.txt"
+    /// A suggested name that says which transcript it holds, from its purpose and capture time and
+    /// never its words or people: "Meeting 2026-10-15 at 10.00.txt". The fixed format keeps '/' and ':' out.
+    static func filename(purpose: TranscriptPurpose, date: Date, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm"
+        return purpose.title + " " + formatter.string(from: date) + ".txt"
+    }
     static func text(for capture: Transcript, version: TranscriptExportVersion) -> String {
         version == .original ? capture.rawText ?? capture.text : capture.text
     }

@@ -1074,11 +1074,11 @@ final class AppModel: NSObject, ObservableObject {
     @discardableResult func exportCapture(_ item: Transcript, version: TranscriptExportVersion) -> Bool? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = TranscriptExport.defaultFilename
+        panel.nameFieldStringValue = TranscriptExport.filename(purpose: historyLibrary.metadata(for: item.id).purpose, date: item.date)
         panel.title = "Export saved transcript"
         panel.message = version == .original
             ? "Save the original recognised wording as a UTF-8 text file."
-            : "Save the cleaned transcript as a UTF-8 text file."
+            : "Save the current text as a UTF-8 text file."
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         do {
             try TranscriptExport.write(item, version: version, to: url)

@@ -168,7 +168,7 @@ struct TranscriptHistoryRow: View {
     @ViewBuilder private var moreActions: some View {
         Button("Open in Dictate") { model.openTranscript(item) }
         Button("Save prompt") { model.savePrompt(item.text) }
-        Button("Export cleaned text…") { model.exportCapture(item, version: .cleaned) }
+        Button("Export current text…") { model.exportCapture(item, version: .cleaned) }
         Button("Export original wording…") { model.exportCapture(item, version: .original) }
     }
 }
