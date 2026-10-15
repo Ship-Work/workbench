@@ -780,6 +780,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         alert.informativeText = MeetingQuitChoice.detail
         for choice in MeetingQuitChoice.buttons { alert.addButton(withTitle: choice.title) }
         alert.buttons[MeetingQuitChoice.buttons.firstIndex(of: .keepRecording)!].keyEquivalent = "\u{1b}"
+        // Quit from the menu-bar panel reaches here with another app in front; the question must be seen.
+        NSApp.activate(ignoringOtherApps: true)
         return MeetingQuitChoice.choice(for: alert.runModal())
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

@@ -291,7 +291,10 @@ final class LiveVoiceService: @unchecked Sendable {
                 checkpoint.notes.append(error is CancellationError ? "Live text was cancelled. Original audio is kept." : error.localizedDescription)
                 if let journal { try? LiveVoiceJournal.save(checkpoint, to: journal) }
                 snapshot.phase = .recoverableFailure
-                snapshot.recognitionDelayed = true
+                // The loop is over: say so rather than catching up forever (#280).
+                snapshot.recognitionDelayed = false
+                snapshot.liveIncomplete = true
+                snapshot.liveStopped = true
                 snapshot.message = checkpoint.notes.last
             }
             update(snapshot)

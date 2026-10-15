@@ -39,6 +39,9 @@ struct LiveVoiceSnapshot: Equatable, Sendable {
     /// The live pass has missed or doubled words at a boundary or a backlog (#280): live words
     /// continue, and the saved transcript comes from the original audio at finish.
     var liveIncomplete = false
+    /// The live pass stopped for good (a recogniser error, invalid timing, mailbox overflow or a
+    /// journal write failure): no more live words; the saved transcript comes from the original audio.
+    var liveStopped = false
     var message: String?
 
     var text: String { segments.map(\.text).filter { !$0.isEmpty }.joined(separator: " ") }

@@ -16,6 +16,8 @@ The integration owner on `codex/live-voice-engine` owns the shared capture, reco
 | `sources` | Source, readable name, health, level and optional explanation, independently for microphone and app |
 | `segments` | Timed source-labelled words, stable IDs, with `isFinal` distinguishing confirmed words from a revisable tail |
 | `recognitionDelayed` | Audio capture can continue while recognition catches up |
+| `liveIncomplete` | The live pass missed or doubled words at a boundary or a backlog; live words continue and the saved transcript comes from the original audio |
+| `liveStopped` | The live pass stopped for good; the caption says so and the saved transcript comes from the original audio |
 | `message` | An actionable session-level explanation when needed |
 
 Meetings keeps its existing `start()`, `stop()`, `cancel()` (keep for later), recovery and recording-review owners. `pause()` and `resume()` affect the same session. `startOffered(_:)` validates the displayed offer before starting its exact source. A stale offer cannot select or start a different app. Dictate retains its existing shortcuts and delivery choice. Live words appear in its workspace and, for eligible external text fields with automatic paste selected, in the captured field. The floating pill stays compact and carries no transcript bubble.

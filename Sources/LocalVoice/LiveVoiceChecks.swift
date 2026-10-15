@@ -68,11 +68,17 @@ enum LiveVoiceChecks {
         try expect(replies.conversation == "You: Yes\n\nOthers: Yes\n\nYou: Certainly", "separate identical replies survive in their actual turn order")
 
         let failingDecoder = FixtureDecoder(failOn: 2)
+        let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
-            recognize: { try await failingDecoder.recognize($0) }, update: { _ in })
+            recognize: { try await failingDecoder.recognize($0) }, update: { lastFailedSnapshot.set($0) })
         failed.input.append(.init(source: .microphone, samples: samples(1..<19), sampleRate: 16_000, start: 0))
         let partial = await failed.finish()
         try expect(!partial.complete && !partial.notes.isEmpty && partial.completedThrough["microphone"] == 8, "failed second window cannot silently finalize partial text")
+        var stoppedWhileListening = lastFailedSnapshot.current
+        stoppedWhileListening.phase = .listening
+        try expect(lastFailedSnapshot.current.liveStopped && !lastFailedSnapshot.current.recognitionDelayed
+                   && stoppedWhileListening.transcriptStatus.hasPrefix("Live words stopped"),
+                   "a dead live loop says it stopped rather than catching up")
         try expect(partial.text == (1..<9).map { "word\($0)" }.joined(separator: " "), "failure retains confirmed earlier words")
 
         let shortDecoder = FixtureDecoder()
@@ -150,6 +156,12 @@ enum LiveVoiceChecks {
     }
 
     private struct CheckFailure: Error {}
+    private final class SnapshotBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = LiveVoiceSnapshot()
+        var current: LiveVoiceSnapshot { lock.lock(); defer { lock.unlock() }; return value }
+        func set(_ snapshot: LiveVoiceSnapshot) { lock.lock(); value = snapshot; lock.unlock() }
+    }
     private actor FixtureDecoder {
         var calls = 0
         var active = 0
