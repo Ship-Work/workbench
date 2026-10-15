@@ -336,6 +336,15 @@ final class PersonaWorkspaceTests {
             for (name, size) in [("persona-small", CGSize(width: 620, height: 650)), ("persona-normal", CGSize(width: 834, height: 730))] {
                 try render(PersonaLibraryView(library: library, mode: .workspace), size: size, to: directory.appendingPathComponent(name + ".png"))
             }
+            // Back on Persona with an unsaved Arrange overlays layout (#340): one copy moved, the other hidden, the label edited.
+            let saved = library.groups.first { $0.id == group }!
+            var moved = saved.overlays!; moved[0].placement.x = 0.62; moved[1].visible = false
+            library.presentationDraft = PersonaPresentationDraft(groupID: group, original: saved, overlays: moved, publicLabel: "Edited set", selectedID: moved[0].id)
+            for (name, appearance) in [("persona-arrange-kept-light", NSAppearance.Name.aqua), ("persona-arrange-kept-dark", .darkAqua)] {
+                try render(PersonaLibraryView(library: library, mode: .workspace), size: CGSize(width: 1085, height: 900),
+                           to: directory.appendingPathComponent(name + ".png"), appearance: NSAppearance(named: appearance))
+            }
+            library.presentationDraft = nil
             // Present's selection-only chooser, with Persona preparing a group of one card.
             let chooserRoot = root.appendingPathComponent("Chooser")
             try FileManager.default.createDirectory(at: chooserRoot, withIntermediateDirectories: true)
