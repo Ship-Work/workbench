@@ -972,7 +972,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     func refreshShortcutRegistration() {
         guard !shortcutsSuspended, recordingAction == nil else { return }
         let conflicts = StageShortcutSettings.registrationFailures(in: StageShortcutSettings.descriptors(for: settings.value), validateExternal: validateExternalShortcut)
-        guard conflicts != registeredShortcutConflicts else { return }
+        // A key macOS refused is tried again while none is held, since its holder may have let it go.
+        guard conflicts != registeredShortcutConflicts || (!hotkeys.failures.isEmpty && heldAction == nil) else { return }
         registerShortcuts()
     }
     private func registerShortcuts() {

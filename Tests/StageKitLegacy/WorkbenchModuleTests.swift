@@ -163,6 +163,34 @@ final class WorkbenchModuleTests: XCTestCase {
         }
     }
 
+    /// A Draw key macOS refused because another process held it is tried again when the host
+    /// refreshes, so one that was let go clears. A held drawing keeps its key-up meanwhile (#76).
+    func testRefusedShortcutIsTriedAgainOnRefresh() throws {
+        try withDrawingFixture { app in
+            let key = Shortcut(keyCode: UInt32(kVK_F20), modifiers: UInt32(controlKey | optionKey | shiftKey | cmdKey))
+            var penOnly = app.settings.value
+            penOnly.shortcuts[Action.pen.rawValue] = key
+            let competing = HotkeyManager()
+            competing.register(penOnly)
+            defer { competing.unregister() }
+            guard competing.failures.isEmpty else { throw TestSkipped(reason: "another process holds \(key.label): \(competing.failures)") }
+            app.settings.value.shortcuts[Action.pen.rawValue] = key
+            XCTAssertTrue(app.shortcutFailures[.pen] != nil, "The held key must start refused")
+            app.refreshShortcutRegistration()
+            XCTAssertTrue(app.shortcutFailures[.pen] != nil, "A key still held stays refused")
+            competing.unregister()
+            app.handleHotkey(.pen, down: true)
+            XCTAssertTrue(app.isDrawing)
+            app.refreshShortcutRegistration()
+            XCTAssertTrue(app.isDrawing, "A refresh must not drop a held drawing's key-up")
+            XCTAssertTrue(app.shortcutFailures[.pen] != nil, "Nothing is tried again while a key is held")
+            app.handleHotkey(.pen, down: false)
+            XCTAssertFalse(app.isDrawing)
+            app.refreshShortcutRegistration()
+            XCTAssertTrue(app.shortcutFailures[.pen] == nil, "A released key must clear on the next refresh: \(app.shortcutFailures[.pen] ?? "")")
+        }
+    }
+
     func testMigrationCopiesPreviewOnceAndPreservesMalformedFiles() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("WorkbenchMigration-" + UUID().uuidString)
         let suite = FileManager.default.temporaryDirectory.appendingPathComponent("WorkbenchMigrationTests." + UUID().uuidString).path
