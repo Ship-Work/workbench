@@ -1550,8 +1550,18 @@ private struct HistoryNativeAcceptanceView: View {
     /// A key macOS refuses, at launch or later, reaches the coach's catalogue that Home and Keyboard
     /// read, so neither teaches nor offers practice on it (#76). The app's own registration runs on
     /// ⌃⌥⇧⌘F13 to F20, never the person's keys, and only in the light pass: both passes run at once.
+    /// Another gallery on this Mac can hold the same keys for a moment, so a failure is tried again
+    /// a few times before it counts; a missing refresh fails every time.
     func checkShortcutRefusal() throws -> [String] {
         guard theme == "light" else { return [] }
+        for _ in 1..<5 {
+            if let passed = try? shortcutRefusalAttempt() { return passed }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return try shortcutRefusalAttempt()
+    }
+
+    private func shortcutRefusalAttempt() throws -> [String] {
         let keptPreferences = model.preferences, keptFailures = model.shortcutFailures
         let keptEntries = keyboard.entries, keptSelection = keyboard.selectedID
         var preferences = model.preferences
