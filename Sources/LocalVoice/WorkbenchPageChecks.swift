@@ -90,7 +90,7 @@ enum WorkbenchPageChecks {
                   "a subpage or section shows its page's symbol")
         // The panel's door opens the page recorded with the problem where it was raised, never one
         // read from its words (#134 review): each page lands where that problem is shown and fixed.
-        for (page, route, section) in [(Attention.Page.dictate, "dictate", nil), (.home, "home", nil), (.history, "history", nil)] as [(Attention.Page, String, String?)] {
+        for (page, route, section) in [(Attention.Page.dictate, "dictate", nil), (.history, "history", nil)] as [(Attention.Page, String, String?)] {
             let landing = WorkbenchHome.destination(page.route)
             try check(page.route == route && landing.page == route && landing.section == section, "a Voice problem owned by \(page) opens \(route)")
         }

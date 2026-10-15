@@ -393,7 +393,7 @@ final class PersonaAppearanceTests {
         XCTAssertEqual(library.sessionState.instances.map(\.shape), [.card, .circle], "The saved look is drawn again at Start")
         library.setLiveShape(.original, for: selected)
         XCTAssertEqual(library.sessionState.instances.map(\.shape), [.card, .circle], "An old captured action cannot mutate reused copy IDs after End and Start")
-        XCTAssertTrue(library.liveShape(of: selected) == nil); XCTAssertTrue(library.liveCopyHidden(selected) == nil)
+        XCTAssertTrue(library.liveShape(of: selected) == nil)
         library.performOverlayAction(.selectInstance(second.id))
         guard let current = library.selectedLiveCopy else { XCTAssertTrue(false, "Restart must select a current live copy"); return }
         library.pauseOverlaySession()
@@ -438,10 +438,16 @@ final class PersonaAppearanceTests {
         XCTAssertEqual(PersonaFraming.centred.zoomed(to: 9, portrait: size).zoom, 4)
     }
 
-    /// The floating toolbar's Persona accessory reuses the same action through
-    /// StageKitController: a copy captured when drawn is changed exactly, and a
-    /// copy that has ended is left alone. No second store or preference.
-    func testToolbarChangesExactlyTheCapturedCopy() throws {
+    /// Whether this menu holds a live copy's Appearance: an item with that title and a submenu, as
+    /// the Persona menu names it for a shown card and for a set's selected copy, never for a hidden
+    /// card. Found by its title, so choices added under it or reordered still count (#216).
+    @MainActor private func holdsAppearance(_ menu: NSMenu) -> Bool {
+        menu.items.contains { $0.title == "Appearance" && $0.hasSubmenu }
+    }
+
+    /// Persona's Appearance acts on a copy captured when it is drawn: that copy is changed exactly,
+    /// and a copy that has ended is left alone. No second store or preference.
+    func testAppearanceChangesExactlyTheCapturedCopy() throws {
         let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
         let source = try write(png(width: 300, height: 400), named: "portrait.png", in: root)
         // A suite named by a path keeps its plist in this folder, not in ~/Library/Preferences.
@@ -454,49 +460,44 @@ final class PersonaAppearanceTests {
         let scenes = DemoScenes(root: root.appendingPathComponent("scenes"), systemIntegrationEnabled: false)
         app.demoScenes = scenes
         defer { scenes.shutdown() }
-        _ = try scenes.personas.addImage(source, name: "Private name", card: PersonaCardStyle(label: "Site lead"))
+        let library = scenes.personas
+        _ = try library.addImage(source, name: "Private name", card: PersonaCardStyle(label: "Site lead"))
         MainActor.assumeIsolated {
             let stage = StageKitController(coordinator: app)
             stage.useSharedActivityControls()
-            XCTAssertTrue(stage.selectedPersonaCopy == nil, "No live copy, nothing to change")
-            XCTAssertFalse(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "With no live copy, Persona's menu has no Appearance")
+            XCTAssertTrue(library.selectedLiveCopy == nil, "No live copy, nothing to change")
+            XCTAssertTrue(stage.selectedPersonaCopy == nil, "With no live copy, the chooser's Persona commands name none")
+            XCTAssertFalse(holdsAppearance(stage.makePersonaMenu()), "With no live copy, Persona's menu has no Appearance")
             stage.togglePersona()
-            guard let copy = stage.selectedPersonaCopy else { XCTAssertTrue(false, "The shown card is named"); return }
-            XCTAssertEqual(stage.personaShape(of: copy), .card)
-            XCTAssertFalse(stage.isPersonaCopyHidden(copy), "The shown card is not hidden")
-            // The real Persona menu, which the toolbar's More inlines, holds the shown card's
-            // Appearance, so More never adds a second one beside it (#216).
-            XCTAssertTrue(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "A shown card's menu holds its Appearance")
-            stage.setPersonaShape(.circle, for: copy)
-            XCTAssertEqual(stage.personaShape(of: copy), .circle)
-            XCTAssertEqual(scenes.personas.shownCard?.appearance, .circle)
-            XCTAssertEqual(scenes.personas.items[0].effectiveAppearance.shape, .card, "The saved persona keeps its look")
-            XCTAssertEqual(StageKitController.PersonaShape.allCases.map(\.title), ["Circle", "Card", "Original"])
-            // Hidden, the card is still the copy the toolbar's Appearance changes, and says it is hidden
-            // (#134 part B); its new look shows when it is shown again.
+            guard let copy = library.selectedLiveCopy else { XCTAssertTrue(false, "The shown card is named"); return }
+            XCTAssertTrue(stage.selectedPersonaCopy != nil, "The chooser's Persona commands name the shown card")
+            XCTAssertEqual(library.liveShape(of: copy), .card)
+            XCTAssertTrue(holdsAppearance(stage.makePersonaMenu()), "A shown card's menu holds its Appearance")
+            library.setLiveShape(.circle, for: copy)
+            XCTAssertEqual(library.liveShape(of: copy), .circle)
+            XCTAssertEqual(library.shownCard?.appearance, .circle)
+            XCTAssertEqual(library.items[0].effectiveAppearance.shape, .card, "The saved persona keeps its look")
+            // Hidden, the card is still the selected copy; its new look shows when it is shown again.
             stage.togglePersona()
-            XCTAssertTrue(stage.selectedPersonaCopy == copy, "The hidden card is still the selected copy")
-            XCTAssertTrue(stage.isPersonaCopyHidden(copy), "The hidden card says it is hidden")
-            XCTAssertFalse(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "A hidden card's menu has none, so More holds it")
-            stage.setPersonaShape(.original, for: copy)
-            XCTAssertEqual(stage.personaShape(of: copy), .original, "A hidden card takes a new look")
+            XCTAssertTrue(library.selectedLiveCopy == copy, "The hidden card is still the selected copy")
+            XCTAssertFalse(holdsAppearance(stage.makePersonaMenu()), "A hidden card's menu has none")
+            library.setLiveShape(.original, for: copy)
+            XCTAssertEqual(library.liveShape(of: copy), .original, "A hidden card takes a new look")
             stage.togglePersona()
-            XCTAssertFalse(stage.isPersonaCopyHidden(copy), "Shown again, it is not hidden")
-            XCTAssertEqual(scenes.personas.shownCard?.appearance, .original, "It shows the look chosen while hidden")
-            scenes.personas.endOverlaySession()
-            XCTAssertFalse(stage.isPersonaCopyHidden(copy), "An ended copy is gone, not hidden")
+            XCTAssertEqual(library.shownCard?.appearance, .original, "It shows the look chosen while hidden")
+            library.endOverlaySession()
             stage.togglePersona()
-            XCTAssertTrue(stage.personaShape(of: copy) == nil, "An ended copy is no longer live")
-            stage.setPersonaShape(.original, for: copy)
-            XCTAssertEqual(scenes.personas.shownCard?.appearance, .card, "A stale copy never changes the new card")
-            scenes.personas.endOverlaySession()
+            XCTAssertTrue(library.liveShape(of: copy) == nil, "An ended copy is no longer live")
+            library.setLiveShape(.original, for: copy)
+            XCTAssertEqual(library.shownCard?.appearance, .card, "A stale copy never changes the new card")
+            library.endOverlaySession()
         }
     }
 
-    /// The toolbar API's prepared-set path: nothing selected names no copy; a
-    /// copy captured in one set is refused once another set is showing; and one
-    /// copy changes while a sibling copy of the same persona keeps its look.
-    func testToolbarTargetsOnePreparedCopyExactly() throws {
+    /// The prepared-set path: nothing selected names no copy; a copy captured in one set is
+    /// refused once another set is showing; and one copy changes while a sibling copy of the
+    /// same persona keeps its look.
+    func testAppearanceTargetsOnePreparedCopyExactly() throws {
         let root = try temporary(); defer { try? FileManager.default.removeItem(at: root) }
         let source = try write(png(width: 300, height: 400), named: "portrait.png", in: root)
         let settings = SettingsStore(defaults: UserDefaults(suiteName: root.appendingPathComponent("settings").path)!)
@@ -519,42 +520,37 @@ final class PersonaAppearanceTests {
         MainActor.assumeIsolated {
             let stage = StageKitController(coordinator: app)
             stage.useSharedActivityControls()
-            guard let copyA = stage.selectedPersonaCopy else { XCTAssertTrue(false, "The selected copy is named"); return }
+            guard let copyA = library.selectedLiveCopy else { XCTAssertTrue(false, "The selected copy is named"); return }
             // One copy changes; its sibling copy of the same persona keeps its look.
-            stage.setPersonaShape(.circle, for: copyA)
+            library.setLiveShape(.circle, for: copyA)
             XCTAssertEqual(library.sessionState.instances.map(\.shape), [.circle, .card])
-            XCTAssertEqual(stage.personaShape(of: copyA), .circle)
-            // Hidden with its set, or on its own, the copy says so (#134 part B).
-            XCTAssertFalse(stage.isPersonaCopyHidden(copyA), "The showing copy is not hidden")
-            XCTAssertTrue(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "A set's menu holds its selected copy's Appearance")
+            XCTAssertEqual(library.liveShape(of: copyA), .circle)
+            // A set's menu holds its selected copy's Appearance, shown or hidden (#134 part B).
+            XCTAssertTrue(holdsAppearance(stage.makePersonaMenu()), "A set's menu holds its selected copy's Appearance")
             library.performOverlayAction(.pauseResume)
-            XCTAssertTrue(stage.isPersonaCopyHidden(copyA), "A copy in a hidden set is hidden")
-            XCTAssertTrue(stage.selectedPersonaCopy == copyA, "and is still the selected copy")
-            XCTAssertTrue(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "and its Appearance while the set is hidden")
+            XCTAssertTrue(library.selectedLiveCopy == copyA, "A copy in a hidden set is still the selected copy")
+            XCTAssertTrue(holdsAppearance(stage.makePersonaMenu()), "and its Appearance while the set is hidden")
             library.performOverlayAction(.pauseResume)
-            XCTAssertFalse(stage.isPersonaCopyHidden(copyA), "Shown again, it is not")
             library.performOverlayAction(.visible(a.id, false))
-            XCTAssertTrue(stage.isPersonaCopyHidden(copyA), "A copy hidden on its own is hidden while its set shows")
-            XCTAssertTrue(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "and its Appearance while the copy is hidden on its own")
+            XCTAssertTrue(holdsAppearance(stage.makePersonaMenu()), "and its Appearance while the copy is hidden on its own")
             library.performOverlayAction(.visible(a.id, true))
             // Nothing selected: no copy to change.
             library.performOverlayAction(.remove(b.id)); library.performOverlayAction(.remove(a.id))
             XCTAssertTrue(library.sessionState.selectedInstanceID == nil)
-            XCTAssertTrue(stage.selectedPersonaCopy == nil, "A live set with nothing selected names no copy")
-            XCTAssertFalse(StageKitController.personaMenuHoldsAppearance(stage.makePersonaMenu()), "With nothing selected, the set's menu has no Appearance")
+            XCTAssertTrue(library.selectedLiveCopy == nil, "A live set with nothing selected names no copy")
+            XCTAssertFalse(holdsAppearance(stage.makePersonaMenu()), "With nothing selected, the set's menu has no Appearance")
             // A copy captured in the first set is refused once the second set shows.
             library.performOverlayAction(.selectGroup(second))
             guard let other = library.sessionState.instances.first else { return }
-            XCTAssertTrue(stage.personaShape(of: copyA) == nil, "The captured copy is not live in this set")
-            stage.setPersonaShape(.original, for: copyA)
+            XCTAssertTrue(library.liveShape(of: copyA) == nil, "The captured copy is not live in this set")
+            library.setLiveShape(.original, for: copyA)
             XCTAssertEqual(library.sessionState.instances.first { $0.id == other.id }?.shape, .card, "Another set's copy is left alone")
-            // A set's copy is gone once its set ends, not hidden, even when the set was hidden (#216).
+            // A set's copy is gone once its set ends, even when the set was hidden (#216).
             library.performOverlayAction(.selectInstance(other.id))
-            guard let copyB = stage.selectedPersonaCopy else { XCTAssertTrue(false, "The second set's copy is named"); return }
+            guard let copyB = library.selectedLiveCopy else { XCTAssertTrue(false, "The second set's copy is named"); return }
             library.performOverlayAction(.pauseResume)
-            XCTAssertTrue(stage.isPersonaCopyHidden(copyB), "Hidden with its set")
             library.endOverlaySession()
-            XCTAssertFalse(stage.isPersonaCopyHidden(copyB), "An ended set's copy is gone, not hidden")
+            XCTAssertTrue(library.liveShape(of: copyB) == nil, "An ended set's copy is no longer live")
         }
     }
 

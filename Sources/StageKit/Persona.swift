@@ -1069,22 +1069,9 @@ final class PersonaLibrary: NSObject, ObservableObject {
             return sessionState.instances.first { $0.id == id }?.shape
         }
     }
-    /// Whether an explicit live copy is hidden now: the one floating card kept for
-    /// Show Again, or a set's copy while the set is hidden or the copy itself is.
-    /// nil once that copy is no longer live.
-    func liveCopyHidden(_ copy: PersonaLiveCopy) -> Bool? {
-        guard copy.generation == overlayGeneration else { return nil }
-        switch copy {
-        case .card(let id, _):
-            return session == nil && shownCard?.copyID == id ? !artworkVisible : nil
-        case .overlay(let id, let group, _):
-            guard sessionState.currentGroupID == group, let instance = sessionState.instances.first(where: { $0.id == id }) else { return nil }
-            return sessionState.phase == .paused || !instance.visible
-        }
-    }
     /// Circle, Card or Original for exactly one live copy, from its Options or the
-    /// toolbar. A copy that is no longer live is left alone; no other copy and no
-    /// saved persona changes.
+    /// Persona workspace. A copy that is no longer live is left alone; no other copy
+    /// and no saved persona changes.
     func setLiveShape(_ shape: PersonaAppearance.Shape, for copy: PersonaLiveCopy) {
         guard copy.generation == overlayGeneration else { return }
         switch copy {

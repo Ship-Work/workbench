@@ -141,8 +141,6 @@ ENTRY_POINTS = [
     # toolbar reveals in place of its row (#134 T4). Recording and narration are the row's.
     ('LocalVoice/FloatingToolbar.swift', 'WorkbenchFloatingContent', 'floating toolbar live controls', 'page'),
     ('LocalVoice/FloatingToolbar.swift', 'FloatingResultView', 'floating toolbar live controls', 'page'),
-    # Persona's Appearance accessory opens its own menu for the selected live copy (#134 part B).
-    ('LocalVoice/FloatingToolbarState.swift', 'ToolbarAccessoryMenus', 'floating toolbar accessory', 'controls'),
     ('StageKit/AnnotationMenu.swift', 'AnnotationMenu', 'Draw menu', 'controls'),
     ('StageKit/DemoScenes.swift', 'DemoScenes.makeControlsMenu', 'Present menu', 'controls'),
     ('StageKit/DemoPresentation.swift', 'DemoPresentation.makeControlsMenu', 'Present menu', 'controls'),
@@ -735,9 +733,9 @@ class Inventory:
 
     def bridged(self, found, member):
         """(enum, member) whose words `found` shows unchanged, when every case's `member` is
-        Other(rawValue: rawValue)?.m ?? rawValue and Other has every one of its raw values:
-        StageKitController.PersonaShape shows PersonaAppearance.Shape's titles. Otherwise None,
-        and the labels stay runtime."""
+        Other(rawValue: rawValue)?.m ?? rawValue and Other has every one of its raw values, as a
+        wrapper of PersonaAppearance.Shape shows its titles. Otherwise None, and the labels stay
+        runtime."""
         swift, start, end = found
         forms = {expr for _, expr in choice_labels(swift, start, end, member).values()}
         match = len(forms) == 1 and re.fullmatch(r'((?:\w+ \. )*\w+) \( rawValue : rawValue \) \? \. (\w+) \?\? rawValue', next(iter(forms)) or '')

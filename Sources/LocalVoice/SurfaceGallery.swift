@@ -1504,7 +1504,7 @@ private struct HistoryNativeAcceptanceView: View {
     func renderHomeLargerText(to output: URL) throws -> SurfaceGallery.Shot {
         let scale: CGFloat = 1.35, size = NSSize(width: SurfaceGallery.sizes[1].size.width - 216, height: SurfaceGallery.sizes[1].size.height)
         model.page = "home"
-        let page = WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap, introduction: FounderIntroductionModel(),
+        let page = WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
                                      jobs: model.handoffJobs, meetings: model.meetings, keyboard: keyboard)
             .frame(width: size.width / scale, height: size.height / scale).scaleEffect(scale, anchor: .topLeading)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -2739,7 +2739,7 @@ private struct HistoryNativeAcceptanceView: View {
         // The content column of the default window, beside the sidebar.
         let size = NSSize(width: SurfaceGallery.sizes[0].size.width - 216, height: SurfaceGallery.sizes[0].size.height)
         model.page = "home"
-        let page = WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap, introduction: FounderIntroductionModel(),
+        let page = WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
                                      jobs: jobs, meetings: model.meetings, keyboard: keyboard)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .background(Workbench.background).tint(Workbench.accent).workbenchTheme()
@@ -4323,7 +4323,7 @@ private struct HistoryNativeAcceptanceView: View {
         controls.toolbar.send(.holdBegan(.keyboard))
         for mode in ToolbarMode.allCases {
             model.toolbarMode = mode; settle(.revealed)
-            let expected = ToolbarAccessory.offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: false)
+            let expected = ToolbarAccessory.offered(for: ToolbarLiveState(mode: mode))
             let found = host.window?.contentView.map(buttons)?.filter { $0.accessibilityIdentifier() == "toolbar.accessory" } ?? []
             let title = expected?.title
             expect("\(mode.title)'s accessory, revealed with nothing live", [
@@ -4633,8 +4633,7 @@ private struct HistoryNativeAcceptanceView: View {
                  page(panel, "Clipboard receipt · Review text", "history"),
                  page(panel, "Recovery · Open Dictate…, for a dictation error", "dictate"),
                  page(panel, "Recovery · Open History…, for a transcript removal or export", "history"),
-                 page(panel, "Recovery · Open Home…, when the speech model could not be prepared", "home"),
-                 page(panel, "Recovery · Open Models…, while speech is still preparing", "models"), page(panel, "Recovery · Open Snap & Talk…, for its notice", "readback"),
+                 page(panel, "Recovery · Open Models…, while speech is not ready, preparing or could not be prepared", "models"), page(panel, "Recovery · Open Snap & Talk…, for its notice", "readback"),
                  page(panel, "Recovery · Open Draw…, for a drawing notice", "annotate"), page(panel, "Recovery · Open Present…, for a scene notice", "present"),
                  page(panel, "Recovery · Open Persona…, for a persona notice", "personas"),
                  page(panel, "Recovery · Open Keyboard…, for recording a shortcut", "shortcuts"),

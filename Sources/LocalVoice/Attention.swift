@@ -7,8 +7,6 @@ struct Attention: Equatable {
     enum Page: Equatable, CaseIterable {
         /// Dictation, capture and its recovery, delivery, the dictionary and the saved session.
         case dictate
-        /// Preparing the speech model, whose Retry model is on Home.
-        case home
         /// Removing, exporting or opening a saved transcript.
         case history
 
@@ -16,7 +14,6 @@ struct Attention: Equatable {
         var route: String {
             switch self {
             case .dictate: return "dictate"
-            case .home: return "home"
             case .history: return "history"
             }
         }

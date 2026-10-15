@@ -28,7 +28,7 @@ enum WorkbenchControlChecks {
             let small = NSRect(x: 0, y: 0, width: 800, height: 250)
             let landing = controls.size(for: .left, screen: small)
             try check(landing == NSSize(width: 40, height: 212) && !controls.fittedRow(for: .left, screen: small).accessoryFits,
-                      "guide and release both leave Review in More when the destination edge is short")
+                      "guide and release both leave Review off the row when the destination edge is short")
             controls.reportSize(landing, tier: .revealed, anchor: .left, isResult: false, accessoryAvailable: true, accessoryShown: false)
             try check(controls.size(for: .left, screen: small) == landing, "committing the fitted column keeps the preview size")
             try check(controls.size(for: .bottom, screen: small) == NSSize(width: 252, height: 40), "returning to a long edge restores the contextual accessory")
@@ -238,31 +238,9 @@ enum WorkbenchControlChecks {
         try check(WorkbenchControlState.liveTimer(.finished) == .finished && WorkbenchControlState.liveTimer(.paused) == .paused
                   && WorkbenchControlState.liveTimer(.running) == .running && WorkbenchControlState.liveTimer(.idle) == .none,
                   "the next action's live state tells a finished timer from a paused one")
-        // More's Active work reaches everything the mark can show from any other tool (#205 review).
-        do {
-            func items(_ mode: ToolbarMode, _ edit: (inout ToolbarActiveWork.Facts) -> Void) -> [ToolbarActiveWork] {
-                var facts = ToolbarActiveWork.Facts(mode: mode, nextAction: .start(mode))
-                edit(&facts)
-                return ToolbarActiveWork.items(facts)
-            }
-            let others = ToolbarMode.allCases
-            try check(others.allSatisfy { items($0) { $0.meetingRecovery = true } == [.meetingRecovery] },
-                      "a meeting recording saved for retry is offered from every tool, since Dictate's options hold only its page")
-            try check(others.filter { $0 != .snap }.allSatisfy { items($0) { $0.snapDraft = true } == [.snapDraft] }
-                      && items(.snap) { $0.snapDraft = true }.isEmpty,
-                      "an unsaved Snap capture opens the Snap editor from every other tool; Snap's own options already do")
-            try check(others.allSatisfy { mode in
-                          [TimerTransport.running, .paused, .finished].allSatisfy { transport in items(mode) { $0.timer = transport } == [.timer(transport)] }
-                              && items(mode) { $0.timer = .idle }.isEmpty },
-                      "the timer offers the next transport TimerTransport names, Pause, Resume or Restart, whichever tool is chosen")
-            try check(items(.present) { $0.drawing = true; $0.meetingRecording = true; $0.persona = .sessionHidden }
-                          == [.stopDrawing, .persona("Show personas"), .stopTranscribing]
-                      && items(.draw) { $0.presenting = true } == [.endPresentation] && items(.dictate) { $0.meetingRecording = true; $0.meetingRecovery = true }.isEmpty,
-                      "the other tools' finishes are unchanged, and a recording meeting is not offered for recovery")
-        }
         // Words waiting for drawing to end lead the toolbar with Stop drawing, which delivers them;
-        // Copy now is in More (#211 F5). The menu's rows stay with their own capability (#214):
-        // Dictate waits and Draw's own row offers Stop drawing.
+        // Copy now is in the chooser's Dictate row (#211 F5). The menu's rows stay with their own
+        // capability (#214): Dictate waits and Draw's own row offers Stop drawing.
         do {
             var waiting = WorkbenchControlState(); waiting.phase = .delivering; waiting.waitingForDrawing = true; waiting.drawing = true
             try check(waiting.live(.dictate).dictation == .waitingForDrawing && ToolbarNextAction.resolve(waiting.live(.dictate)).operation == .finishDrawing,
@@ -314,47 +292,6 @@ enum WorkbenchControlChecks {
             kept.unfocusToolbar(); kept.showResultIfKeptOpen()
             try check(kept.revealsResult, "once nothing is on it, the result takes the kept-open row's place")
             kept.toolbar.send(.keepOpenChanged(false))
-        }
-        // Persona's Appearance (#134 part B): Circle, Card and Original for the copy taken as the menu
-        // opens, its current look checked; a choice changes that copy and no other.
-        do {
-            var looks: [Int: StageKitController.PersonaShape] = [1: .card, 2: .circle]
-            let menu = ToolbarAccessoryMenus.appearance(copy: 1, current: { looks[$0] }, choose: { looks[$1] = $0 })
-            try check(menu.items.map(\.title) == ["Circle", "Card", "Original"] && menu.items.map(\.state) == [.off, .on, .off],
-                      "Appearance lists Circle, Card and Original with the copy's current look checked")
-            let original = menu.items[2]
-            _ = (original.target as AnyObject?)?.perform(original.action, with: original)
-            try check(looks == [1: .original, 2: .circle], "an Appearance choice changes the copy its menu opened for, and no other")
-            try check(ToolbarAccessoryMenus.appearance(copy: Int?.none, current: { _ in nil }, choose: { _, _ in }).items.isEmpty,
-                      "with no copy, Appearance has nothing to change")
-            // When the row has no room for Appearance it waits in More, unless Persona's own menu there
-            // already holds the choice, as a shown card's and a set's Appearance do. The StageKit suite
-            // checks the real Persona menus; these stand-ins check the rule around them (#216).
-            func personaMenu(_ titles: [String], appearance choices: [String]?) -> NSMenu {
-                let menu = NSMenu()
-                titles.forEach { menu.addItem(withTitle: $0, action: nil, keyEquivalent: "") }
-                if let choices {
-                    let item = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: ""), submenu = NSMenu()
-                    choices.forEach { submenu.addItem(withTitle: $0, action: nil, keyEquivalent: "") }
-                    item.submenu = submenu; menu.addItem(item)
-                }
-                return menu
-            }
-            let hiddenCard = personaMenu(["Show Again", "End Overlay"], appearance: nil)
-            let shownCard = personaMenu(["Choose Persona", "End Overlay"], appearance: ["Circle", "Card", "Original"])
-            // Choices that grow or change order under Persona's Appearance never bring a second one.
-            for grown in [["Card", "Circle", "Original"], ["Circle", "Card", "Original", "Outline"]] {
-                try check(!ToolbarAccessoryMenus.moreNeedsAppearance(personaMenu(["Choose Persona"], appearance: grown),
-                                                                      accessoryFits: false, hasCopy: true),
-                          "Persona's Appearance is found by its title, whatever choices it holds: \(grown)")
-            }
-            try check(ToolbarAccessoryMenus.moreNeedsAppearance(hiddenCard, accessoryFits: false, hasCopy: true),
-                      "a hidden card's Appearance waits in More when the row has no room for it")
-            try check(!ToolbarAccessoryMenus.moreNeedsAppearance(hiddenCard, accessoryFits: true, hasCopy: true),
-                      "while it fits, Appearance stays on the row and More does not repeat it")
-            try check(!ToolbarAccessoryMenus.moreNeedsAppearance(shownCard, accessoryFits: false, hasCopy: true),
-                      "a shown copy's Appearance in More already holds Circle, Card and Original")
-            try check(!ToolbarAccessoryMenus.moreNeedsAppearance(hiddenCard, accessoryFits: false, hasCopy: false), "with no copy, More has no Appearance")
         }
         // The tool chooser (#134): a choice or Escape gives the keyboard back to the launcher, so a
         // second Escape leaves the toolbar; a click elsewhere leaves it where the person went.
@@ -495,9 +432,8 @@ enum WorkbenchControlChecks {
             camera.mayPresent = true; camera.personaCameraMayResume = false
             try check(!camera.enabled(.persona), "restricted camera access is not retryable from another surface")
             var hidden = WorkbenchControlState(); hidden.overlays = true; hidden.overlaySession = true; hidden.overlaysPaused = true
-            try check(HomePersonaControl(hidden).tileVerb == "Show personas" && HomePersonaControl(hidden).help.hasPrefix("Show the set again"),
-                      "a hidden prepared set's tile and tooltip offer to show it again, never to hide it")
-            try check(HomePersonaControl(WorkbenchControlState()).tileVerb == "Show a card over your apps", "with nothing live the tile keeps its description")
+            try check(HomePersonaControl(hidden).help.hasPrefix("Show the set again"),
+                      "a hidden prepared set's tooltip offers to show it again, never to hide it")
             hidden.presenting = true; hidden.timerStarted = true; hidden.timerRunning = true
             try check(hidden.actionTitle(.persona) == "Show personas" && hidden.rowAction(.persona) == .operation(.resumeOverlays)
                       && hidden.actionTitle(.present) == "End presentation" && hidden.actionTitle(.timer) == "Stop timer",

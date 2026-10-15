@@ -259,40 +259,13 @@ public final class StageKitController: ObservableObject {
     public var personaPicker: PersonaPicker? { coordinator.demoScenes.personas.toolbarPicker }
     /// My Profile and Live Camera, then the cards Persona can show now; a prepared set's sets.
     public func makePersonaPickerMenu() -> NSMenu { coordinator.demoScenes.personas.makeToolbarPickerMenu() }
-    /// One live persona copy, named exactly: the one floating card, or one copy of
-    /// a prepared set. Capture it when a control is drawn, so a later choice
-    /// changes that copy and never another (#169, #134).
+    /// The selected live persona copy as an opaque identity: the one floating card,
+    /// or one copy of a prepared set. The chooser's Persona commands fold it into
+    /// their identity, so a stale row cannot act on a different copy (#169, #134).
     public struct PersonaCopy: Equatable { fileprivate let copy: PersonaLiveCopy }
-    /// Circle, Card or Original: Persona's one appearance choice.
-    public enum PersonaShape: String, CaseIterable, Sendable {
-        case circle, card, original
-        public var title: String { PersonaAppearance.Shape(rawValue: rawValue)?.title ?? rawValue }
-    }
     /// The live copy Persona's Options act on now: the selected copy of a prepared
     /// set, or else the one floating card. nil when no persona is live.
     public var selectedPersonaCopy: PersonaCopy? { coordinator.demoScenes.personas.selectedLiveCopy.map { PersonaCopy(copy: $0) } }
-    /// The look that copy shows now; nil once it is no longer live.
-    public func personaShape(of copy: PersonaCopy) -> PersonaShape? {
-        coordinator.demoScenes.personas.liveShape(of: copy.copy).flatMap { PersonaShape(rawValue: $0.rawValue) }
-    }
-    /// Whether that copy is hidden now: the one floating card kept for Show again,
-    /// or a set's copy while the set or the copy is hidden. False once it is gone.
-    public func isPersonaCopyHidden(_ copy: PersonaCopy) -> Bool {
-        coordinator.demoScenes.personas.liveCopyHidden(copy.copy) == true
-    }
-    /// Whether this menu holds a live copy's Appearance: an item with that title and a submenu, as
-    /// the Persona menu names it for a shown card and for a set's selected copy, never for a hidden
-    /// card. Found by its title, so choices added under it or reordered never make the floating
-    /// toolbar's More add a second Appearance beside it (#134 part B, #216).
-    public static func personaMenuHoldsAppearance(_ menu: NSMenu) -> Bool {
-        menu.items.contains { $0.title == "Appearance" && $0.hasSubmenu }
-    }
-    /// Changes exactly that live copy's look, as its Appearance menu does. The
-    /// saved persona, other copies and the layout's saved state are unchanged.
-    public func setPersonaShape(_ shape: PersonaShape, for copy: PersonaCopy) {
-        guard let look = PersonaAppearance.Shape(rawValue: shape.rawValue) else { return }
-        coordinator.demoScenes.personas.setLiveShape(look, for: copy.copy)
-    }
     /// The panel row starts and stops the timer; its Options, Home, the chooser and the
     /// timer's own window carry the next step and Show or Hide timer.
     public func startTimer() { coordinator.startTimer() }

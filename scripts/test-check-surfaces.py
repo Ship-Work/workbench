@@ -521,6 +521,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertNotIn('Recording', self.labels())
 
     def test_an_enum_showing_another_enums_words_records_that_enum(self):
+        # A synthetic wrapper: no app enum has this form today, and this keeps the generic bridging covered.
         self.write('StageKit/PersonaAppearance.swift', '''struct PersonaAppearance {
           enum Shape: String, CaseIterable {
             case circle, card
@@ -528,12 +529,12 @@ class SurfaceTests(unittest.TestCase):
           }
         }''')
         owner = self.write('StageKit/StageKitController.swift', '''final class StageKitController {
-          public enum PersonaShape: String, CaseIterable {
+          public enum ShapeChoice: String, CaseIterable {
             case circle, card
             public var title: String { PersonaAppearance.Shape(rawValue: rawValue)?.title ?? rawValue }
           }
           func makePersonaMenu() -> NSMenu {
-            for shape in PersonaShape.allCases { menu.addItem(StageMenuAction(shape.title) { set(shape) }) }
+            for shape in ShapeChoice.allCases { menu.addItem(StageMenuAction(shape.title) { set(shape) }) }
             return menu
           }
         }''')
@@ -542,8 +543,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual([('choices.PersonaAppearance.Shape.card', 'Card'), ('choices.PersonaAppearance.Shape.circle', 'Circle')], choices())
         # A case the other enum lacks would show its raw value: the words are its own, at runtime.
         owner.write_text(owner.read_text().replace('case circle, card', 'case circle, card, star'))
-        self.assertEqual([('choices.StageKitController.PersonaShape.card', None), ('choices.StageKitController.PersonaShape.circle', None),
-                          ('choices.StageKitController.PersonaShape.star', None)], choices())
+        self.assertEqual([('choices.StageKitController.ShapeChoice.card', None), ('choices.StageKitController.ShapeChoice.circle', None),
+                          ('choices.StageKitController.ShapeChoice.star', None)], choices())
 
     def test_registry_schema_and_duplicate_ids(self):
         entry = {**self.registry()[0], 'kind': 'mystery', 'belongsTo': 'workspace'}

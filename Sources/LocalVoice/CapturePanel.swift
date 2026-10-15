@@ -86,8 +86,6 @@ final class CaptureHUDControls: ObservableObject {
         }
         if previous != preferredToolbarSize { resize?() }
     }
-    /// The revealed row's last measured size, for deciding whether its accessory fits.
-    var rowSize: NSSize { ToolbarLayout.oriented(measuredRowSize, for: rowAnchor) }
     func focusToolbar() { toolbar.send(.holdBegan(.keyboard)) }
     func unfocusToolbar() { toolbar.send(.holdEnded(.keyboard)) }
     func endKeyboardInteraction() { unfocusToolbar(); releaseKeyboardFocus?() }
@@ -104,8 +102,8 @@ final class CaptureHUDControls: ObservableObject {
     /// the row opens, and only for the pointer's own reveal, a dwell or a click on the mark: a
     /// failure or receipt that arrives while the row is open never replaces it under the pointer,
     /// and waits as the mark's status until the person reveals it. Keyboard entry keeps the
-    /// launcher row, with the result's own commands first in More (#211 F1), and a row that Keep
-    /// open brings back waits for the checks the kept-open swap makes (#211 F8).
+    /// launcher row, with the result's own commands under its tool in the chooser (#211 F1),
+    /// and a row that Keep open brings back waits for the checks the kept-open swap makes (#211 F8).
     @Published private(set) var revealsResult = false
     /// A result is waiting for the person; the host answers from its owners.
     var resultPending: () -> Bool = { false }
@@ -627,8 +625,8 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
     }
 
     /// Draw and measure the row for its centre or inward edge, then place its native
-    /// window on that same reference (#152, #163, #134). The accessory waits in More
-    /// when the row with it would not fit.
+    /// window on that same reference (#152, #163, #134). The accessory is left off the
+    /// row when the row with it would not fit; the chooser still opens its workspace.
     private func placeTools(previous: NSRect?, preferred: NSRect, animated: Bool) {
         let screen = toolsScreen(previous: previous, preferred: preferred)
         let rowAnchor = ToolbarGeometry.rowAnchor(toolsPosition)

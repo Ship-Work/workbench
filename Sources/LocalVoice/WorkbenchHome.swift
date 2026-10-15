@@ -285,7 +285,7 @@ struct WorkbenchHome: View {
         keyboard.stopInteraction(); showingProfile = true
     }
     private var welcome: some View {
-        WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap, introduction: introduction,
+        WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
                           jobs: model.handoffJobs, meetings: model.meetings, keyboard: keyboard,
                           greetingPlayed: $greetingPlayed, openProfile: { keyboard.stopInteraction(); showingProfile = true },
                           prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: MeetingFollowUp.task, transcriptID: id) })
@@ -400,7 +400,7 @@ struct WorkbenchHome: View {
                              + (Workbench.isPreview ? " Workbench and Workbench Preview keep separate libraries; your previous Voice and StageMark data remains in place." : ""))
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
-                    FounderIntroductionCard(model: introduction, canDismiss: false)
+                    FounderIntroductionCard(model: introduction)
                 }
             }
         }
@@ -558,7 +558,6 @@ struct WorkbenchHomePage: View {
     @ObservedObject var stage: StageKitController
     @ObservedObject var readback: ReadbackModel
     @ObservedObject var snap: SnapModel
-    @ObservedObject var introduction: FounderIntroductionModel
     @ObservedObject var jobs: HandoffJobsModel
     @ObservedObject var meetings: MeetingModel
     @ObservedObject var keyboard: KeyboardCoachModel
@@ -815,11 +814,6 @@ struct WorkbenchHomePage: View {
                 // The writing model's download or its failure, as Dictate's line shows it (#134).
                 if let line = model.writingModelLine {
                     Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-                // A failed preparation belongs here, beside Retry model: the menu-bar panel's
-                // Open Home… leads to these words (#134).
-                if let attention = model.attention, attention.page == .home {
-                    Text(attention.message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer()
