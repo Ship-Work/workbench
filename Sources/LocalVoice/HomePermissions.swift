@@ -562,6 +562,7 @@ struct HomePermissionsPanel: View {
     @State private var showingDetails = false
     @State private var problem: String?
     @State private var copiedDetails = false
+    @Environment(\.pageSectionFrames) private var sectionFrames
 
     var body: some View {
         let expanded = snapshot.expanded(dismissed: dismissed, offWhenDismissed: offWhenDismissed) || showingDetails
@@ -611,9 +612,11 @@ struct HomePermissionsPanel: View {
             Image(systemName: row.permission.symbol).font(.system(size: 15)).foregroundStyle(row.tone == .done ? Workbench.accent : .secondary)
                 .frame(width: 22, height: 20).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.permission.name).font(.callout.weight(.semibold)).lineLimit(2).layoutPriority(1)
-                    WorkbenchStatusBadge(text: row.status, tone: row.tone)
+                // The name is macOS's own list name, the words to find in Privacy & Security, so it
+                // wraps rather than clips, and the badge drops under it when both don't fit (#335).
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) { name(row); WorkbenchStatusBadge(text: row.status, tone: row.tone) }
+                    VStack(alignment: .leading, spacing: 2) { name(row); WorkbenchStatusBadge(text: row.status, tone: row.tone) }
                 }
                 Text(row.permission.purpose).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 ForEach(row.details + [row.afterAllowing].compactMap { $0 }, id: \.self) { line in
@@ -630,6 +633,11 @@ struct HomePermissionsPanel: View {
             }
         }.padding(.vertical, 10)
             .accessibilityElement(children: .contain)
+    }
+
+    private func name(_ row: MacPermissionRow) -> some View {
+        Text(row.permission.name).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.permissions.\(row.permission.rawValue).name", $0) }
     }
 
     /// Each Set up… reaches the same owner its tool uses: Dictate's microphone and automatic-paste

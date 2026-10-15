@@ -1340,13 +1340,6 @@
     "note": "Review opens where the words are kept: History for a transcript and Library for a prompt; for an undelivered result, History for a transcript's words and the Dictate page for the draft's (#134 T5)."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.Button.show-cue",
-    "surface": "quick panel status rows",
-    "label": "Show cue",
-    "kind": "action",
-    "belongsTo": "dictate"
-  },
-  {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.Label.runtime-2a193c56060b",
     "surface": "quick panel status rows",
     "label": null,
@@ -1641,7 +1634,15 @@
     "label": "Models…",
     "kind": "action",
     "belongsTo": "settings",
-    "note": "Quality: was Speech settings; the door names the Settings section it opens, Models (Fit rule 6; 1 Oct)."
+    "note": "Quality: the engine banner's door again, beside the writing model's download or failure in Current work while speech is ready, as Dictate and the menu-bar panel show that line; Cancel and Download again stay in Models (#335)."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.models.2",
+    "surface": "window home",
+    "label": "Models…",
+    "kind": "action",
+    "belongsTo": "settings",
+    "note": "Quality: was Speech settings; the door names the Settings section it opens, Models (Fit rule 6; 1 Oct). The engine banner, which also carries the writing model's line while speech is not ready (#335)."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.open-in-history",
@@ -1732,6 +1733,24 @@
     "kind": "action",
     "belongsTo": "timer",
     "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Reuses the Timer menu (Pause, Stop, Reset)."
+  },
+  {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+  },
+  {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996.2",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.PanelRecoveryRow.Button.runtime-27f7b4321a3d",

@@ -493,7 +493,6 @@ struct WorkbenchClipboardShelf: View {
     /// gone (#134 T5). Shown only while no current receipt is.
     var unresolved: UnresolvedDelivery? = nil
     let review: () -> Void
-    let showCue: () -> Void
     /// Review for an undelivered result: the Dictate page for the draft's
     /// words, History for a transcript's.
     var reviewUnresolved: (UnresolvedDelivery) -> Void = { _ in }
@@ -534,8 +533,7 @@ struct WorkbenchClipboardShelf: View {
                 HStack {
                     Button("Review text") { if receipt == nil, let unresolved { reviewUnresolved(unresolved) } else { review() } }
                     Spacer()
-                    if receipt != nil { Button("Show cue", action: showCue) }
-                    else if let unresolved {
+                    if receipt == nil, let unresolved {
                         if unresolved.offersCopy { Button("Copy again", action: copyAgain) }
                         Button("Dismiss", action: dismissUnresolved).accessibilityLabel("Dismiss unfinished delivery")
                     }
@@ -551,6 +549,7 @@ struct WorkbenchClipboardShelf: View {
 /// before you have one), what this Mac allows and the keys worth learning. Every action acts on
 /// the item beside it.
 struct WorkbenchHomePage: View {
+    @Environment(\.pageSectionFrames) private var sectionFrames
     @ObservedObject var model: AppModel
     @ObservedObject var stage: StageKitController
     @ObservedObject var readback: ReadbackModel
@@ -693,8 +692,16 @@ struct WorkbenchHomePage: View {
         // The guide reads only History and the saved guide state, never this property: asking
         // `journey` here recursed until the stack overflowed whenever speech was preparing.
         dictationLive || (model.preparing && !model.ready && !guideShows)
+            || HomeJourney.writingModelIsCurrentWork(hasLine: writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
             || readback.isRecording || readback.hasPendingTranscriptions || stage.isDrawing || stage.isPresenting
             || personaControl.isCurrentWork || stage.hasTimerSession || meetings.isBusy || jobs.isBusy
+    }
+    /// The writing model's line as Current work counts and shows it: a failure only while the
+    /// saved Text style uses Ollama (`HomeJourney.writingModelLine`).
+    private var writingModelLine: String? {
+        HomeJourney.writingModelLine(download: model.cleanupModels.downloadLine, failure: model.cleanupModels.failure,
+            savedStyleUsesOllama: model.cleanupModels.failure != nil && model.preferences.cleanup == .natural
+                && model.cleanupModels.store.snapshot().naturalProvider == .ollama)
     }
     /// Active input first, then other running or resumable work, each with its
     /// own truthful action. Leaving Home collapses, acknowledges or discards none of it.
@@ -711,6 +718,15 @@ struct WorkbenchHomePage: View {
             if meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
             // The guide shows the speech engine itself while it is offered.
             if !model.ready && !journey.showsGuide { engineBanner }
+            // The writing model's download or its failure while speech is ready, when no engine
+            // banner carries it: the same line Dictate and the panel show (#335). Cancel stays in Models.
+            if model.ready, let line = writingModelLine {
+                let failed = model.cleanupModels.downloading == nil
+                liveRow(line, failed ? "exclamationmark.triangle.fill" : "text.badge.checkmark", attention: failed) {
+                    if !failed { ProgressView().controlSize(.small) }
+                    Button("Models…") { model.page = "models" }
+                }.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.writing-model", $0) }
+            }
             // Other running or resumable work.
             if model.waitingForDrawing {
                 liveRow("Text ready", "doc.on.clipboard") { Button("Copy") { model.copyWaitingDelivery() } }
@@ -836,7 +852,7 @@ struct WorkbenchHomePage: View {
                         Text(model.captureProcessingLabel).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Text("or press \(model.preferences.dictationShortcut.label) in any text field").font(.callout).foregroundStyle(.secondary)
+                Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])).font(.callout).foregroundStyle(.secondary)
                 if !model.transcript.isEmpty {
                     Text(model.transcript).lineLimit(6).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16).background(Workbench.surface, in: RoundedRectangle(cornerRadius: 12))
@@ -863,7 +879,6 @@ struct WorkbenchHomePage: View {
                             default: model.openHistory()
                             }
                         },
-                        showCue: { model.clipboardReceipt.revealHUD() },
                         reviewUnresolved: { _ in model.reviewUnresolvedDelivery() },
                         copyAgain: { model.copyUnresolvedDelivery() }, dismissUnresolved: { model.dismissUnresolvedDelivery() })
                 }
@@ -928,6 +943,25 @@ struct HomeJourney: Equatable {
     var offersGuide: Bool { !showsGuide && !hasDictated }
     /// What to save once History holds a dictation.
     var guideToSave: FirstDictationGuide? { transcripts > 0 && guide != .completed ? .completed : nil }
+    /// The writing model's download or failure is current work while speech is ready, in its own
+    /// row, or while the guide is hidden, in the engine banner. While the guide shows over speech
+    /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
+    static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
+        hasLine && (speechReady || !guideShows)
+    }
+    /// The writing model's line in Current work: a running download always, and a failed one
+    /// only while the saved Text style uses Ollama, so a failure the person has moved on from
+    /// never holds Current work open. Models, Dictate and the panel keep the reason until the
+    /// next request, Cancel or Save.
+    static func writingModelLine(download: String?, failure: String?, savedStyleUsesOllama: Bool) -> String? {
+        download ?? (savedStyleUsesOllama ? failure : nil)
+    }
+    /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
+    /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
+    /// bar, in History's words.
+    static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?) -> String {
+        shortcut.enabled && failure == nil ? "or press \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
+    }
     /// Current work first, then the guide while offered, then Permissions while it is open, then
     /// your meetings, decks and keys, and a folded Permissions last. Home holds
     /// only what the app shows nowhere else in that form; History keeps everything else
