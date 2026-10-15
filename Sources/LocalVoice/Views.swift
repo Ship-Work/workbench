@@ -163,7 +163,7 @@ struct ContentView: View {
                         HStack {
                             WorkbenchSectionTitle("Transcript")
                             Spacer()
-                            Text("\(TextRules.wordCount(model.transcript)) words").font(.caption).foregroundStyle(.secondary)
+                            Text(TextRules.wordCountLabel(TextRules.wordCount(model.transcript))).font(.caption).foregroundStyle(.secondary)
                         }
                         editor(text: $model.transcript, placeholder: transcriptPlaceholder, label: "Transcript")
                         rememberedCorrection

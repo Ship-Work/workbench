@@ -100,6 +100,8 @@ enum CoreChecks {
         try rejects("damaged state reports an error") { _ = try store.load() }
         try check(String(contentsOf: store.url, encoding: .utf8) == "not json", "damaged state is not silently erased")
         try check(TextRules.wordCount(" one\n two\tthree ") == 3, "word count handles mixed whitespace")
+        try check(TextRules.wordCountLabel(0) == "0 words" && TextRules.wordCountLabel(1) == "1 word" && TextRules.wordCountLabel(2) == "2 words",
+                  "word count label agrees with its number")
         try check(time(65.8) == "1:05" && time(-1) == "0:00", "recording duration formatting")
         print("CORE_CHECKS_OK: \(passed) checks passed")
     }

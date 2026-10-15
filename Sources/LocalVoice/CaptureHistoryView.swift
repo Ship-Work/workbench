@@ -105,10 +105,10 @@ struct TranscriptHistoryRow: View {
                         .foregroundStyle(Workbench.accent).accessibilityHidden(true)
                     Text(HistoryDate.text(item.date))
                     Text(metadata.purpose.title).fontWeight(.medium)
-                    Spacer(); Text("\(words) words")
+                    Spacer(); Text(TextRules.wordCountLabel(words))
                 }.font(.subheadline).foregroundStyle(.secondary)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(CaptureHistoryAccessibility.label("Transcript, " + metadata.purpose.title, context: context) + ", \(words) words")
+                    .accessibilityLabel(CaptureHistoryAccessibility.label("Transcript, " + metadata.purpose.title, context: context) + ", " + TextRules.wordCountLabel(words))
                     .focusable(shown).focused(focus, equals: item.id)
                     .accessibilityFocused(voiceOverFocus, equals: item.id)
                 let fields = [metadata.person, metadata.company] + metadata.tags.map { "#" + $0 }

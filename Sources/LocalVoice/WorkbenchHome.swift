@@ -512,7 +512,7 @@ struct WorkbenchClipboardShelf: View {
                         Label(receipt.title, systemImage: receipt.symbolName)
                             .font(.callout.weight(.semibold)).lineLimit(1)
                         if receipt.wordCount > 0 {
-                            Text("\(receipt.wordCount) \(receipt.wordCount == 1 ? "word" : "words")").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                            Text(TextRules.wordCountLabel(receipt.wordCount)).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
                         // One ⌘V: the key only when the receipt's words do not already say it.
