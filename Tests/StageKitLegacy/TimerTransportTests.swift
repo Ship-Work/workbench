@@ -6,8 +6,28 @@ import Combine
 /// off, so nothing is heard; and the countdown reads a clock the test moves.
 final class TimerTransportTests {
     private final class Clock { var now = Date(timeIntervalSinceReferenceDate: 800_000_000) }
+    /// Counts the timer's keep-awake instead of asking macOS for it, so no check touches the
+    /// Mac's power state (#174).
+    private final class KeepAwake {
+        private(set) var begins = 0, ends = 0, most = 0
+        private var token: NSObject?
+        var held: Int { begins - ends }
+        func begin() -> NSObjectProtocol {
+            let token = NSObject(); self.token = token
+            begins += 1; most = max(most, held)
+            return token
+        }
+        func end(_ ended: NSObjectProtocol) {
+            XCTAssertTrue(ended === token, "Only the activity handed out is ended")
+            token = nil; ends += 1
+        }
+    }
 
     private func withTimer(_ body: (AppCoordinator, SettingsStore, Clock) throws -> Void) throws {
+        try withTimer { app, settings, clock, _ in try body(app, settings, clock) }
+    }
+
+    private func withTimer(_ body: (AppCoordinator, SettingsStore, Clock, KeepAwake) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("TimerTransport-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -26,8 +46,11 @@ final class TimerTransportTests {
         app.demoScenes = DemoScenes(root: root.appendingPathComponent("Scenes"), systemIntegrationEnabled: false)
         let clock = Clock()
         app.timerClock = { clock.now }
+        let keepAwake = KeepAwake()
+        app.beginTimerKeepAwake = { keepAwake.begin() }
+        app.endTimerKeepAwake = { keepAwake.end($0) }
         app.start(); defer { app.shutdown() }
-        try body(app, settings, clock)
+        try body(app, settings, clock, keepAwake)
     }
 
     private var timerVisible: Bool { NSApp.windows.contains { $0.title == "Workbench · Timer" && $0.isVisible } }
@@ -403,6 +426,79 @@ final class TimerTransportTests {
 }
 
 extension TimerTransportTests {
+    /// A break countdown on screen keeps the display awake, so the room still sees it while
+    /// nobody touches the Mac (#174). Pause, Hide, Stop and closing the window let it sleep
+    /// again, and Time is up holds it for five minutes, not until someone stops the timer.
+    func testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen() throws {
+        var counted: KeepAwake?
+        try withTimer { app, settings, clock, display in
+            counted = display
+            settings.value.timerMinutes = 1
+            app.pauseResumeTimer(); settle()
+            XCTAssertEqual(display.begins, 0, "An idle timer never keeps the display awake")
+            app.mayBeginInteraction = { false }
+            app.startTimer()
+            XCTAssertEqual(display.begins, 0, "nor does a start the host refused")
+            app.mayBeginInteraction = nil
+
+            app.startTimer()
+            XCTAssertEqual(display.begins, 1, "Start keeps the display awake once")
+            settle()
+            XCTAssertEqual(display.begins, 1, "The countdown's updates take no second hold")
+            app.pauseResumeTimer()
+            XCTAssertEqual(app.timerTransport, .paused)
+            XCTAssertEqual(display.held, 0, "Pause lets the display sleep")
+            app.pauseResumeTimer()
+            XCTAssertEqual(display.held, 1, "Resume keeps it awake again")
+            app.hideTimer()
+            XCTAssertEqual(display.held, 0, "Hide lets it sleep")
+            settle()
+            XCTAssertEqual(app.timerTransport, .running)
+            XCTAssertEqual(display.held, 0, "A hidden running countdown never keeps it awake")
+            app.revealTimer()
+            XCTAssertEqual(display.held, 1, "Show timer while it runs keeps it awake again")
+
+            clock.now += 61
+            settle { app.timerFinished }
+            XCTAssertEqual(app.timerTransport, .finished)
+            XCTAssertEqual(display.held, 1, "Time is up keeps it awake")
+            XCTAssertTrue(app.timeUpKeepAwakeEnd != nil, "for a bounded time")
+            clock.now += AppCoordinator.timeUpKeepAwake - 10
+            app.timeUpKeepAwakeEnd?.fire()
+            XCTAssertEqual(display.held, 1, "An early re-evaluation keeps the hold for the time left")
+            app.hideTimer()
+            XCTAssertEqual(display.held, 0, "Hide at Time is up lets it sleep")
+            XCTAssertTrue(app.timeUpKeepAwakeEnd == nil, "and drops the re-evaluation")
+            app.revealTimer()
+            XCTAssertEqual(display.held, 1, "Showing it again within the five minutes keeps it awake")
+            clock.now += 11
+            app.timeUpKeepAwakeEnd?.fire()
+            XCTAssertEqual(display.held, 0, "Five minutes after Time is up the display may sleep")
+            XCTAssertTrue(app.timeUpKeepAwakeEnd == nil)
+            app.hideTimer(); app.revealTimer()
+            XCTAssertEqual(display.held, 0, "Showing it later does not keep it awake again")
+            XCTAssertEqual(app.timerTransport, .finished, "The finished timer itself stays until it is stopped")
+
+            app.performTimerTransport()
+            XCTAssertEqual(app.timerTransport, .running)
+            XCTAssertEqual(display.held, 1, "Restart keeps it awake")
+            app.resetTimer(); app.hideTimer()
+            XCTAssertEqual(display.held, 0, "Stop timer lets it sleep")
+            XCTAssertTrue(app.timeUpKeepAwakeEnd == nil)
+
+            app.startTimer()
+            XCTAssertEqual(display.held, 1)
+            NSApp.windows.first { $0.title == "Workbench · Timer" && $0.isVisible }?.close()
+            XCTAssertFalse(timerVisible)
+            XCTAssertEqual(display.held, 0, "Closing the timer's window lets it sleep")
+            app.revealTimer()
+            XCTAssertEqual(display.held, 1, "Show timer after closing keeps it awake again")
+            XCTAssertEqual(display.most, 1, "Never more than one hold")
+        }
+        XCTAssertEqual(counted?.held, 0, "Shutting down with a countdown on screen lets the display sleep")
+        XCTAssertEqual(counted?.most, 1, "Never more than one hold")
+    }
+
     /// Position… sits above a timer window in the lower half of its display and below one in
     /// the upper half; with no window shown it opens under the pointer. It never leaves the
     /// usable screen.

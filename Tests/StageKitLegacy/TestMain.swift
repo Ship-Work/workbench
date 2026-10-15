@@ -525,7 +525,8 @@ struct TestRunner {
                 ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
                 ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
                 ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
-                ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer)
+                ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
+                ("timer keeps the display awake only while on screen", timerTransport.testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -732,6 +733,7 @@ struct TestRunner {
             ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
             ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
             ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
+            ("timer keeps the display awake only while on screen", timerTransport.testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen),
             ("full-height frame persistence and edges", viewportFit.testFullHeightSurvivesSavingAndReachesBothEdges),
             ("maximum frame size across displays", viewportFit.testMaximumSizeFitsDisplayAndPreservesScreenShape),
             ("full-height export and live geometry", viewportFit.testExportAndLiveScreenUseFullHeightBorder),

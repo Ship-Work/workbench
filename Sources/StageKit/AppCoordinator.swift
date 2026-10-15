@@ -101,6 +101,19 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     private var countdown = Countdown()
     /// The countdown's clock. Checks move it instead of waiting.
     var timerClock: () -> Date = { Date() }
+    /// Keeps the display awake while a break countdown is on screen (#174), apart from the
+    /// stage's own hold. Checks count these instead of touching the Mac's power state.
+    var beginTimerKeepAwake: () -> NSObjectProtocol = {
+        ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled], reason: "Showing a Workbench break timer")
+    }
+    var endTimerKeepAwake: (NSObjectProtocol) -> Void = { ProcessInfo.processInfo.endActivity($0) }
+    /// How long Time is up keeps the display awake, so a forgotten timer cannot keep the Mac
+    /// awake and unlocked until someone stops it.
+    static let timeUpKeepAwake: TimeInterval = 300
+    private var timerKeepAwake: NSObjectProtocol?
+    private var timerFinishedAt: Date?
+    /// The one re-evaluation when Time is up's keep-awake ends. It exists only while it holds.
+    private(set) var timeUpKeepAwakeEnd: Timer?
     @Published private(set) var timerSessionStarted = false
     private var storageBlocked = false
     private let archiveURL: URL
@@ -175,6 +188,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         hideQuickControls()
         stopDrawing(); saveWork?.cancel(); saveBoards()
         hotkeys.unregister(); effectTimer?.invalidate(); countdownTimer?.invalidate()
+        timeUpKeepAwakeEnd?.invalidate(); timeUpKeepAwakeEnd = nil
+        if let timerKeepAwake { endTimerKeepAwake(timerKeepAwake); self.timerKeepAwake = nil }
         hotkeys.setEscapeEnabled(false)
         if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
@@ -658,7 +673,9 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func windowWillClose(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window === mainWindow { finishRecording() }
-        if let window = notification.object as? NSWindow, window === timerWindow { timerPositionPanel.close(); timerShown = false }
+        if let window = notification.object as? NSWindow, window === timerWindow {
+            timerPositionPanel.close(); timerShown = false; updateTimerKeepAwake()
+        }
     }
     private func refreshPalette() {
         let shouldShow = !embedded && !boardExportInProgress && isDrawing && (!boards.isEmpty ? settings.value.boardPalette != .hide : settings.value.showDrawingPalette)
@@ -710,7 +727,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         onBeginActivity?()
         timerCountdown += 1
         timerSessionStarted = true
-        countdown.start(seconds: settings.value.timerMinutes * 60, now: timerClock()); timerFinished = false
+        countdown.start(seconds: settings.value.timerMinutes * 60, now: timerClock()); timerFinished = false; timerFinishedAt = nil
         ensureCountdownTimer(); updateCountdown(); showTimer()
     }
     /// Pause and Resume act only on a started countdown that has time left. A new
@@ -733,10 +750,10 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func resetTimer() {
         timerSessionStarted = false
-        countdown.reset(seconds: settings.value.timerMinutes * 60); timerFinished = false
+        countdown.reset(seconds: settings.value.timerMinutes * 60); timerFinished = false; timerFinishedAt = nil
         countdownTimer?.invalidate(); countdownTimer = nil; updateCountdown()
     }
-    func hideTimer() { timerPositionPanel.close(); timerWindow?.orderOut(nil); timerShown = false }
+    func hideTimer() { timerPositionPanel.close(); timerWindow?.orderOut(nil); timerShown = false; updateTimerKeepAwake() }
     /// Show timer: the window of a started countdown, which keeps running meanwhile.
     func revealTimer() { guard timerSessionStarted else { return }; showTimer() }
     /// Position is a Timer option, so it is kept even before the window first opens:
@@ -792,11 +809,31 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         let progress = min(1, ceil(remaining) / max(1, countdown.duration))
         if progress != timerProgress { timerProgress = progress }
         if countdown.isRunning && remaining <= 0 {
-            countdown.pause(now: now); timerRunning = false; timerFinished = true
+            countdown.pause(now: now); timerRunning = false; timerFinished = true; timerFinishedAt = now
             countdownTimer?.invalidate(); countdownTimer = nil
             if settings.value.timerChime { NSSound(named: "Glass")?.play() }
         }
         updateStatus()
+        updateTimerKeepAwake(now: now)
+    }
+    /// The display stays awake while the timer's window shows a running countdown, and for
+    /// timeUpKeepAwake after Time is up; Pause, Hide, Stop and closing the window let it sleep
+    /// (#174). Decided from the current state each time, so a stale re-evaluation cannot end a
+    /// newer countdown's hold, and only a change begins or ends the one activity.
+    private func updateTimerKeepAwake(now: Date? = nil) {
+        let now = now ?? timerClock()
+        let timeUpLeft = timerFinished ? timerFinishedAt.map { Self.timeUpKeepAwake - now.timeIntervalSince($0) } ?? 0 : 0
+        let wanted = !shuttingDown && timerShown && (timerRunning || timeUpLeft > 0)
+        timeUpKeepAwakeEnd?.invalidate(); timeUpKeepAwakeEnd = nil
+        if wanted && !timerRunning {
+            let end = Timer(timeInterval: timeUpLeft, repeats: false) { [weak self] _ in self?.updateTimerKeepAwake() }
+            RunLoop.main.add(end, forMode: .common); timeUpKeepAwakeEnd = end
+        }
+        if wanted, timerKeepAwake == nil {
+            timerKeepAwake = beginTimerKeepAwake()
+        } else if !wanted, let timerKeepAwake {
+            endTimerKeepAwake(timerKeepAwake); self.timerKeepAwake = nil
+        }
     }
     private func showTimer() {
         if timerWindow == nil {
@@ -810,6 +847,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         }
         restoreTimerPosition()
         timerWindow?.alphaValue = settings.value.timerOpacity; timerWindow?.orderFrontRegardless(); timerShown = true
+        updateTimerKeepAwake()
     }
     private func timerDisplay(containing frame: NSRect) -> BreakTimerDisplay? {
         let displays = availableTimerDisplays()
