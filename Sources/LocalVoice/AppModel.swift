@@ -764,7 +764,14 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     @discardableResult private func savePendingCapture() -> Bool {
-        guard loaded, let record = captureRecovery.pending, let capture = record.capture else { return false }
+        // A session that could not be opened or backed up saves nothing. The dictation stops with
+        // that reason, never on Tidying your words…, and a Shortcuts run gets its one error.
+        guard loaded else {
+            canRetry = false
+            fail("Automatic saving is off for this session, so this dictation was not added to History or sent to your app. The words are in Dictate. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
+            captureFailure = self.error; onPhaseChange?(); return false
+        }
+        guard let record = captureRecovery.pending, let capture = record.capture else { return false }
         var journalError: Error?
         do { try captureRecovery.retain(record) } catch { journalError = error }
         let nextHistory = TranscriptHistory.adding(capture, to: history)

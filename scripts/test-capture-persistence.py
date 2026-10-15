@@ -685,6 +685,26 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(replies == 1 && shortcut.engine.calls == 1 && TextDelivery.calls == 0, "Save retry cannot resume a failed/cancelled Shortcuts continuation")
         try check(try Data(contentsOf: importedURL) == wav && shortcut.history.count == 1, "Imported source bytes survive failed commit, cancel and successful save retry")
 
+        // A session that could not be opened or backed up saves nothing: the dictation stops with
+        // that reason instead of staying on Tidying your words…, and Shortcuts gets one error.
+        let unsavedShortcut = CaptureHarness(directory: folder("unsaved-shortcut")); unsavedShortcut.loaded = false
+        let unsavedID = UUID(); var unsavedReplies = 0, unsavedFailed = false
+        try unsavedShortcut.shortcutRequest.begin(id: unsavedID) { result in unsavedReplies += 1; if case .failure = result { unsavedFailed = true } }
+        unsavedShortcut.run(importedURL, owned: false); await finish(unsavedShortcut)
+        try check(unsavedReplies == 1 && unsavedFailed && unsavedShortcut.shortcutRequest.id == nil && unsavedShortcut.phase == .idle,
+                  "With saving off, a Shortcuts run returns one error and Dictate stops: \(unsavedReplies) replies, \(unsavedShortcut.phase)")
+        try check(unsavedShortcut.transcript == "Synthetic captured words." && unsavedShortcut.history.isEmpty && unsavedShortcut.store.calls == 0,
+                  "With saving off, the words stay in Dictate and nothing is written")
+        unsavedShortcut.cancelShortcut(unsavedID)
+        try check(unsavedReplies == 1, "A later Cancel in Shortcuts cannot reply a second time")
+        let unsaved = CaptureHarness(directory: folder("unsaved")); unsaved.loaded = false
+        let unsavedURL = try unsaved.makeRecording(wav)
+        unsaved.run(unsavedURL, owned: true); await finish(unsaved)
+        try check(unsaved.phase == .idle && unsaved.transcriptionTask == nil && unsaved.captureFailure?.contains("Automatic saving is off") == true,
+                  "With saving off, Dictate says why it stopped: \(unsaved.phase), \(String(describing: unsaved.captureFailure))")
+        try check(!unsaved.canRetry && unsaved.hasCaptureRecovery && unsaved.canDiscardCaptureRecovery,
+                  "With saving off, Retry saving is not offered and Discard recovery… is the way back to dictating")
+
         // Preserve malformed/future records and malicious paths; do not follow symlinks.
         for (name, data) in [
             ("malformed", Data("not json".utf8)),
