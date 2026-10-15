@@ -5,9 +5,6 @@ struct ModelSettingsView: View {
     let engine: RecognitionEngine
     var isBusy: Bool
     var snapshot: RecognitionSnapshot
-    /// Only a first-use caller passes this: Not now then leaves setup for later. Settings › Models
-    /// is a place, not a step, so without it there is nothing to defer.
-    var onNotNow: (() -> Void)? = nil
     var onSnapshot: @MainActor (RecognitionSnapshot) -> Void = { _ in }
     @State private var draft = RecognitionConfiguration()
     @State private var active = RecognitionConfiguration()
@@ -77,7 +74,6 @@ struct ModelSettingsView: View {
                         // The contract's way back to files already on this Mac, without downloading: after a
                         // failure, and after Cancel setup, which leaves no failure to show.
                         Button("Retry saved files") { Task { await prepareCached() } }.disabled(isBusy || applying)
-                        if let onNotNow { Button("Not now", action: onNotNow) }
                     }
                 }
             }

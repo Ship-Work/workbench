@@ -477,13 +477,6 @@
     "belongsTo": "app"
   },
   {
-    "id": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now",
-    "surface": "proactive offer FounderIntroductionCard",
-    "label": "Not now",
-    "kind": "action",
-    "belongsTo": "app"
-  },
-  {
     "id": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.runtime-73394fb2f10a",
     "surface": "proactive offer FounderIntroductionCard",
     "label": null,
@@ -627,7 +620,7 @@
     "kind": "action",
     "belongsTo": "dictate",
     "aliasOf": "dictate",
-    "note": "Contextual dismissal inside the meeting offer; the founder card uses the same words."
+    "note": "Contextual dismissal inside the meeting offer; Home's speech setup uses the same words."
   },
   {
     "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.review",
@@ -5405,15 +5398,6 @@
     "note": "Quality (#15 / foundation J): deliberate speech setup, cached-only retry, deferral or cancellation through the existing recognition owner; no capture starts on completion."
   },
   {
-    "id": "LocalVoice.ModelSettingsView.ModelSettingsView.Button.not-now",
-    "surface": "settings page",
-    "label": "Not now",
-    "kind": "action",
-    "belongsTo": "settings",
-    "note": "Quality (#15): contextual deferral of speech setup, using the existing Not now grammar; keeps saved work and unrelated tools usable and starts no capture.",
-    "aliasOf": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now"
-  },
-  {
     "id": "LocalVoice.ModelSettingsView.ModelSettingsView.Button.retry-saved-files",
     "surface": "settings page",
     "label": "Retry saved files",
@@ -5452,7 +5436,7 @@
     "kind": "action",
     "belongsTo": "settings",
     "note": "Quality (#15): contextual deferral of speech setup, using the existing Not now grammar; keeps saved work and unrelated tools usable and starts no capture.",
-    "aliasOf": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now"
+    "aliasOf": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.not-now"
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-90b2ee8a5505",
