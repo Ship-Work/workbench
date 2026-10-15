@@ -1295,7 +1295,7 @@ private struct HistoryNativeAcceptanceView: View {
         defer { window.contentView = nil; window.close() }
         window.contentView = host; settle(host)
         shots.append(try save(try snapshot(host), id: "transcript-review-original", title: "Transcript review, original wording",
-            detail: "The production review on Original wording. Copy explicitly names current text; Export original uses the exact original UTF-8 bytes. No playback, copy or export is started by opening it.",
+            detail: "The production review on Original wording. Copy explicitly names current text; Export original wording… uses the exact original UTF-8 bytes. No playback, copy or export is started by opening it.",
             file: "page-history-transcript-review-original-\(theme).png", to: output))
         return shots
     }
@@ -5192,6 +5192,7 @@ extension SurfacePass {
         let message = "No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook."
         // The gallery's model is idle, so the failure is raised as fail() raises it, without two captures.
         model.canRetry = false; model.captureFailure = message
+        model.raisedCaptureFailure = Attention(message: message, page: .dictate, code: AppModel.repeatedSilenceCode)
         model.report(message, on: .dictate, code: AppModel.repeatedSilenceCode)
         guard model.canOpenSoundSettings, !model.canOpenMicrophoneSettings else {
             throw VoiceError.message("Two silent dictations in a row lack their Sound Settings… door.")
@@ -5217,6 +5218,7 @@ extension SurfacePass {
         model.openSoundSettings()
         guard opened == 1, model.captureFailure == nil else { throw VoiceError.message("Sound Settings… did not open Sound or left the failure showing.") }
         model.captureFailure = message
+        model.raisedCaptureFailure = Attention(message: message, page: .dictate, code: AppModel.repeatedSilenceCode)
         model.report(message, on: .dictate, code: AppModel.repeatedSilenceCode)
         model.openSoundSettingsPane = { false }; model.openSoundSettings()
         guard model.captureFailure?.contains("choose Sound › Input") == true, !model.canOpenSoundSettings else {

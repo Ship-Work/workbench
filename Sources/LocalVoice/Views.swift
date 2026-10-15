@@ -443,11 +443,14 @@ struct ContentView: View {
 
 /// Delivery feedback follows the existing receipt owner and its lifetime. A reading status
 /// cannot appear here, and opening this workspace never restarts or dismisses a receipt.
-private struct DictateDeliveryReceipt: View {
+struct DictateDeliveryReceipt: View {
     @ObservedObject var receipts: ClipboardReceiptModel
+    /// The cue's own words, as VoiceOver hears them: the title is said once when the detail
+    /// already starts with it ("Sent to Notes · still copied.").
+    static func line(_ receipt: ClipboardReceipt) -> String { receipt.spokenText }
     var body: some View {
         if let receipt = receipts.receipt, receipt.source == .transcript, receipts.isHUDVisible {
-            Label(receipt.title + ". " + receipt.detail, systemImage: receipt.symbolName)
+            Label(Self.line(receipt), systemImage: receipt.symbolName)
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         }
     }

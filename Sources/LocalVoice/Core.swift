@@ -76,6 +76,8 @@ enum TranscriptExportVersion: String {
     /// The transcript as it reads now: cleaned, a meeting's conversation, or as heard with cleanup off.
     case cleaned = "Current text"
     case original = "Original wording"
+    /// Review transcript's export, in History's More menu words.
+    var exportTitle: String { self == .original ? "Export original wording…" : "Export current text…" }
 }
 
 enum TranscriptExport {

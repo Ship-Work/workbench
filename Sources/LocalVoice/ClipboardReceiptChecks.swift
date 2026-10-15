@@ -114,6 +114,15 @@ enum ClipboardReceiptChecks {
                                                  wasPasted: true, destinationName: "Notes", pasteWasAttempted: true), wordCount: 2)
         try check(model.receipt?.isClipboardCurrent == true && model.receipt?.canSuggestPaste == false,
                   "confirmed paste without restoration does not suggest pasting twice")
+        // Dictate's page shows the cue in the words VoiceOver hears, so a detail that starts with
+        // the title never reads it twice.
+        model.record(outcome: TextDelivery.Outcome(message: "Sent to Notes · still copied.", clipboardChangeCount: 12,
+                                                 wasPasted: false, destinationName: "Notes", pasteWasAttempted: true), wordCount: 2)
+        try check(model.receipt.map(DictateDeliveryReceipt.line) == "Sent to Notes · still copied.",
+                  "Dictate's delivery line says a title the detail already starts with once")
+        model.record(outcome: copied(12), wordCount: 2)
+        try check(model.receipt.map(DictateDeliveryReceipt.line) == "Copied. Paste with ⌘V.",
+                  "Dictate's delivery line keeps the title before any other detail")
         model.clear()
 
         // Use a unique pasteboard: these checks never touch the user's clipboard.

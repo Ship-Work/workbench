@@ -1665,7 +1665,7 @@
     "surface": "window home",
     "label": null,
     "expression": "dictationTitle",
-    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9): Start dictating, Finish dictation or Cancel, the toolbar's names, and VoiceOver speaks the words shown (#357).",
+    "note": "Option: the guided first dictation; label follows phase as the Dictate page's microphone does (#134 W9): Start dictating, Finish dictation or Cancel, and VoiceOver speaks the words shown, with Cancel heard as Cancel microphone request, as on Dictate (#357). Finish dictation is the toolbar's word too; the toolbar's Dictate and Cancel request differ, and that difference is left to the Names decision.",
     "kind": "capability",
     "belongsTo": "dictate"
   },

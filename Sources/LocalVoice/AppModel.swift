@@ -1054,8 +1054,14 @@ final class AppModel: NSObject, ObservableObject {
         dismissCaptureFailure()
     }
     /// Two silent dictations in a row name System Settings › Sound, so that failure opens it (#156).
-    /// It follows the typed code the failure is raised with, so every report that replaces it ends it.
-    var canOpenSoundSettings: Bool { attention?.code == Self.repeatedSilenceCode }
+    /// It follows the typed code the card's failure was raised with, kept beside the card's words:
+    /// dismissing Dictate's banner leaves the card and its door, and any other failure ends it.
+    var canOpenSoundSettings: Bool {
+        guard let captureFailure, let raisedCaptureFailure else { return false }
+        return raisedCaptureFailure == Attention(message: captureFailure, page: .dictate, code: Self.repeatedSilenceCode)
+    }
+    /// The card's failure as fail() raised it, with its typed code (#156).
+    var raisedCaptureFailure: Attention?
     func openSoundSettings() {
         guard openSoundSettingsPane() else {
             let message = "System Settings could not be opened. Open it manually and choose Sound › Input."
@@ -1253,7 +1259,7 @@ final class AppModel: NSObject, ObservableObject {
     }
     func fail(_ text: String, code: String = "dictate.failed") {
         dismissCaptureCue()
-        if phase != .idle { captureFailure = text }
+        if phase != .idle { raisedCaptureFailure = Attention(message: text, page: .dictate, code: code); captureFailure = text }
         if let id = shortcutRequest.id { shortcutRequest.finish(id: id, result: .failure(VoiceError.message(text))) }
         let message = liveDictation?.attempted == true ? text + " Live text may remain in your app. Review it before copying the kept result." : text
         report(message, on: .dictate, code: code); phase = .idle; status = "Dictation stopped"; onPhaseChange?()

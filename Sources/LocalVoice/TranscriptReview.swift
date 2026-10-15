@@ -129,7 +129,7 @@ struct TranscriptReviewView: View {
                     if model.status == TextDelivery.copiedMessage { feedback.finish("Copied current text") }
                     else { feedback.finish(nil, problem: model.status) }
                 }.disabled(item.text.isEmpty)
-                Button(version == .original ? "Export original…" : "Export current text…") {
+                Button(version.exportTitle) {
                     if let saved = model.exportCapture(item, version: version) {
                         if saved { feedback.finish("Saved") }
                         else { feedback.finish(nil, problem: model.attention?.message ?? "The transcript could not be saved.") }
