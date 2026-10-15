@@ -162,6 +162,60 @@ final class PersonaWorkspaceTests {
     }
 
     /// Every file under a folder, for checking that nothing in it changed.
+    /// Changing page keeps an unsaved Arrange overlays layout (#340). Each visit hosts a new
+    /// workspace page, as the sidebar builds one per route. Coming back reopens Arrange overlays
+    /// with the edits, what is typed there is kept for the next visit, and once nothing is
+    /// unsaved or the group is gone, Persona opens on its own page. Only Save layout writes.
+    func testChangingPageKeepsAnUnsavedArrangement() throws {
+        try MainActor.assumeIsolated {
+            let (root, library, group) = try fixture()
+            defer { library.shutdown(); try? FileManager.default.removeItem(at: root) }
+            func fields(in view: NSView) -> [NSTextField] { ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap { fields(in: $0) } }
+            /// One visit to Persona: the public group label, which only Arrange overlays shows,
+            /// after typing `typed` into it.
+            func visit(typing typed: String? = nil) -> String? {
+                let size = CGSize(width: 900, height: 900)
+                let hosting = NSHostingView(rootView: PersonaLibraryView(library: library, mode: .workspace).frame(width: size.width, height: size.height))
+                let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = hosting
+                defer { window.contentView = nil; window.close() }
+                func settle() { for _ in 0..<6 { hosting.layoutSubtreeIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.03)) } }
+                settle()
+                guard let field = fields(in: hosting).first(where: { $0.placeholderString == "Public group label (optional)" }) else { return nil }
+                if let typed {
+                    field.stringValue = typed
+                    field.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+                    settle()
+                }
+                return field.stringValue
+            }
+            let saved = try contents(of: root)
+            XCTAssertTrue(visit() == nil, "With nothing unsaved, Persona opens on its own page")
+            let original = library.groups.first { $0.id == group }!
+            var moved = original.overlays!; moved[1].placement.x = 0.5; moved[1].visible = false
+            library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: moved,
+                                                                 publicLabel: "Edited set", selectedID: moved[1].id)
+            XCTAssertEqual(visit(typing: "Typed set"), "Typed set", "Coming back reopens Arrange overlays with the unsaved label")
+            XCTAssertEqual(library.presentationDraft?.publicLabel, "Typed set", "and keeps what is typed there")
+            XCTAssertEqual(visit(), "Typed set", "for the next visit")
+            XCTAssertEqual(library.presentationDraft?.overlays, moved, "with each overlay as it was moved and hidden")
+            XCTAssertEqual(library.presentationDraft?.selectedID, moved[1].id, "and the same overlay selected")
+
+            library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: original.overlays!,
+                                                                 publicLabel: "Edited set", selectedID: nil)
+            XCTAssertEqual(visit(typing: original.publicLabel), original.publicLabel)
+            XCTAssertTrue(library.presentationDraft == nil, "Typing the saved label back leaves nothing unsaved")
+            XCTAssertTrue(visit() == nil, "so Persona opens on its own page")
+            XCTAssertTrue(try contents(of: root) == saved, "Keeping a layout across pages writes nothing")
+
+            library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: moved,
+                                                                 publicLabel: "Edited set", selectedID: nil)
+            library.removeGroup(group)
+            XCTAssertTrue(visit() == nil, "A removed group's layout does not reopen")
+            XCTAssertTrue(library.presentationDraft == nil, "and is dropped")
+        }
+    }
     private func contents(of folder: URL) throws -> [String: Data] {
         var result: [String: Data] = [:]
         let base = folder.resolvingSymlinksInPath().path

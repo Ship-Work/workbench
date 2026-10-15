@@ -132,6 +132,8 @@ struct TestRunner {
                 ("persona workspace failure preserves active session", suite.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
                 ("Present compact preview policy", suite.testPresentPreviewReservesControlsAndFitsNarrowEditors),
                 ("Present persona chooser lists every card and only selects", suite.testPresentChooserListsEveryCardAndOnlySelects),
+                ("persona workspace keeps an unsaved arrangement across pages", suite.testChangingPageKeepsAnUnsavedArrangement),
+                ("persona sessions: unsaved arrangement kept in memory", PersonaSessionTests().testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
                 ("optional offscreen workspace layouts", suite.testOffscreenWorkspaceLayouts)
             ]
             for (name, test) in tests {
@@ -688,6 +690,7 @@ struct TestRunner {
             ("persona sessions: paused switching and frozen scope", personaSessions.testPausedGroupSwitchKeepsLayoutsAndFrozenAllowedScope),
             ("persona sessions: frozen artwork and failed start", personaSessions.testFrozenArtworkSurvivesLibraryEditsAndFailedReplacementStart),
             ("persona sessions: explicit conflict-aware layout save", personaSessions.testSaveLayoutIsExplicitAtomicAndRejectsChangedPreparation),
+            ("persona sessions: unsaved arrangement kept in memory", personaSessions.testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
             ("persona sessions: read-only and busy state", personaSessions.testReadOnlySessionsAndInteractionGuardsNeverWriteOrTrapOverlays),
             ("persona sessions: invalid and future archive preservation", personaSessions.testInvalidLayoutsAndFutureArchivePreserveOriginalBytes),
             ("persona sessions: bounded replacement preflight", personaSessions.testBoundedPreflightAlsoProtectsLegacyShowAndCurrentSession),
@@ -930,6 +933,7 @@ struct TestRunner {
             ("persona workspace failure preserves active session", personaWorkspace.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
             ("Present compact preview policy", personaWorkspace.testPresentPreviewReservesControlsAndFitsNarrowEditors),
             ("Present persona chooser lists every card and only selects", personaWorkspace.testPresentChooserListsEveryCardAndOnlySelects),
+            ("persona workspace keeps an unsaved arrangement across pages", personaWorkspace.testChangingPageKeepsAnUnsavedArrangement),
             ("persona voice ring listens only while on and showing", personaVoice.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
             ("persona voice ring asks while preparing and stops when unavailable", personaVoice.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
             ("persona voice a fault found by a show keeps its reason", personaVoice.testAFaultFoundByAShowKeepsItsReason),

@@ -293,6 +293,41 @@ final class PersonaSessionTests {
         f.library.endOverlaySession(); XCTAssertEqual(try archive(f.root), external)
     }
 
+    /// Arrange overlays' unsaved layout outlives the page (#340). The library keeps it in memory
+    /// only, drops it with its group, and Save still refuses it once the group has changed.
+    func testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes() throws {
+        let f = try fixture(); defer { cleanup(f) }
+        let before = try files(f.root)
+        XCTAssertTrue(f.library.restorablePresentationDraft() == nil, "Nothing is kept before an edit")
+        let original = f.library.groups.first { $0.id == f.group }!
+        var moved = original.overlays!; moved[1].placement.x = 0.5; moved[1].visible = false
+        let draft = PersonaPresentationDraft(groupID: f.group, original: original, overlays: moved, publicLabel: "Second step", selectedID: moved[1].id)
+        f.library.presentationDraft = draft
+        XCTAssertEqual(f.library.restorablePresentationDraft(), draft, "The overlays, label and selection come back as they were left")
+        XCTAssertEqual(f.library.restorablePresentationDraft(), draft, "and stay for the next visit")
+        XCTAssertEqual(try files(f.root), before, "Keeping the layout writes nothing")
+        let reopened = PersonaLibrary(root: f.root, readOnlyReason: "Synthetic relaunch", sessionHUDEnabled: false)
+        XCTAssertTrue(reopened.restorablePresentationDraft() == nil, "A relaunch starts without it")
+        reopened.shutdown()
+
+        var later = original.overlays!; later[0].placement.width = 0.2
+        try f.library.saveGroupLayout(f.group, overlays: later, publicLabel: original.publicLabel, expected: original)
+        let saved = try archive(f.root)
+        do {
+            try f.library.saveGroupLayout(f.group, overlays: draft.overlays, publicLabel: draft.publicLabel, expected: draft.original)
+            XCTAssertTrue(false, "A kept layout is not saved over a group that changed since")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, PersonaSessionError.changedLayout.localizedDescription)
+        }
+        XCTAssertEqual(try archive(f.root), saved, "and the newer layout stays")
+        XCTAssertEqual(f.library.restorablePresentationDraft(), draft, "Its group still exists, so the refused layout stays to revert or discard")
+
+        f.library.removeGroup(f.group)
+        XCTAssertTrue(f.library.restorablePresentationDraft() == nil, "A removed group's layout is dropped")
+        XCTAssertTrue(f.library.presentationDraft == nil, "and not kept for later")
+        XCTAssertTrue(f.library.groups.contains { $0.id == f.other }, "Other groups are untouched")
+    }
+
     func testReadOnlySessionsAndInteractionGuardsNeverWriteOrTrapOverlays() throws {
         let f = try fixture(); defer { cleanup(f) }
         let before = try files(f.root), displays = Displays()
