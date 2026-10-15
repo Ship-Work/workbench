@@ -512,11 +512,29 @@ enum MeetingChecks {
                    && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: true, starved: [.remote]) == "The selected app's audio process changed."
                    && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.local]) == "An audio source stopped supplying samples.",
                    "the explanation names the first cause in the order capture checks them")
-        try expect(MeetingRouteRecovery.outstanding(recovering: [.remote], delivering: [.remote]).isEmpty
-                   && MeetingRouteRecovery.outstanding(recovering: [.remote], delivering: []) == [.remote],
+        // Which routes the half-second check asks while a recovery runs: the other one, so a change
+        // found there joins the running recovery instead of waiting for it.
+        try expect(MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: [.local]) == [.remote]
+                   && MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: [.remote]) == [.local],
+                   "while one route reconnects the other is still checked, so headphones with a mic join the one recovery")
+        try expect(MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: []) == [.remote, .local]
+                   && MeetingRouteRecovery.polled(configured: [.remote], recovering: [.remote]).isEmpty
+                   && MeetingRouteRecovery.polled(configured: [.local], recovering: []) == [.local],
+                   "outside a recovery every configured route is checked, and a reconnecting route is not asked about its stale device")
+        // Each tick of a running recovery is one decision, held here rather than in the capture class.
+        try expect(MeetingRouteRecovery.step(recovering: [.remote], delivering: [.remote], sinceStart: 1, sinceAttempt: 1) == .complete
+                   && MeetingRouteRecovery.step(recovering: [.remote], delivering: [], sinceStart: 1, sinceAttempt: 1) == .wait,
                    "a restarted app tap completes its recovery on its own buffers, whatever the microphone is doing")
-        try expect(MeetingRouteRecovery.outstanding(recovering: [.remote, .local], delivering: [.remote]) == [.local],
+        try expect(MeetingRouteRecovery.step(recovering: [.remote, .local], delivering: [.remote], sinceStart: 3, sinceAttempt: 2.5) == .retry([.local]),
                    "when both restarted, the one still silent is the only one retried")
+        try expect(MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 14.9, sinceAttempt: 2.5) == .retry([.local])
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 15.1, sinceAttempt: 2.5) == .giveUp
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [.local], sinceStart: 15.1, sinceAttempt: 2.5) == .complete,
+                   "a route still silent after fifteen seconds ends the recording with its note; one that delivered in time completes")
+        try expect(MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: 1.9) == .wait
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: 2.1) == .retry([.local])
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: nil) == .retry([.local]),
+                   "a silent route is rebuilt every two seconds, and at once when no attempt has been made")
     }
 
     /// A call offer's Call holds for that call's recording, including its microphone-only fallback,

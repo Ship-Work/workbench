@@ -790,10 +790,39 @@ enum MeetingRouteRecovery {
         return nil
     }
 
-    /// The restarted sources still to deliver a buffer. Recovery is complete when none is left; the
-    /// source that was not restarted never holds it open.
-    static func outstanding(recovering: Set<MeetingTrackSource>, delivering: Set<MeetingTrackSource>) -> Set<MeetingTrackSource> {
-        recovering.subtracting(delivering)
+    /// The routes the half-second check asks about: every configured route that is not already
+    /// reconnecting. A running recovery does not stop the check for the other route, so a change
+    /// found there (a changed device, the app's process gone, twelve silent seconds) joins that
+    /// recovery and its cap instead of waiting for it to finish. The reconnecting route's own device
+    /// identifiers are stale until it restarts, so it is not asked.
+    static func polled(configured: Set<MeetingTrackSource>, recovering: Set<MeetingTrackSource>) -> Set<MeetingTrackSource> {
+        configured.subtracting(recovering)
+    }
+
+    static let capSeconds = 15.0
+    static let retrySeconds = 2.0
+
+    enum Step: Equatable {
+        /// Every restarted route delivers again; the route that was not restarted never held this open.
+        case complete
+        /// The cap passed with a route still silent: capture stops with retained audio and its note.
+        case giveUp
+        /// Two seconds since the last attempt: rebuild only the routes still silent.
+        case retry(Set<MeetingTrackSource>)
+        /// Inside the retry cadence; nothing to do this tick.
+        case wait
+    }
+
+    /// One tick of a running recovery: which routes were restarted, which of them have delivered a
+    /// buffer since the last attempt, how long the recovery has run and how long since that attempt
+    /// (nil when none has been made). The capture acts on the answer and nothing else.
+    static func step(recovering: Set<MeetingTrackSource>, delivering: Set<MeetingTrackSource>,
+                     sinceStart: Double, sinceAttempt: Double?) -> Step {
+        let pending = recovering.subtracting(delivering)
+        if pending.isEmpty { return .complete }
+        if sinceStart > capSeconds { return .giveUp }
+        if sinceAttempt.map({ $0 > retrySeconds }) ?? true { return .retry(pending) }
+        return .wait
     }
 }
 
@@ -1017,7 +1046,8 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
 
     /// Rebuilds only the given routes: their tokens retire, their tracks take the interruption mark,
     /// and the other route keeps recording untouched. A route that fails while another is already
-    /// reconnecting joins that recovery and its fifteen-second cap rather than waiting it out.
+    /// reconnecting, by its own callback or by the half-second check, joins that recovery and shares
+    /// its fifteen-second cap and retry cadence rather than waiting it out.
     private func beginRecovery(_ message: String, routes requested: Set<MeetingTrackSource>) {
         guard !isStopping, !isPaused, stopReason == nil else { return }
         let routes = requested.intersection(configuredRoutes).subtracting(recovering)
@@ -1049,41 +1079,53 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         return route == .remote ? tapBox != nil : engine != nil
     }
 
+    /// The half-second check's facts for the given routes only: a changed default device, the chosen
+    /// app's process gone, or twelve seconds without a buffer. A route is asked only while its device
+    /// identifier is current, which startRoutes refreshes when that route restarts. The routes are a
+    /// subset of configuredRoutes, so .remote implies a chosen app and .local the microphone.
+    private func polledChange(among routes: Set<MeetingTrackSource>, now: UInt64) -> (routes: Set<MeetingTrackSource>, reason: String)? {
+        guard !routes.isEmpty else { return nil }
+        let outputChanged = routes.contains(.remote) && MeetingCoreAudio.defaultOutputDeviceUID() != outputUID
+        let inputChanged = routes.contains(.local) && MeetingCoreAudio.defaultInputDeviceUID() != inputUID
+        let appProcessGone = routes.contains(.remote) && (chosenApp.map { MeetingCoreAudio.processObject(for: $0.id) == nil } ?? false)
+        let starved = routes.filter { route in
+            guard let start = routeStarted[route], MeetingClock.interval(from: start, to: now) > 12,
+                  let recorder = recorder(for: route) else { return false }
+            return (recorder.secondsSinceLastBuffer ?? .infinity) > 12
+        }
+        let planned = MeetingRouteRecovery.plan(outputChanged: outputChanged, inputChanged: inputChanged,
+                                                appProcessGone: appProcessGone, starved: starved)
+        guard !planned.isEmpty, let reason = MeetingRouteRecovery.reason(outputChanged: outputChanged, inputChanged: inputChanged,
+                                                                         appProcessGone: appProcessGone, starved: starved) else { return nil }
+        return (planned, reason)
+    }
+
     private func checkRoutes() {
         guard !isStopping, !isPaused, stopReason == nil else { return }
         if microphoneIncluded, AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
             note("Microphone access was removed. The audio already recorded was kept."); return
         }
         let now = MeetingClock.now()
-        if let started = recoveryStarted {
-            let sinceAttempt = lastRecoveryAttempt.map { MeetingClock.interval(from: $0, to: now) } ?? 0
-            let delivering = recovering.filter { isDelivering($0, within: min(1.5, sinceAttempt)) }
-            let pending = MeetingRouteRecovery.outstanding(recovering: recovering, delivering: delivering)
-            if pending.isEmpty {
-                recoveryStarted = nil; lastRecoveryAttempt = nil; recovering = []
-                lock.lock(); recovery = nil; lock.unlock()
-                return
-            }
-            if MeetingClock.interval(from: started, to: now) > 15 {
-                note("The selected audio source could not reconnect. The recording was kept with its interruption marked.")
-                return
-            }
-            if lastRecoveryAttempt.map({ MeetingClock.interval(from: $0, to: now) > 2 }) ?? true { restoreRoutes(pending) }
-            return
+        // The routes not reconnecting are asked every tick, recovery or not, so a change on one joins
+        // the other's running recovery and its cap rather than waiting for it (docs/live-voice.md § Live session).
+        if let change = polledChange(among: MeetingRouteRecovery.polled(configured: configuredRoutes, recovering: recovering), now: now) {
+            beginRecovery(change.reason, routes: change.routes); return
         }
-        let outputChanged = request?.app != nil && MeetingCoreAudio.defaultOutputDeviceUID() != outputUID
-        let inputChanged = microphoneIncluded && MeetingCoreAudio.defaultInputDeviceUID() != inputUID
-        let appProcessGone = chosenApp.map { MeetingCoreAudio.processObject(for: $0.id) == nil } ?? false
-        let starved = configuredRoutes.filter { route in
-            guard let start = routeStarted[route], MeetingClock.interval(from: start, to: now) > 12,
-                  let recorder = recorder(for: route) else { return false }
-            return (recorder.secondsSinceLastBuffer ?? .infinity) > 12
+        guard let started = recoveryStarted else { return }
+        let sinceAttempt = lastRecoveryAttempt.map { MeetingClock.interval(from: $0, to: now) }
+        let delivering = recovering.filter { isDelivering($0, within: min(1.5, sinceAttempt ?? 0)) }
+        switch MeetingRouteRecovery.step(recovering: recovering, delivering: delivering,
+                                         sinceStart: MeetingClock.interval(from: started, to: now), sinceAttempt: sinceAttempt) {
+        case .complete:
+            recoveryStarted = nil; lastRecoveryAttempt = nil; recovering = []
+            lock.lock(); recovery = nil; lock.unlock()
+        case .giveUp:
+            note("The selected audio source could not reconnect. The recording was kept with its interruption marked.")
+        case .retry(let pending):
+            restoreRoutes(pending)
+        case .wait:
+            break
         }
-        let routes = MeetingRouteRecovery.plan(outputChanged: outputChanged, inputChanged: inputChanged,
-                                               appProcessGone: appProcessGone, starved: starved)
-        guard !routes.isEmpty, let reason = MeetingRouteRecovery.reason(outputChanged: outputChanged, inputChanged: inputChanged,
-                                                                        appProcessGone: appProcessGone, starved: starved) else { return }
-        beginRecovery(reason, routes: routes)
     }
 
     func pause() async throws {
