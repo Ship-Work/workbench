@@ -2065,6 +2065,8 @@ private struct HistoryNativeAcceptanceView: View {
         meetings.refreshApps(); meetings.selectAudioSource(41_001)
         meetings.updateHostAdmission(.init())
         try shot("setup", "Speech setup needed; source choice retained")
+        meetings.updateHostAdmission(.init(recognition: .init(operationID: UUID(), phase: .downloading, detail: "Downloading Parakeet · 42%")))
+        try shot("setup-preparing", "Speech downloading; its progress shows once, with no setup card")
         meetings.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
         try shot("microphone", "Denied microphone with explicit app-only alternative")
         source.failure = true; meetings.refreshApps()

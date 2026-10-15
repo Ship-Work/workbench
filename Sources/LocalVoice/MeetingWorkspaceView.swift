@@ -149,14 +149,17 @@ struct MeetingWorkspaceView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 8) {
-                        Label(engineName, systemImage: "waveform").font(.caption).foregroundStyle(.secondary)
+                        // While speech is not ready, the caption under the title already carries its line.
+                        if speechLine == nil {
+                            Label(engineName, systemImage: "waveform").font(.caption).foregroundStyle(.secondary)
+                        }
                         Button("Models…", action: openModels).buttonStyle(.workbenchLink).font(.caption)
                             .help("Choose the speech model in Settings › Models")
                     }
                 }.workbenchCard()
                     .accessibilityIdentifier("meeting.recording")
 
-                if let problem = model.problem ?? (model.isBusy ? nil : model.admission.captureProblem) {
+                if let problem = model.problem ?? (model.isBusy ? nil : model.admission.captureProblem), Self.drawsProblemCard(problem) {
                     HStack(alignment: .top, spacing: 10) {
                         WorkbenchNote(problem.message)
                         Spacer()
@@ -235,7 +238,22 @@ struct MeetingWorkspaceView: View {
         if showsCompletedResult { return "Copy the complete transcript to use it in your next task." }
         if model.isRecording { return time(model.elapsed) + " · Up to 2 hours" }
         if model.isProcessing { return "Finishing your transcript." }
-        return "Start once and follow the words as they happen · Up to 2 hours"
+        return speechLine ?? "Start once and follow the words as they happen · Up to 2 hours"
+    }
+
+    private var speechLine: String? { model.isBusy || showsCompletedResult ? nil : Self.speechCaption(model.admission) }
+
+    /// While speech is what stops a recording, the caption is the speech model's own line: its
+    /// download progress, why it stopped, or the offer to download it, as Dictate's is (#280).
+    static func speechCaption(_ admission: MeetingAdmission) -> String? {
+        if case .speech(let line)? = admission.captureProblem { return line }
+        return nil
+    }
+
+    /// Speech readiness is said by the title and caption, so it never becomes an attention card.
+    static func drawsProblemCard(_ problem: MeetingProblem) -> Bool {
+        if case .speech = problem { return false }
+        return true
     }
 
     private var transcriptSnapshot: LiveVoiceSnapshot {

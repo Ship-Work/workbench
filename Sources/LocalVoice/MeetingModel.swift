@@ -167,9 +167,12 @@ final class MeetingModel: ObservableObject {
             if microphone == .restricted { refusal = .microphoneRestricted }
         }
         if refusal == nil, selectedAppID == nil, !includeMicrophone { refusal = .noSource }
-        let next = MeetingAdmission(microphone: microphone, captureProblem: refusal, recognitionProblem: speech)
+        let next = MeetingAdmission(microphone: microphone, captureProblem: refusal, recognitionProblem: speech,
+                                    speechPreparing: host.recognition.isPreparing)
         if admission != next { admission = next }
         if let problem, [.microphoneDenied, .microphoneRestricted, .microphoneUnconfirmed].contains(problem), microphone == .authorized { setProblem(nil) }
+        // A start refused while speech was not ready is settled once it is.
+        if case .speech? = problem, host.recognition.canTranscribe { setProblem(nil) }
     }
 
     func updateHostAdmission(_ value: MeetingHostAdmission) { host = value; refreshAdmission() }

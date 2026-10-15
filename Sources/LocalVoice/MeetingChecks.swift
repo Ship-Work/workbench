@@ -361,6 +361,7 @@ enum MeetingChecks {
         try await offerLifecycleChecks(root: root, expect: expect)
         try idlePollChecks(root: root, expect: expect)
         try detectionSnapshotChecks(expect: expect)
+        try await speechReadinessChecks(root: root, expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
@@ -697,6 +698,37 @@ enum MeetingChecks {
         let afterOff = publishes
         model.refreshDetection(); model.refreshDetection()
         try expect(publishes == afterOff, "polls with detection off publish nothing")
+    }
+
+    /// Meetings says speech readiness as Dictate does: one title, the speech line once as the
+    /// caption, and no attention card while speech is only unready or preparing.
+    private static func speechReadinessChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingSpeech-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = MeetingModel(directory: root.appendingPathComponent("speech-readiness"), defaults: defaults,
+            processSource: ProcessFixture(), transcribe: { _ in "unused" }, microphonePermission: { true },
+            captureFactory: { CaptureFixture() })
+        let progress = "Downloading Parakeet · 42%", offer = "Download Parakeet to turn speech into text on this Mac."
+        model.updateHostAdmission(.init(recognition: .init(operationID: UUID(), phase: .downloading, detail: progress)))
+        let preparing = model.admission
+        try expect(preparing.title == "Preparing speech…" && !preparing.canStart && MeetingWorkspaceView.speechCaption(preparing) == progress
+                   && preparing.captureProblem?.message == progress && preparing.recognitionProblem?.message == progress,
+                   "a running download reads Preparing speech… with its progress as the caption, and asks for no setup")
+        model.updateHostAdmission(.init())
+        let unready = model.admission
+        try expect(unready.title == "Speech setup needed" && !unready.canStart && MeetingWorkspaceView.speechCaption(unready) == offer
+                   && unready.captureProblem?.message == offer,
+                   "speech that is not downloaded reads Speech setup needed with the download offer as the caption")
+        try expect(!MeetingWorkspaceView.drawsProblemCard(.speech(progress)) && MeetingWorkspaceView.drawsProblemCard(.microphoneDenied)
+                   && MeetingWorkspaceView.drawsProblemCard(.sourceDisappeared),
+                   "speech readiness is never an attention card; other problems still are")
+        await model.start()
+        try expect(model.problem == .speech(offer) && !model.isBusy, "a start before speech is ready is refused for speech")
+        model.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
+        try expect(model.problem == nil && model.admission.title == "Ready to record" && MeetingWorkspaceView.speechCaption(model.admission) == nil,
+                   "speech becoming ready settles the refused start, so no stale card outlives the download")
+        await model.prepareForShutdown()
     }
 
     /// Polls read only catalogue apps and the calling service. Every other process
