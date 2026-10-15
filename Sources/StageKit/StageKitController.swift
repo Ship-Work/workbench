@@ -638,7 +638,7 @@ struct PhotoBackdropChooser: View {
                         }.accessibilityLabel("Choose a saved scene")
                             .accessibilityIdentifier("handoff.backdrop-scenes")
                     }
-                    if let notice { Text(notice).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                    if let notice { PersonaNote(notice).textSelection(.enabled) }
                     Spacer(minLength: 0)
                     Divider()
                     HStack {

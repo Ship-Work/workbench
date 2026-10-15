@@ -89,8 +89,11 @@ struct FounderIntroductionCard: View {
                     if canDismiss { Button("Not now") { model.dismiss() }.buttonStyle(.workbenchLink) }
                 }
                 if let message = model.message {
-                    Text(message).font(.caption).foregroundStyle(model.hasError ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if model.hasError {
+                        WorkbenchNote(message, font: .caption)
+                    } else {
+                        Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.workbenchCard()

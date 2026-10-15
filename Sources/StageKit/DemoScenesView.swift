@@ -503,7 +503,7 @@ struct DemoScenesView: View {
                         .accessibilityLabel("Logo size")
                 }.font(.caption)
                 if model.logoImage(for: scene) == nil {
-                    Text("Logo missing — replace or remove it to export this scene.").font(.caption).foregroundStyle(.orange)
+                    PersonaNote("Logo missing — replace or remove it to export this scene.")
                 }
             }
         } else {
