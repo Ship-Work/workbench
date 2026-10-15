@@ -22,9 +22,9 @@ import sys
 PROJECT = Path(__file__).resolve().parents[1]
 FOLDERS = ('Sources/LocalVoice', 'Sources/StageKit')
 STYLE = re.compile(r'\.\s*(?:foregroundStyle|foregroundColor)\s*\(')
-ATTENTION = re.compile(r'\.\s*(?:orange|red)\b|\bWorkbench\s*\.\s*attention\b|\bNSColor\s*\.\s*system(?:Orange|Red)\b')
+ATTENTION = re.compile(r'\.\s*(?:orange|red|system(?:Orange|Red))\b|\bWorkbench\s*\.\s*attention\b')
 # Views that draw no words.
-WORDLESS = {'Image'}
+WORDLESS = {'Image', 'Circle', 'Capsule', 'Ellipse', 'Rectangle', 'RoundedRectangle'}
 # (file, the view's opening words, why it may stay).
 ALLOWED = [
     ('Sources/LocalVoice/MeetingWorkspaceView.swift', 'Button("Finish meeting")',
@@ -32,7 +32,8 @@ ALLOWED = [
     ('Sources/StageKit/DemoScenesView.swift', 'Text("Hand missing',
      'temporary: hand authoring is being retired, and that change takes this line'),
     ('Sources/LocalVoice/WorkbenchQuickPanel.swift', 'Text(entry?.shortcut.enabled == true',
-     "a shortcut's keys, a fixed-size glyph; its conflict is said on hover and in the editor"),
+     'temporary: a conflicting shortcut still turns its keys orange; #335 decides between '
+     'an orange symbol and saying it on hover only'),
 ]
 COMMENTS = re.compile(r'/\*.*?\*/|//[^\n]*', re.DOTALL)
 STRINGS = re.compile(r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"')
