@@ -57,12 +57,17 @@ enum HomeJourneyChecks {
 
         // The guide teaches a key only while it is on and registered (#15).
         let dictateKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))
-        try check(HomeJourney.shortcutHint(dictateKey, failure: nil).contains("⌥V"), "the guide names the Dictate shortcut while it works")
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil, capture: .toggle) == "or press ⌥V in any text field",
+                  "the guide names the Dictate shortcut while it works")
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil, capture: .hold) == "or hold ⌥V in any text field",
+                  "with Activation set to Hold, the guide says hold, as Dictate does")
         let dictateOff = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey), enabled: false)
-        try check(!HomeJourney.shortcutHint(dictateOff, failure: nil).contains("Off") && !HomeJourney.shortcutHint(dictateOff, failure: nil).contains("press"),
+        try check(CaptureMode.allCases.allSatisfy { let hint = HomeJourney.shortcutHint(dictateOff, failure: nil, capture: $0)
+                      return !hint.contains("Off") && !hint.contains("press") && !hint.contains("hold") },
                   "a Dictate shortcut that is off is never taught as \"press Off\"")
-        let taken = HomeJourney.shortcutHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.")
-        try check(!taken.contains("⌥V") && !taken.contains("press"), "a Dictate shortcut macOS could not register is never taught")
+        try check(CaptureMode.allCases.allSatisfy { let taken = HomeJourney.shortcutHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.", capture: $0)
+                      return !taken.contains("⌥V") && !taken.contains("press") && !taken.contains("hold") },
+                  "a Dictate shortcut macOS could not register is never taught")
         // A writing model's download or failure is current work wherever Current work can show it (#335).
         try check(HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: true, guideShows: true),
                   "with speech ready, a writing model download shows in Current work above the guide")
@@ -107,14 +112,17 @@ enum HomeJourneyChecks {
         let inUse = "⌥V is in use. Choose a different shortcut."
         func keyLines(_ shortcut: VoiceShortcut, failure: String?) -> [String] {
             CaptureMode.allCases.flatMap { [ContentView.recordingHint(shortcut, failure: failure, capture: $0),
-                                            ContentView.transcriptPlaceholder(shortcut, failure: failure, capture: $0)] }
-                + [HistoryView.emptyDetail(shortcut, failure: failure)]
+                                            ContentView.transcriptPlaceholder(shortcut, failure: failure, capture: $0)]
+                    + [HistoryView.emptyDetail(shortcut, failure: failure, capture: $0)] }
         }
         try check(keyLines(dictateKey, failure: inUse).allSatisfy { !$0.contains("⌥V") && !$0.contains("Press") && !$0.contains("Hold") }
                   && ContentView.recordingHint(dictateKey, failure: inUse, capture: .toggle).contains("Click the microphone"),
                   "Dictate and History never teach a Dictate shortcut macOS could not register")
         try check(keyLines(dictateOff, failure: nil).allSatisfy { !$0.contains("Off") }, "Dictate and History never teach a Dictate shortcut that is off")
         try check(keyLines(dictateKey, failure: nil).allSatisfy { $0.contains("⌥V") }, "Dictate and History name the Dictate shortcut while it works")
+        try check(HistoryView.emptyDetail(dictateKey, failure: nil, capture: .hold).contains("Hold ⌥V to dictate")
+                  && HistoryView.emptyDetail(dictateKey, failure: nil, capture: .toggle).contains("Press ⌥V to dictate"),
+                  "History's empty state says Hold or Press as Activation says, as Dictate does")
         let recallKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey))
         try check(DemoLibraryView.footerSummary(count: 2, recall: recallKey, failure: "⌃⌥J is in use. Choose a different shortcut.") == "2 resources"
                   && DemoLibraryView.footerSummary(count: 2, recall: VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey), enabled: false), failure: nil) == "2 resources"

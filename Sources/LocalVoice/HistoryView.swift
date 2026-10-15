@@ -291,10 +291,12 @@ struct HistoryView: View {
 
     private struct JobStamp: Equatable { var id: UUID; var updated: Date }
 
-    /// A new person's History teaches the Dictate shortcut only while it is on and registered (#76).
-    nonisolated static func emptyDetail(_ dictate: VoiceShortcut, failure: String?) -> String {
+    /// A new person's History teaches the Dictate shortcut only while it is on and registered (#76),
+    /// with Hold or Press as Activation says, as Dictate's hint does.
+    nonisolated static func emptyDetail(_ dictate: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
         "Dictations, Snaps and Hand off results land here, newest first. "
-            + (dictate.usableLabel(failure: failure).map { "Press \($0) to dictate, or choose Snap in the menu bar." } ?? "Choose Dictate or Snap in the menu bar.")
+            + (dictate.usableLabel(failure: failure).map { (capture == .hold ? "Hold " : "Press ") + "\($0) to dictate, or choose Snap in the menu bar." }
+                ?? "Choose Dictate or Snap in the menu bar.")
     }
 
     var body: some View {
@@ -317,7 +319,7 @@ struct HistoryView: View {
             notices
             if model.history.isEmpty && snap.items.isEmpty && jobs.jobs.isEmpty {
                 WorkbenchEmptyState(symbol: "clock", title: "Nothing here yet",
-                    detail: Self.emptyDetail(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])) { EmptyView() }
+                    detail: Self.emptyDetail(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)) { EmptyView() }
                     .frame(maxWidth: 520, alignment: .leading).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextField("Search transcripts, Snaps and results", text: $query).textFieldStyle(.roundedBorder)

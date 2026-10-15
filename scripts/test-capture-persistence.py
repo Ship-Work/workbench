@@ -43,7 +43,7 @@ methods = model.extract([
     'endWithoutSpeech', 'showDroppedLessonCue', 'showCaptureCue', 'holdCaptureCue', 'dismissCaptureCue',
     'scheduleCaptureCueExpiry',
     # Two silent captures in a row name System Settings › Sound and open it (#156).
-    'repeatedSilenceCode', 'canOpenSoundSettings', 'dismissError',
+    'repeatedSilenceCode', 'canOpenSoundSettings', 'raisedCaptureFailure', 'dismissError',
     # Where a dictation's words went, for VoiceOver (#165).
     'announceFeedback',
     'saveNow', 'session', 'shutdown',
@@ -100,7 +100,7 @@ writers = undelivered_writers(model)
 # so a draft that recovery replaced drops a draft entry instead of showing it.
 launch = model.select(['init(preferences:startSpeechLifecycle:)'])[0].code
 # The recorder's start, which these checks script, clears the attention before any branch
-# can return, and with it the Sound Settings… door that follows the repeated-silence code (#156).
+# can return; the card's Sound Settings… door follows the card's own failure and code (#156).
 assert re.search(r'guard recordingAttempt == attempt else \{ return \}\s*phase = \.requesting; attention = nil;',
                  model.select(['startRecording(_:)'])[0].code), 'every new start clears the attention before it can return'
 assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery()') < launch.index('undelivered.restore('), \
@@ -968,12 +968,16 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(hush.captureCue?.reason == .tooQuiet && hush.captureFailure == nil,
                   "After that panel the count starts again, so the next silence is a cue")
         try check(!(hush.captureFailure != nil && hush.canOpenSoundSettings), "The next silence's cue shows no Sound Settings… card")
-        // The door follows the failure's code, so Dismiss and any later report end it.
+        // The card's door follows the code the card's failure was raised with, so dismissing Dictate's
+        // banner leaves the card its door, while dismissing the card or any later failure ends it.
         let muted = CaptureHarness(directory: folder("no-speech-muted")); muted.announceForAccessibility = { _ in }
         for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
         try check(muted.canOpenSoundSettings, "Two silences in a row offer Sound Settings…")
         muted.dismissError()
-        try check(!muted.canOpenSoundSettings, "Dismissing the problem takes Sound Settings… with it")
+        try check(muted.attention == nil && muted.captureFailure?.contains("System Settings › Sound") == true && muted.canOpenSoundSettings,
+                  "Dismissing Dictate's banner leaves the card that names Sound with its Sound Settings…")
+        muted.dismissCaptureFailure()
+        try check(!muted.canOpenSoundSettings, "Dismissing the card takes Sound Settings… with it")
         for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
         muted.phase = .recording; muted.fail("Synthetic engine failure.")
         try check(!muted.canOpenSoundSettings && muted.captureFailure == "Synthetic engine failure.",

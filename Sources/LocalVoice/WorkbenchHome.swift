@@ -852,7 +852,7 @@ struct WorkbenchHomePage: View {
             Text("Record a thought, then copy your words into any app.").foregroundStyle(.secondary)
             if !model.ready && ![.requesting, .recording].contains(model.phase) { engineBanner } else {
                 HStack(spacing: 16) {
-                    // The toolbar's and Dictate's names, spoken as shown (#357).
+                    // Dictate's microphone's names, spoken as shown; Finish dictation is the toolbar's too (#357).
                     let dictationTitle = model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Finish dictation" : "Start dictating"
                     Button { model.toggleRecording() } label: {
                         Label(dictationTitle, systemImage: model.phase == .requesting ? "xmark" : model.phase == .recording ? "stop.fill" : "mic.fill")
@@ -869,7 +869,7 @@ struct WorkbenchHomePage: View {
                         Text(model.captureProcessingLabel).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])).font(.callout).foregroundStyle(.secondary)
+                Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)).font(.callout).foregroundStyle(.secondary)
                 if !model.transcript.isEmpty {
                     Text(model.transcript).lineLimit(6).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         .padding(Workbench.tilePadding).background(Workbench.surface, in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
@@ -985,9 +985,9 @@ struct HomeJourney: Equatable {
     }
     /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
     /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
-    /// bar, in History's words.
-    static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?) -> String {
-        shortcut.enabled && failure == nil ? "or press \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
+    /// bar, in History's words. Hold or press follows Activation, as Dictate's hint does.
+    static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        shortcut.enabled && failure == nil ? "or \(capture == .hold ? "hold" : "press") \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
     }
     /// Current work first, then the guide while offered, then Permissions while it is open, then
     /// your meetings, decks and keys, and a folded Permissions last. Home holds
