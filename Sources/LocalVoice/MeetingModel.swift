@@ -80,6 +80,9 @@ final class MeetingModel: ObservableObject {
     /// Checks replace this so they never fill the person's Trash.
     var moveToTrash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     var onStateChange: (() -> Void)?
+    /// Quit while a meeting records asks first (#280). Checks answer here; the app delegate's
+    /// alert answers when this is nil.
+    var approveQuitWhileRecording: (() -> MeetingQuitChoice)?
 
     static let detectionKey = "workbench.meeting.detect.v1"
     nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
@@ -816,5 +819,45 @@ final class CallAudioEvidence: @unchecked Sendable {
         guard !heard else { return }
         heard = true
         defaults.set(CallAudioRecord.allowed.rawValue, forKey: CallAudioRecord.key)
+    }
+}
+
+/// What Quit does while a meeting is recording (#280). The question is the app delegate's alert;
+/// the buttons, their order and what each one does live here so --check-meetings can hold them.
+enum MeetingQuitChoice: CaseIterable, Equatable {
+    case finishMeeting, keepRecording, quitAndKeepForLater
+    static let message = "A meeting is recording."
+    static let detail = "Finish meeting saves the transcript, then quits. Keep for later keeps the audio to transcribe next time."
+    /// The alert's buttons in order; the first is the default and Keep recording answers Escape.
+    static let buttons: [MeetingQuitChoice] = [.finishMeeting, .keepRecording, .quitAndKeepForLater]
+    var title: String {
+        switch self {
+        case .finishMeeting: return "Finish meeting"
+        case .keepRecording: return "Keep recording"
+        case .quitAndKeepForLater: return "Quit and keep for later"
+        }
+    }
+    static func choice(for response: NSApplication.ModalResponse) -> MeetingQuitChoice {
+        switch response {
+        case .alertFirstButtonReturn: return .finishMeeting
+        case .alertThirdButtonReturn: return .quitAndKeepForLater
+        default: return .keepRecording
+        }
+    }
+    struct Plan: Equatable {
+        /// Whether Workbench quits; Keep recording cancels the quit.
+        var quits: Bool
+        /// Whether the meeting is finished and its transcript saved before the other shutdowns;
+        /// otherwise the audio is kept for later, as Quit always did.
+        var finishesMeeting: Bool
+    }
+    /// The delegate's rule: only a recording meeting is asked; anything else quits as before.
+    static func plan(recording: Bool, ask: () -> MeetingQuitChoice) -> Plan {
+        guard recording else { return Plan(quits: true, finishesMeeting: false) }
+        switch ask() {
+        case .finishMeeting: return Plan(quits: true, finishesMeeting: true)
+        case .keepRecording: return Plan(quits: false, finishesMeeting: false)
+        case .quitAndKeepForLater: return Plan(quits: true, finishesMeeting: false)
+        }
     }
 }

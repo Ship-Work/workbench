@@ -206,10 +206,10 @@ enum WorkbenchControlChecks {
         try check(FloatingToolbarSurface.resolve(enabled: true, capturingScreen: true, dictation: false, narration: false) == .hidden, "capture hides controls")
         // Hide toolbar is authoritative for the tools over live Draw, Present and Persona (#155).
         func surface(shown: Bool = false, drawing: Bool = false, presenting: Bool = false, persona: Bool = false, inserting: Bool = false,
-                     dictation: Bool = false, narration: Bool = false, cue: Bool = false,
+                     dictation: Bool = false, narration: Bool = false, meeting: Bool = false, cue: Bool = false,
                      capturing: Bool = false) -> FloatingToolbarSurface {
             .resolve(shown: shown, drawing: drawing, presenting: presenting, persona: persona, inserting: inserting,
-                     capturingScreen: capturing, dictation: dictation, narration: narration, cue: cue)
+                     capturingScreen: capturing, dictation: dictation, narration: narration, meeting: meeting, cue: cue)
         }
         try check(surface() == .hidden && surface(drawing: true) == .hidden && surface(presenting: true) == .hidden && surface(persona: true) == .hidden
                   && surface(drawing: true, presenting: true, persona: true) == .hidden, "Hide toolbar hides the tools while drawing, presenting or showing a persona")
@@ -222,6 +222,13 @@ enum WorkbenchControlChecks {
         try check(surface(dictation: true, cue: true) == .cue && surface(shown: true, cue: true) == .cue
                   && surface(dictation: true, cue: true, capturing: true) == .hidden, "the no-speech cue has its own view, and screen capture hides it too")
         try check(surface(inserting: true) == .tools, "a prompt insertion keeps its Stop on the tools until it ends")
+        // A recording meeting keeps its controls whatever the toolbar setting says (#280): the compact
+        // mark with its red dot, Finish and the chooser's Meetings row stay while Hide toolbar is on,
+        // through its finishing, and go when the meeting ends; a screen capture still hides them.
+        try check(surface(meeting: true) == .tools && surface(shown: true, meeting: true) == .tools && surface(drawing: true, meeting: true) == .tools,
+                  "a recording or finishing meeting keeps the shared host while the tools are hidden")
+        try check(surface() == .hidden && surface(meeting: true, capturing: true) == .hidden,
+                  "the host goes again when the meeting ends with the tools hidden, and a screen capture hides it meanwhile")
         // Position… opened from the toolbar's keyboard focus hands the keyboard back (#197 review).
         let closes: [ToolbarPositionClose] = [.chose, .reset, .escape, .dismissed]
         try check(closes.map { $0.returnsKeyboard(openedFromKeyboard: true) } == [true, true, true, false]

@@ -363,6 +363,22 @@ enum MeetingChecks {
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
         checks += try MeetingCompletionChecks.run()
+        // Quit while a meeting records asks first (#280): Finish meeting saves, then quits; Keep
+        // recording cancels the quit; Quit and keep for later is what Quit always did. Nothing else asks.
+        try expect(MeetingQuitChoice.buttons.map(\.title) == ["Finish meeting", "Keep recording", "Quit and keep for later"],
+                   "the quit question offers Finish meeting first, then Keep recording and Quit and keep for later")
+        try expect(MeetingQuitChoice.choice(for: .alertFirstButtonReturn) == .finishMeeting && MeetingQuitChoice.choice(for: .alertSecondButtonReturn) == .keepRecording
+                   && MeetingQuitChoice.choice(for: .alertThirdButtonReturn) == .quitAndKeepForLater && MeetingQuitChoice.choice(for: .cancel) == .keepRecording,
+                   "each button maps to its choice and anything else keeps recording")
+        var asked = 0
+        try expect(MeetingQuitChoice.plan(recording: false) { asked += 1; return .keepRecording } == .init(quits: true, finishesMeeting: false) && asked == 0,
+                   "an idle or finishing Meetings page never asks and quits as before")
+        try expect(MeetingQuitChoice.plan(recording: true) { asked += 1; return .keepRecording } == .init(quits: false, finishesMeeting: false) && asked == 1,
+                   "Keep recording cancels the quit and leaves the recording running")
+        try expect(MeetingQuitChoice.plan(recording: true) { .finishMeeting } == .init(quits: true, finishesMeeting: true),
+                   "Finish meeting saves the transcript, then quits")
+        try expect(MeetingQuitChoice.plan(recording: true) { .quitAndKeepForLater } == .init(quits: true, finishesMeeting: false),
+                   "Quit and keep for later quits with the audio kept, as before")
         print("Meeting checks passed (\(checks)): synthetic detection, source timing, >30-minute segmentation, recovery, cancellation and stable history commits. No live devices were used.")
     }
 

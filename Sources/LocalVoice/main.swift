@@ -748,10 +748,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             model.page = "library"; showWindow(countsAsVisit: false)
             guard model.library.canTerminate() else { return .terminateCancel }
         }
+        // A recording meeting asks before Quit (#280): Workbench comes forward when an offer's
+        // Start is pressed, so a ⌘Q meant for the call app lands here. Finish meeting saves the
+        // transcript, then quits; Keep recording cancels; Quit and keep for later is what Quit did.
+        var finishMeeting = false
+        if let model {
+            let plan = MeetingQuitChoice.plan(recording: model.meetings.isRecording) {
+                model.meetings.approveQuitWhileRecording?() ?? Self.askQuitWhileRecording()
+            }
+            guard plan.quits else { return .terminateCancel }
+            finishMeeting = plan.finishesMeeting
+        }
         guard let model, model.meetings.isBusy || model.handoffJobs.isBusy || model.hasActiveVoiceCapture else { return .terminateNow }
         terminationPending = true
         terminating = true
         Task {
+            if finishMeeting { await model.meetings.stop() }
             await model.meetings.prepareForShutdown()
             await model.prepareVoiceForShutdown()
             await model.handoffJobs.prepareForShutdown()
@@ -759,6 +771,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
+    }
+    /// The one question Quit asks while a meeting records (#280). Its words, buttons and what each
+    /// one does are MeetingQuitChoice's, held by --check-meetings; Escape keeps recording.
+    static func askQuitWhileRecording() -> MeetingQuitChoice {
+        let alert = NSAlert()
+        alert.messageText = MeetingQuitChoice.message
+        alert.informativeText = MeetingQuitChoice.detail
+        for choice in MeetingQuitChoice.buttons { alert.addButton(withTitle: choice.title) }
+        alert.buttons[MeetingQuitChoice.buttons.firstIndex(of: .keepRecording)!].keyEquivalent = "\u{1b}"
+        return MeetingQuitChoice.choice(for: alert.runModal())
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
