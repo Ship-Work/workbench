@@ -109,3 +109,17 @@ The seven verified dead-code retirements were built as three PRs stacked after t
 | Rewrite `docs/product-spec.md:124` (the removed More menu) | A historical contract that `docs/floating-toolbar.md` already corrects | A contributor is misled by it | `docs/product-spec.md` |
 | An offered call that is reviewed but never recorded still marks a later microphone-only meeting as a Call in the same app session | Narrow, and the spec now says Call lasts until that call's recording finishes | A report of a mislabelled meeting | `MeetingModel` call offer |
 | The stage-slot helper can deadlock two waiters that match each other's command lines | Tooling for parallel agent runs, not the product | Parallel StageKit runs come back | session tooling only |
+
+## Round four and wave five · night of 15–16 October
+
+The code-base cleanups (#373, #375, #376) were folded into the train so they are tested with everything else. Round four then hunted from angles no earlier round used: idle energy, leaks across repeated use, a brand-new user's first run, keyboard-only use of the window, concurrency, settings propagation and public-page accuracy. 11 survived the skeptics (three at value 3, eight at 2), and all were built in wave five, stacked on the train: #384 (idle detection stops redrawing Home and the toolbar every 3 seconds and reads only the apps it can offer; Meetings says Preparing speech… while a download runs), #385 (a fresh install reads as ready to set up, not as a failed speech setup; Dictate never hangs when session saving is off), #386 (⌘Z in Snap's text fields undoes the typing, not the last mark; a narration whose recorder stops by itself is kept), #387 (a key macOS refused at launch shows as refused; Reset layout keeps My device; the Timer's Duration menu shows the set duration; the gallery ignores the developer's own voice settings) and #383 (guide, handbook and README match the train).
+
+| Idea | Why not now | What would change it | Where |
+| --- | --- | --- | --- |
+| A paused or quiet meeting stops regrouping and republishing its transcript every 100 ms | Real, but nobody would notice; it changes the live-voice loop just before the ship | A sample during a paused meeting shows it, or a report of lag in long paused meetings | `LiveVoiceService` |
+| The toolbar host follows only the meeting state it uses | Unmeasured; touches the toolbar host before the ship | A measured cost during a live meeting | `CapturePanel` |
+| First Snap says "Screen Recording is off" before anything was asked | Two contract lines and a decision made tonight choose this wording; a taste call on a once-per-install path | The maintainer prefers "not set up yet" wording there | `SnapModel`, `ReadbackModel` |
+| The menu-bar icon redraws only on change; the clipboard watch timer gets tolerance | Small after tonight's Timer fix; reads cost microseconds | An Energy Impact report | `StageKitController`, `ClipboardReceipt` |
+| After allowing Screen Recording, Quit & Reopen lands back on the asking page | Adds a launch exception and a persisted record; the maintainer's call | He asks for it | `docs/desktop.md` launch rule |
+| Keyboard list moves with arrow keys; Persona rename by Return; Tab leaves the prompt editor | Design calls or convention (Tab in a text view is standard macOS) | The maintainer asks | `KeyboardCoach`, Persona, Library |
+| Profile camera preview layer attached on the main thread | Not provable without a camera; no symptom confirmed | A camera glitch report | `ProfileCamera` |
