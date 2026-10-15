@@ -466,9 +466,11 @@ final class PersonaAppearanceTests {
             let stage = StageKitController(coordinator: app)
             stage.useSharedActivityControls()
             XCTAssertTrue(library.selectedLiveCopy == nil, "No live copy, nothing to change")
+            XCTAssertTrue(stage.selectedPersonaCopy == nil, "With no live copy, the chooser's Persona commands name none")
             XCTAssertFalse(holdsAppearance(stage.makePersonaMenu()), "With no live copy, Persona's menu has no Appearance")
             stage.togglePersona()
             guard let copy = library.selectedLiveCopy else { XCTAssertTrue(false, "The shown card is named"); return }
+            XCTAssertTrue(stage.selectedPersonaCopy != nil, "The chooser's Persona commands name the shown card")
             XCTAssertEqual(library.liveShape(of: copy), .card)
             XCTAssertTrue(holdsAppearance(stage.makePersonaMenu()), "A shown card's menu holds its Appearance")
             library.setLiveShape(.circle, for: copy)

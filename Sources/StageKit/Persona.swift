@@ -1056,8 +1056,8 @@ final class PersonaLibrary: NSObject, ObservableObject {
         }
     }
     /// Circle, Card or Original for exactly one live copy, from its Options or the
-    /// toolbar. A copy that is no longer live is left alone; no other copy and no
-    /// saved persona changes.
+    /// Persona workspace. A copy that is no longer live is left alone; no other copy
+    /// and no saved persona changes.
     func setLiveShape(_ shape: PersonaAppearance.Shape, for copy: PersonaLiveCopy) {
         guard copy.generation == overlayGeneration else { return }
         switch copy {

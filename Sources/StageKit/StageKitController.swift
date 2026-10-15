@@ -259,9 +259,9 @@ public final class StageKitController: ObservableObject {
     public var personaPicker: PersonaPicker? { coordinator.demoScenes.personas.toolbarPicker }
     /// My Profile and Live Camera, then the cards Persona can show now; a prepared set's sets.
     public func makePersonaPickerMenu() -> NSMenu { coordinator.demoScenes.personas.makeToolbarPickerMenu() }
-    /// One live persona copy, named exactly: the one floating card, or one copy of
-    /// a prepared set. Capture it when a control is drawn, so a later choice
-    /// changes that copy and never another (#169, #134).
+    /// The selected live persona copy as an opaque identity: the one floating card,
+    /// or one copy of a prepared set. The chooser's Persona commands fold it into
+    /// their identity, so a stale row cannot act on a different copy (#169, #134).
     public struct PersonaCopy: Equatable { fileprivate let copy: PersonaLiveCopy }
     /// The live copy Persona's Options act on now: the selected copy of a prepared
     /// set, or else the one floating card. nil when no persona is live.
