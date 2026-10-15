@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import CoreAudio
 import Foundation
 
@@ -358,6 +359,8 @@ enum MeetingChecks {
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
+        try idlePollChecks(root: root, expect: expect)
+        try detectionSnapshotChecks(expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
@@ -656,6 +659,122 @@ enum MeetingChecks {
         await model.prepareForShutdown()
         try expect(permissions == 0 && captures == 0 && delays.allSatisfy { $0 == 20 },
                    "all offer paths preserve the timeout and never request microphone or capture access")
+    }
+
+    /// Detection polls every three seconds. A poll that finds nothing new must not publish,
+    /// because Home, both toolbar views and the toolbar host redraw on every publish.
+    private static func idlePollChecks(root: URL, expect: (Bool, String) throws -> Void) throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingIdle-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 92_001, bundleID: "example.music", isRunningInput: false, isRunningOutput: true, name: "Synthetic player")]
+        let model = MeetingModel(directory: root.appendingPathComponent("idle-polls"), defaults: defaults,
+            processSource: source, transcribe: { _ in "unused" }, microphonePermission: { true },
+            captureFactory: { CaptureFixture() })
+        model.detectionEnabled = true
+        model.refreshDetection()
+        var publishes = 0
+        let counter = model.objectWillChange.sink { _ in publishes += 1 }
+        defer { counter.cancel() }
+        for _ in 0..<5 { model.refreshDetection() }
+        try expect(publishes == 0 && source.calls == 6, "five idle detection polls read metadata and publish nothing")
+        source.values.append(.init(pid: 92_002, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true))
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == 0 && model.offer == nil, "an unconfirmed call publishes nothing")
+        model.refreshDetection()
+        try expect(publishes == 1 && model.offer?.id == 92_002, "the confirmed offer publishes exactly once")
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == 1 && model.offer?.id == 92_002, "the same offer on later polls publishes nothing")
+        source.values.removeLast(); model.refreshDetection()
+        try expect(publishes == 2 && model.offer == nil, "the call ending publishes once to clear the offer")
+        source.failure = true
+        for _ in 0..<5 { model.refreshDetection() }
+        try expect(publishes == 3 && model.problem == .unknown("Audio activity could not be checked. Synthetic metadata failure"),
+                   "a metadata failure that persists publishes its problem once, not once per poll")
+        source.failure = false
+        model.detectionEnabled = false
+        let afterOff = publishes
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == afterOff, "polls with detection off publish nothing")
+    }
+
+    /// Polls read only catalogue apps and the calling service. Every other process
+    /// cannot become an offer or change a catalogue choice, so offers, their PIDs and
+    /// call activity must match a detector that reads every process.
+    private static func detectionSnapshotChecks(expect: (Bool, String) throws -> Void) throws {
+        let source = ProcessFixture()
+        let everything = UnfilteredProcessFixture(source)
+        let considered: [MeetingProcessSnapshot] = [
+            .init(pid: 810, bundleID: "com.google.Chrome", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 811, bundleID: "com.google.Chrome.helper.audio", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false),
+            .init(pid: 900, bundleID: "com.microsoft.teams2", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 901, bundleID: "com.microsoft.teams2.modulehost", isRunningInput: false, isRunningOutput: false, isUserFacingApp: false),
+            .init(pid: 830, bundleID: "com.apple.avconferenced", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false),
+            .init(pid: 870, bundleID: "com.apple.mobilephone", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 880, bundleID: "com.ethdawg.workbench", isRunningInput: true, isRunningOutput: true),
+            .init(pid: 881, bundleID: "com.ethdawg.workbench.preview", isRunningInput: true, isRunningOutput: true)
+        ]
+        source.values = considered
+        for index in 0..<30 {
+            let pid = Int32(1_000 + index), output = index.isMultiple(of: 2), facing = !index.isMultiple(of: 3)
+            source.values.append(MeetingProcessSnapshot(pid: pid, bundleID: "example.input\(index)", isRunningInput: true,
+                                                        isRunningOutput: output, name: "Synthetic input \(index)", isUserFacingApp: facing))
+        }
+        try expect(source.detectionSnapshot().map(\.pid) == [810, 811, 900, 901, 830, 870] && source.values.count == 38,
+                   "a detection read keeps catalogue apps and the calling service and leaves out every other process")
+        let filtered = MeetingDetector(source: source), reference = MeetingDetector(source: everything)
+        filtered.isEnabled = true; reference.isEnabled = true
+        let watched = [MeetingAudioApp(id: 810, name: "Google Chrome", bundleID: "com.google.Chrome"),
+                       MeetingAudioApp(id: 900, name: "Microsoft Teams", bundleID: "com.microsoft.teams2"),
+                       MeetingAudioApp(id: 870, name: "Phone", bundleID: "com.apple.mobilephone"),
+                       MeetingAudioApp(id: 830, name: "Mac calling service", bundleID: "com.apple.avconferenced"),
+                       MeetingAudioApp(id: 1_002, name: "Synthetic input 2", bundleID: "example.input2")]
+        var offered: [MeetingAudioApp] = []
+        var now = Date(timeIntervalSince1970: 50_000)
+        func poll(_ step: String, polls: Int = 1) throws {
+            for _ in 0..<polls {
+                let left = filtered.evaluate(now: now), right = reference.evaluate(now: now)
+                try expect(left == right && (filtered.lastError == nil) == (reference.lastError == nil),
+                           "\(step): the detection read offers what a full read offers")
+                if let left { offered.append(left) }
+            }
+            try expect(watched.allSatisfy { filtered.activity(for: $0) == reference.activity(for: $0) },
+                       "\(step): call activity matches a full read")
+        }
+        try poll("browser helper streak", polls: 3)
+        try expect(offered.last?.id == 810, "a browser helper's call is offered as the browser's main process")
+        filtered.dismiss(offered.last!, now: now); reference.dismiss(offered.last!, now: now)
+        try poll("Not now on the browser")
+        try expect(offered.last?.bundleID == "com.apple.avconferenced", "the calling service is offered once the browser is dismissed")
+        source.values[3].isRunningInput = true
+        try poll("Teams module host streak", polls: 3)
+        try expect(offered.last?.id == 900, "a Teams call in its module host is offered as Teams")
+        source.values[5].isRunningInput = true
+        try poll("Phone streak", polls: 3)
+        try expect(offered.last?.id == 870, "Phone's lowercase identifier is offered")
+        source.values[5].pid = 871
+        try poll("Phone process changed")
+        try expect(offered.last?.id == 871, "a changed process is offered by its new PID")
+        filtered.disable(offered.last!); reference.disable(offered.last!)
+        try poll("Phone turned off")
+        filtered.snooze(now: now); reference.snooze(now: now)
+        now = now.addingTimeInterval(60)
+        try poll("snoozed", polls: 2)
+        filtered.snoozedUntil = nil; reference.snoozedUntil = nil
+        now = now.addingTimeInterval(1_300)
+        source.values[3].isRunningInput = false
+        try poll("after the cooldown", polls: 3)
+        try expect(offered.last?.id == 810, "the browser returns after its cooldown by its main process")
+        source.values.remove(at: 0)
+        try poll("browser main process gone", polls: 2)
+        try expect(offered.last?.id == 811, "a browser without its main process is offered by its audio helper")
+        source.failure = true
+        try poll("metadata failure")
+        source.failure = false
+        try poll("recovered", polls: 3)
+        try expect(Set(offered.map(\.bundleID)) == ["com.google.Chrome", "com.apple.avconferenced", "com.microsoft.teams2", "com.apple.mobilephone"],
+                   "the sequence offered every kind of source")
     }
 
     private static func lifecycleChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
@@ -1453,6 +1572,16 @@ enum MeetingChecks {
             if failure { throw MeetingError.message("Synthetic metadata failure") }
             return values
         }
+    }
+
+    /// Detection's reads before they were narrowed: every process, as the picker sees them.
+    private final class UnfilteredProcessFixture: MeetingProcessSource {
+        let base: ProcessFixture
+        init(_ base: ProcessFixture) { self.base = base }
+        var isAvailable: Bool { base.isAvailable }
+        var unavailableReason: String { base.unavailableReason }
+        func snapshot() throws -> [MeetingProcessSnapshot] { try base.snapshot() }
+        func detectionSnapshot() throws -> [MeetingProcessSnapshot] { try base.snapshot() }
     }
 
     private final class OnceFlag: @unchecked Sendable {

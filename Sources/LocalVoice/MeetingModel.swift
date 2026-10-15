@@ -695,7 +695,7 @@ final class MeetingModel: ObservableObject {
     private func configureDetection() {
         detectionTask?.cancel(); detectionTask = nil
         detector.isEnabled = detectionEnabled
-        if !detectionEnabled { offer = nil; return }
+        if !detectionEnabled { if offer != nil { offer = nil }; return }
         guard !shuttingDown else { return }
         if !detector.isAvailable { error = detector.unavailableReason; return }
         detectionTask = Task { [weak self] in
@@ -708,14 +708,16 @@ final class MeetingModel: ObservableObject {
     }
 
     /// One metadata poll, shared by the timer and deterministic lifecycle checks.
-    /// It cannot request permission or open a capture.
+    /// It cannot request permission or open a capture. It publishes only a change, so an
+    /// idle poll every three seconds redraws nothing that observes this model.
     func refreshDetection() {
-        guard detectionEnabled, !shuttingDown else { offer = nil; return }
+        guard detectionEnabled, !shuttingDown else { if offer != nil { offer = nil }; return }
         refreshAdmission()
         detector.isSuppressed = isBusy || host.closing || !host.recognition.canTranscribe
             || host.captureProblem != nil || mayStart?() != nil
-        offer = detector.evaluate()
-        if let issue = detector.lastError, !isBusy { error = issue }
+        let next = detector.evaluate()
+        if next != offer { offer = next }
+        if let issue = detector.lastError, !isBusy, problem != .unknown(issue) { error = issue }
     }
 
     /// Chooses the offered source for review. A call on this Mac is saved as a Call; a later
