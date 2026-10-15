@@ -21,17 +21,17 @@ No control, Option, entry point or copy was added. `docs/personas.md` gains one 
 
 | Check | Result | Fails without the change? |
 | --- | --- | --- |
-| `scripts/test-stage.sh --persona-workspace-only` | 9 tests · 287 assertions · 0 failures | Yes. With the train's two Persona views and only the new library members (so the tests compile), the new workspace test failed 6 assertions: coming back showed the ordinary page, so there was no label field, the typed label was not kept, and the removed group's draft was not dropped. On the train itself neither new test compiles, because `presentationDraft` is absent. |
-| `scripts/test-stage.sh --ci` | 339 tests · 6652 assertions · 0 failures; both new tests pass. Three steps skipped as usual: the live menu-bar popover in CI mode, and two shortcut checks because Workbench Preview holds the Option keys on this Mac. | — |
+| `scripts/test-stage.sh --persona-workspace-only` | 9 tests · 288 assertions · 0 failures | Yes. With the train's two Persona views and only the new library members (so the tests compile), the new workspace test failed 6 assertions: coming back showed the ordinary page, so there was no label field, the typed label was not kept, and the removed group's draft was not dropped. With only Discard changes' clear removed, it failed 1 assertion ("Discard changes discards the kept layout too"). On the train itself neither new test compiles, because `presentationDraft` is absent. |
+| `scripts/test-stage.sh --ci` | 339 tests · 6653 assertions · 0 failures; both new tests pass. Three steps skipped as usual: the live menu-bar popover in CI mode, and two shortcut checks because Workbench Preview holds the Option keys on this Mac. | — |
 | `scripts/test-stage.sh --persona-one-card-only` | 23 tests · 370 assertions · 0 failures | — |
 | `WORKBENCH_LAYOUT_EVIDENCE=… scripts/test-stage.sh --persona-layout-only` | 1 test · 17 assertions · 0 failures; wrote the renders below | — |
-| `swift build --disable-sandbox --product LocalVoice` | Built | — |
-| `LocalVoice --render-surfaces` | 370 renders. Every Persona render is byte-identical to main's baseline. The run exited 1 at the floating toolbar's "A copied cue appearing under a stationary pointer holds its time" step, light and dark, which reads the real pointer; earlier records today hit the same step, and this branch does not touch the toolbar. | — |
+| `swift build --disable-sandbox --product LocalVoice` | Built at the final head | — |
+| `LocalVoice --render-surfaces` | Run at `6f7878a`; the later commits change only tests and this record. 370 renders. Every Persona render is byte-identical to main's baseline. The run exited 1 at the floating toolbar's "A copied cue appearing under a stationary pointer holds its time" step, light and dark, which reads the real pointer; earlier records today hit the same step, and this branch does not touch the toolbar. | — |
 | `python3 scripts/check-surfaces.py` | Surface registry OK: 688 entries | — |
 
 The new tests:
 
-- **PersonaWorkspaceTests · `testChangingPageKeepsAnUnsavedArrangement`** hosts a new workspace `PersonaLibraryView` for each visit, as the sidebar builds one per route. With a kept draft, the visit reopens Arrange overlays: the public group label field shows the edit, and typing into it updates what is kept. The next visit shows the typed label, with the moved and hidden overlays and the same selection. Typing the saved label back leaves nothing kept, so the next visit opens the ordinary page. Nothing is written. After the group is removed, Persona opens as usual and the draft is gone.
+- **PersonaWorkspaceTests · `testChangingPageKeepsAnUnsavedArrangement`** hosts a new workspace `PersonaLibraryView` for each visit, as the sidebar builds one per route. With a kept draft, the visit reopens Arrange overlays: the public group label field shows the edit, and typing into it updates what is kept. The next visit shows the typed label, with the moved and hidden overlays and the same selection. Typing the saved label back leaves nothing kept, so the next visit opens the ordinary page. Nothing is written. After the group is removed, Persona opens as usual and the draft is gone. The Discard question cannot be answered offscreen, so the test also reads the Discard changes action and checks that it clears the kept layout.
 - **PersonaSessionTests · `testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes`** checks the following. A kept draft comes back unchanged on every read and writes nothing. A relaunched library has none. Saving it after another save changed the group throws the changed-layout error and leaves the newer layout on disk. Removing its group drops it and leaves other groups alone.
 
 ## Renders
@@ -50,5 +50,7 @@ No app was installed, launched or shown. These native checks are still owed:
 - In Persona, choose Arrange overlays…, move an overlay and edit the label without saving, then click Present and come back. Arrange overlays should reopen with both edits.
 - From there, Done › Discard changes, then leave and come back. Persona should open on its ordinary page.
 - Leave with an unsaved layout, then quit and reopen Workbench. Persona should open on its ordinary page.
+
+- With an unsaved layout waiting, add a persona pack from Library › Packs, and press the toolbar's Show persona with an empty group active. Both open Persona on Arrange overlays rather than the list (the review's third note). Decide on #340 whether these doors should keep the layout and open the ordinary page instead.
 
 Accepted behaviour, as the review noted: the Persona library sheet, where it still opens, shares the library, so its Arrange overlays resumes the same draft, and its Done still asks before discarding it.
