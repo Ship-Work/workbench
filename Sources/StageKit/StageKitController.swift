@@ -331,7 +331,7 @@ public final class StageKitController: ObservableObject {
         // one chosen, in order and worded as the page's field shows it (#174).
         let chosen = app.settings.value.timerMinutes
         if !durations.contains(where: { $0.state == .on }) {
-            let later = durations.firstIndex { (Double($0.title.split(separator: " ")[0]) ?? 0) > chosen } ?? durations.count
+            let later = durations.firstIndex { ($0.title.split(separator: " ").first.flatMap { Double($0) } ?? 0) > chosen } ?? durations.count
             durations.insert(StageMenuAction("\(chosen.formatted(.number)) min", checked: true) { [weak app] in
                 app?.settings.value.timerMinutes = chosen
             }, at: later)
