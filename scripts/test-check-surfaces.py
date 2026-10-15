@@ -161,6 +161,22 @@ class SurfaceTests(unittest.TestCase):
         self.file.write_text(self.file.read_text().replace('func options', 'func rowOptions'))
         self.assertEqual(before, {e['surface']: e['id'] for e in self.entries()})
 
+    def test_a_view_an_offer_embeds_keeps_its_panel_status_rows(self):
+        self.write('LocalVoice/Kit.swift', 'struct KitNote: View { let text: String; var body: some View { HStack { Image(systemName: "x"); Text(text) } } }')
+        self.file.write_text(PANEL % 'KitNote(message); Button("Read") { read() }')
+        before = [e for e in self.entries() if e['surface'] == 'quick panel status rows']
+        self.assertEqual(1, len(before))
+        self.write('LocalVoice/FounderIntroduction.swift',
+                   'struct FounderIntroductionCard: View { var body: some View { KitNote(error); Button("Open email draft") {} } }')
+        entries = self.entries()
+        self.assertEqual(before, [e for e in entries if e['surface'] == 'quick panel status rows'])
+        self.assertIn('Open email draft', [e['label'] for e in entries])
+        # The panel collects it once however often it shows it, and a view that embeds itself ends.
+        self.write('LocalVoice/Kit.swift', 'struct KitNote: View { let text: String; var body: some View { '
+                   'HStack { Image(systemName: "x"); Text(text); ForEach(more) { KitNote(text: $0) } } } }')
+        self.file.write_text(PANEL % 'KitNote(message); KitNote(other); Button("Read") { read() }')
+        self.assertEqual(before, [e for e in self.entries() if e['surface'] == 'quick panel status rows'])
+
     def test_the_header_switch_row_is_a_header_control(self):
         self.file.write_text(PANEL % '''
           PanelSwitch(title: "Floating toolbar", isOn: $visible, help: help).fixedSize()

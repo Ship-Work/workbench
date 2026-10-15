@@ -646,6 +646,7 @@ class Inventory:
     def __init__(self, tree, strict):
         self.tree, self.strict = tree, strict
         self.entries, self.visited, self.enums = [], set(), {}
+        self.offered = set()  # Views an offer embeds; the panel still lists their status rows.
 
     def owner(self, relative, scope, kinds=None):
         """The file and the ranges of `scope` in it. Missing owners fail loudly."""
@@ -1069,9 +1070,10 @@ class Inventory:
                     continue
                 for path in self.tree.declaring(kind, name, near=swift.module)[:1]:
                     relative = path.relative_to(self.tree.root / 'Sources').as_posix()
-                    if (path, name) in self.visited or name in EXCLUDED.get(relative, []):
+                    claimed = (path, name) in self.visited and not (mode == 'panel' and (path, name) in self.offered)
+                    if claimed or name in EXCLUDED.get(relative, []):
                         continue
-                    self.visited.add((path, name))
+                    self.visited.add((path, name)); self.offered.discard((path, name))  # Once, like any other view.
                     owner = self.tree.swift(path)
                     ranges = [(s[0], s[1]) for s in owner.scopes if s[2] == kind and s[3] == name]
                     embedded = 'quick panel status rows' if mode == 'panel' else surface(swift, i, '')
@@ -1180,6 +1182,8 @@ def derive(root, require_roots=True, tree=None):
         ranges = [(s[0], s[1]) for s in swift.scopes if s[2] in ('struct', 'class') and s[3] == name]
         inventory.visited.add((path, name))
         inventory.collect(swift, ranges, lambda *_, n=name: 'proactive offer ' + n, 'controls', follow=True)
+    # A shared view an offer embeds, such as the kit's note, keeps its rows where the panel shows it.
+    inventory.offered = inventory.visited - offers
     for relative, scope, where, mode in ENTRY_POINTS:
         swift, ranges = inventory.owner(relative, scope)
         if not ranges:

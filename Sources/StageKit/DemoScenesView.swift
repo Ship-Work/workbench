@@ -223,8 +223,8 @@ struct DemoScenesView: View {
                         presentOptions
                         #endif
                         Spacer(minLength: 0)
-                        Text(model.usesSharedControls ? "Share the Workbench presentation window in your call. Command-/ focuses the floating toolbar."
-                             : "Share the Workbench presentation window in your call. Esc ends it.")
+                        Text(model.usesSharedControls ? "Share the Workbench presentation window in your call; to include Draw, the Timer or a floating persona, share your entire display. Command-/ focuses the floating toolbar."
+                             : "Share the Workbench presentation window in your call; to include Draw, the Timer or a floating persona, share your entire display. Esc ends it.")
                             .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                     }
                 }.padding(.horizontal, DemoScenesLayout.padding).padding(.vertical, 12).background(Workbench.surface)
@@ -503,7 +503,7 @@ struct DemoScenesView: View {
                         .accessibilityLabel("Logo size")
                 }.font(.caption)
                 if model.logoImage(for: scene) == nil {
-                    Text("Logo missing — replace or remove it to export this scene.").font(.caption).foregroundStyle(.orange)
+                    PersonaNote("Logo missing — replace or remove it to export this scene.")
                 }
             }
         } else {

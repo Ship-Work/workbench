@@ -656,7 +656,7 @@ private struct HistoryNativeAcceptanceView: View {
         let meetingReview = try renderMeetingReview(to: output)
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) { pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
-        let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + header.checks
+        let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks
         // History's states render last, so the pages above show no Hand off task.
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += try renderHistoryStates(to: output) }
         // The read-only image preview that capture thumbnails open (#154), shown with the Snap page.
@@ -1526,6 +1526,24 @@ private struct HistoryNativeAcceptanceView: View {
     /// is read from the menu the toolbar builds when its context menu opens, and chosen as a menu chooses it.
     /// The panel header's whole 32 point row is the switch's target, and the switch is its one
     /// accessibility element. Which surface shows over live work is CaptureHUDChecks' (#155).
+    /// The panel's seven Options menus name their tool for VoiceOver (#335), Dictate options to
+    /// Timer options in row order, while each still shows Options ⌄.
+    func checkPanelOptionNames() throws -> [String] {
+        let host = NSHostingView(rootView: quickPanel(readback).background(Color(nsColor: .windowBackgroundColor)))
+        let window = offscreenWindow(size: host.fittingSize, styleMask: [.borderless])
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        settle(host, seconds: 0.15)
+        func menus(in view: NSView) -> [NativeControlMenu.Button] { (view as? NativeControlMenu.Button).map { [$0] } ?? view.subviews.flatMap(menus) }
+        let rows = menus(in: host).sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
+        let names = rows.map { $0.accessibilityLabel() ?? "" }, titles = Set(rows.map(\.title))
+        let expected = WorkbenchControlTool.allCases.map { "\($0.title) options" }
+        guard names == expected, titles == ["Options ⌄"] else {
+            throw VoiceError.message("The panel's Options menus read \(names) showing \(titles), not \(expected) showing Options ⌄.")
+        }
+        return ["The panel's Options menus read \(names.joined(separator: ", ")) for VoiceOver, each still showing Options ⌄."]
+    }
+
     func checkToolbarVisibility() throws -> [String] {
         let kept = model.floatingToolbarVisible
         defer { model.floatingToolbarVisible = kept }
