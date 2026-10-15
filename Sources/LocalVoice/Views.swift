@@ -305,16 +305,21 @@ struct ContentView: View {
     }
 
     private var recordingHint: String {
-        let shortcut = model.preferences.dictationShortcut
-        guard shortcut.enabled else { return "Click the microphone · Up to 5 minutes" }
-        return (model.preferences.capture == .hold ? "Hold " : "") + shortcut.label + " · Up to 5 minutes"
+        Self.recordingHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)
+    }
+    /// Names the Dictate shortcut only while it is on and registered, as the toolbar does (#76).
+    nonisolated static func recordingHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        guard let key = shortcut.usableLabel(failure: failure) else { return "Click the microphone · Up to 5 minutes" }
+        return (capture == .hold ? "Hold " : "") + key + " · Up to 5 minutes"
     }
 
     /// The empty transcript says how to fill it, with the shortcut as it is saved.
     private var transcriptPlaceholder: String {
-        let shortcut = model.preferences.dictationShortcut
-        guard shortcut.enabled else { return "Click the microphone. Your words appear here." }
-        return (model.preferences.capture == .hold ? "Hold " : "Press ") + shortcut.label + " or click the microphone. Your words appear here."
+        Self.transcriptPlaceholder(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)
+    }
+    nonisolated static func transcriptPlaceholder(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        guard let key = shortcut.usableLabel(failure: failure) else { return "Click the microphone. Your words appear here." }
+        return (capture == .hold ? "Hold " : "Press ") + key + " or click the microphone. Your words appear here."
     }
 
     private var deliverySummary: String {

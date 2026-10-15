@@ -291,6 +291,12 @@ struct HistoryView: View {
 
     private struct JobStamp: Equatable { var id: UUID; var updated: Date }
 
+    /// A new person's History teaches the Dictate shortcut only while it is on and registered (#76).
+    nonisolated static func emptyDetail(_ dictate: VoiceShortcut, failure: String?) -> String {
+        "Dictations, Snaps and Hand off results land here, newest first. "
+            + (dictate.usableLabel(failure: failure).map { "Press \($0) to dictate, or choose Snap in the menu bar." } ?? "Choose Dictate or Snap in the menu bar.")
+    }
+
     var body: some View {
         let stores = rows.stores(revision: storesRevision) {
             HistoryRowsCache.Stores(merged: HistoryList.merged(transcripts: model.history, snaps: snap.items, results: jobs.visibleJobs),
@@ -310,10 +316,8 @@ struct HistoryView: View {
             runningTask
             notices
             if model.history.isEmpty && snap.items.isEmpty && jobs.jobs.isEmpty {
-                let dictate = model.preferences.dictationShortcut
                 WorkbenchEmptyState(symbol: "clock", title: "Nothing here yet",
-                    detail: "Dictations, Snaps and Hand off results land here, newest first. "
-                        + (dictate.enabled ? "Press \(dictate.label) to dictate, or choose Snap in the menu bar." : "Choose Dictate or Snap in the menu bar.")) { EmptyView() }
+                    detail: Self.emptyDetail(model.preferences.dictationShortcut, failure: model.shortcutFailures[1])) { EmptyView() }
                     .frame(maxWidth: 520, alignment: .leading).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextField("Search transcripts, Snaps and results", text: $query).textFieldStyle(.roundedBorder)
