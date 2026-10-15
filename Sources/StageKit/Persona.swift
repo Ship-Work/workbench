@@ -128,6 +128,17 @@ struct PersonaGroup: Codable, Identifiable, Equatable {
     var publicLabel: String? = nil
 }
 
+/// Arrange overlays' unsaved layout for one group, kept while the person visits another
+/// page (#340). It lives only in memory, so quitting discards it, and Save still compares
+/// `original` with the group as it is now.
+struct PersonaPresentationDraft: Equatable {
+    let groupID: UUID
+    let original: PersonaGroup
+    var overlays: [PersonaOverlayItem]
+    var publicLabel: String
+    var selectedID: UUID?
+}
+
 /// Only these deliberately prepared candidates can appear in live controls.
 /// Reconciliation can remove candidates, but never adds or reorders them.
 /// The Persona page's My Profile button: show the photo, or end the Live Camera visit
@@ -392,6 +403,15 @@ final class PersonaLibrary: NSObject, ObservableObject {
     private var sessionFeedback: String?
     var selected: SavedPersona? { items.first { $0.id == selectedID } }
     var activeGroup: PersonaGroup? { groups.first { $0.id == activeGroupID } }
+    /// Arrange overlays' layout while it differs from its group, so changing page keeps it until
+    /// Save layout, Revert or Discard. Not published, so an edit never republishes the library,
+    /// and never written to disk.
+    var presentationDraft: PersonaPresentationDraft?
+    /// The unsaved layout while its group still exists; a removed group's draft is dropped.
+    func restorablePresentationDraft() -> PersonaPresentationDraft? {
+        if let draft = presentationDraft, !groups.contains(where: { $0.id == draft.groupID }) { presentationDraft = nil }
+        return presentationDraft
+    }
     var visibleItems: [SavedPersona] {
         guard let group = activeGroup else { return items }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })

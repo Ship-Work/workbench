@@ -21,6 +21,11 @@ struct PersonaPresentationPreparation: View {
 
     private var group: PersonaGroup? { library.groups.first { $0.id == groupID } }
     private var dirty: Bool { original.map { overlays != ($0.overlays ?? []) || publicLabel != ($0.publicLabel ?? "") } ?? false }
+    /// What the library keeps while the layout is unsaved, so changing page loses nothing (#340).
+    private var draft: PersonaPresentationDraft? {
+        guard dirty, let groupID, let original else { return nil }
+        return PersonaPresentationDraft(groupID: groupID, original: original, overlays: overlays, publicLabel: publicLabel, selectedID: selectedID)
+    }
     private var valid: Bool {
         guard original != nil, overlays.count <= PersonaSessionController.maximumOverlays, validLabel(publicLabel) else { return false }
         let allowed = Set(original?.personaIDs ?? [])
@@ -108,10 +113,16 @@ struct PersonaPresentationPreparation: View {
             }
         }
         .onAppear {
-            if !loaded { loaded = true; load(library.activeGroupID ?? library.groups.first?.id) }
+            if !loaded {
+                loaded = true
+                if let draft = library.restorablePresentationDraft() { restore(draft) }
+                else { load(library.activeGroupID ?? library.groups.first?.id) }
+            }
             onDraftChanged(dirty)
         }
         .onChange(of: dirty) { _, value in onDraftChanged(value) }
+        // Kept as it is edited, never on disappearing, so Discard's teardown cannot keep it again.
+        .onChange(of: draft) { _, value in library.presentationDraft = value }
         .onChange(of: library.groups) { _, _ in
             if !dirty { load(groupID.flatMap { id in library.groups.contains { $0.id == id } ? id : nil } ?? library.groups.first?.id) }
         }
@@ -218,7 +229,13 @@ struct PersonaPresentationPreparation: View {
         groupID = id; original = library.groups.first { $0.id == id }
         overlays = original?.overlays ?? []; publicLabel = original?.publicLabel ?? ""
         selectedID = overlays.first?.id; addingPersonaID = original?.personaIDs.first
+        library.presentationDraft = nil
         onDraftChanged(false)
+    }
+    private func restore(_ draft: PersonaPresentationDraft) {
+        groupID = draft.groupID; original = draft.original
+        overlays = draft.overlays; publicLabel = draft.publicLabel
+        selectedID = draft.selectedID; addingPersonaID = draft.original.personaIDs.first
     }
     private func save() {
         guard let original else { return }

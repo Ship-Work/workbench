@@ -286,7 +286,11 @@ struct PersonaLibraryView: View {
             } message: {
                 Text(library.groupRemovalMessage(removingGroup))
             }
-            .onAppear { if library.cameraOwnsSlot { source = .camera } }
+            .onAppear {
+                if library.cameraOwnsSlot { source = .camera }
+                // Back on the page, an unsaved Arrange overlays layout reopens as it was left (#340).
+                if mode == .workspace, library.restorablePresentationDraft() != nil { preparingPresentation = true }
+            }
             .onChange(of: library.liveSource) { _, value in source = value }
             .onDisappear {
                 let resuming = launchState.pending?.isResume == true
@@ -296,7 +300,7 @@ struct PersonaLibraryView: View {
             }
             .confirmationDialog("Discard the unsaved layout?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
                 Button("Discard changes", role: .destructive) {
-                    unsavedPresentationLayout = false
+                    unsavedPresentationLayout = false; library.presentationDraft = nil
                     if dismissAfterDiscard { dismiss() } else { preparingPresentation = false }
                 }
                 Button("Keep editing", role: .cancel) { }

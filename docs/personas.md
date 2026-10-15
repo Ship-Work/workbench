@@ -96,7 +96,7 @@ A disconnected, stalled or refused camera has contextual recovery and never sile
 
 1. Create a group and choose its members in Personas. Prepare each audience separately.
 2. Open **Arrange overlays…**. Add the members you want to place. Each placed copy has its own visibility, lock, size and position; the same image can appear twice. New copies start locked so clicks pass through to the demo.
-3. Select each copy in the placement preview/list. Adjust it using the native Position menu and size control. Reorder, duplicate or remove a copy without deleting the original image. Save the layout explicitly. The small preview is approximate; native display framing must be checked.
+3. Select each copy in the placement preview/list. Adjust it using the native Position menu and size control. Reorder, duplicate or remove a copy without deleting the original image. Save the layout explicitly. A layout not yet saved waits while you visit other pages: Persona reopens **Arrange overlays** with it until you save, revert or discard it, and quitting discards it. The small preview is approximate; native display framing must be checked.
 4. Use **Demo groups…** to choose and order the groups in this presentation. Only those explicitly prepared choices become available during the demo. Public labels are optional; the live menu otherwise says Set 1, Set 2 and numbered personas, never private group names or filenames.
 5. Choose **Start overlays**. Optional **Soft reveal** fades in the initial artwork or a newly added copy briefly; it does not animate faces or loop. It respects Reduce Motion. Start defaults to still appearance.
 
