@@ -208,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self else { return }
             self.shortcutsSuspended = suspended
             if suspended { self.model.promptInsertion.cancel(); self.hotkeys.unregister(); self.stage.escape(); self.stage.setShortcutsSuspended(true) }
-            else { self.stage.setShortcutsSuspended(false); self.registerShortcuts(); self.keyboard.replaceEntries(self.shortcutEntries()) }
+            else { self.stage.setShortcutsSuspended(false); self.registerShortcuts() }
         })
         keyboard.restorePractised(UserDefaults.standard.stringArray(forKey: KeyboardCoachModel.practisedKey) ?? []) {
             UserDefaults.standard.set($0.sorted(), forKey: KeyboardCoachModel.practisedKey)
@@ -414,6 +414,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         for id in VoicePreferences.shortcutIDs { if let message = conflicts["voice.\(id)"] { model.shortcutFailures[id] = message } }
         stage.refreshShortcutRegistration()
         readback?.setShortcutFailure(model.shortcutFailures[5])
+        // Home and Keyboard read the coach's catalogue, so it carries what macOS refused, at launch too.
+        keyboard?.replaceEntries(shortcutEntries())
     }
     private func setupMenus() {
         let menus = makeMainMenu()
