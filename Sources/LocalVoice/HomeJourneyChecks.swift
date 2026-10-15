@@ -71,6 +71,17 @@ enum HomeJourneyChecks {
         try check(!HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: true),
                   "while the guide's own banner carries it, Current work is not an empty card")
         try check(!HomeJourney.writingModelIsCurrentWork(hasLine: false, speechReady: true, guideShows: false), "no writing model line adds no current work")
+        // Speech setup is current work only while it prepares or carries the writing model's line (#15).
+        try check(!HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: false, guideShows: false, writingModelCounts: false),
+                  "someone who skipped the guide and is drawing gets no download offer beside it")
+        try check(HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: true, guideShows: false, writingModelCounts: false),
+                  "speech preparing with the guide hidden is current work")
+        try check(HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: false, guideShows: false, writingModelCounts: true),
+                  "the engine banner carrying the writing model's line is current work while the guide is hidden")
+        try check([true, false].allSatisfy { preparing in [true, false].allSatisfy { counts in
+                      !HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: preparing, guideShows: true, writingModelCounts: counts)
+                          && !HomeJourney.speechSetupIsCurrentWork(speechReady: true, preparing: preparing, guideShows: false, writingModelCounts: counts) } },
+                  "speech setup is never current work while the guide shows it or once speech is ready")
         // A failed download holds Current work only while the saved Text style uses Ollama; a running one always does.
         let downloadLine = "Downloading gemma3:1b · 42%", failedLine = "gemma3:1b couldn’t be downloaded. Ollama stopped responding."
         try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: true) == failedLine,

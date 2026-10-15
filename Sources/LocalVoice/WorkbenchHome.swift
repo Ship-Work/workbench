@@ -691,14 +691,18 @@ struct WorkbenchHomePage: View {
     /// Active or paused work. Retained dictation audio belongs on Dictate,
     /// where Retry, the saved files and explicit Discard stay together; it is not current work.
     private var hasCurrentWork: Bool {
-        // Preparing speech counts only where the card shows it: the first-dictation guide
-        // shows the download itself, and a card holding only its title would be empty.
+        // Speech setup counts by the same rule that shows its banner, so the card is never empty.
         // The guide reads only History and the saved guide state, never this property: asking
         // `journey` here recursed until the stack overflowed whenever speech was preparing.
-        dictationLive || (model.preparing && !model.ready && !guideShows)
+        dictationLive || speechSetupIsCurrentWork
             || HomeJourney.writingModelIsCurrentWork(hasLine: writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
             || readback.isRecording || readback.hasPendingTranscriptions || stage.isDrawing || stage.isPresenting
             || personaControl.isCurrentWork || stage.hasTimerSession || meetings.isBusy || jobs.isBusy
+    }
+    /// Speech setup in Current work, counted and shown by one rule (`HomeJourney.speechSetupIsCurrentWork`).
+    private var speechSetupIsCurrentWork: Bool {
+        HomeJourney.speechSetupIsCurrentWork(speechReady: model.ready, preparing: model.preparing, guideShows: guideShows,
+                                             writingModelCounts: writingModelLine != nil)
     }
     /// The writing model's line as Current work counts and shows it: a failure only while the
     /// saved Text style uses Ollama (`HomeJourney.writingModelLine`).
@@ -720,8 +724,11 @@ struct WorkbenchHomePage: View {
                 liveRow("Narrating · " + time(readback.recordingElapsed), "record.circle.fill", recording: true) { Button("Stop narration") { readback.stopNarration() } }
             }
             if meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
-            // The guide shows the speech engine itself while it is offered.
-            if !model.ready && !journey.showsGuide { engineBanner }
+            // Speech setup while it prepares or carries the writing model's line. The guide shows the
+            // speech engine itself while it is offered; beside other work, the download offer waits in Models.
+            if speechSetupIsCurrentWork {
+                engineBanner.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.speech", $0) }
+            }
             // The writing model's download or its failure while speech is ready, when no engine
             // banner carries it: the same line Dictate and the panel show (#335). Cancel stays in Models.
             if model.ready, let line = writingModelLine {
@@ -770,7 +777,7 @@ struct WorkbenchHomePage: View {
             if jobs.isBusy {
                 liveRow("Running · " + (jobs.jobs.first { $0.id == jobs.activeID }?.title ?? "Hand off task"), "arrow.up.forward.app") {
                     Button("Stop task") { jobs.cancel() }
-                }
+                }.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.task", $0) }
             }
             if meetings.isBusy && !meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
         }.padding(Workbench.tilePadding).background(Workbench.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
@@ -819,7 +826,8 @@ struct WorkbenchHomePage: View {
             if model.preparing { Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling) }
             else if !model.ready && model.recognition.configuration.provider == .parakeet {
                 Button("Download Parakeet") { Task { await model.downloadSpeechModel() } }
-                if !journey.offersSkip { Button("Not now") { skipGuide() } }
+                // Only where it hides something: the guide, once Skip for now has gone.
+                if journey.showsGuide && !journey.offersSkip { Button("Not now") { skipGuide() } }
             }
             Button("Models…") { model.page = "models" }
         }.padding(16).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
@@ -953,6 +961,12 @@ struct HomeJourney: Equatable {
     /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
     static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
         hasLine && (speechReady || !guideShows)
+    }
+    /// Speech that is not ready is current work only while it prepares, or while its banner carries
+    /// the writing model's line, and never while the guide shows it. Someone who skipped the guide
+    /// and only draws or presents never gets the download offer beside that work (#15).
+    static func speechSetupIsCurrentWork(speechReady: Bool, preparing: Bool, guideShows: Bool, writingModelCounts: Bool) -> Bool {
+        !speechReady && !guideShows && (preparing || writingModelCounts)
     }
     /// The writing model's line in Current work: a running download always, and a failed one
     /// only while the saved Text style uses Ollama, so a failure the person has moved on from
