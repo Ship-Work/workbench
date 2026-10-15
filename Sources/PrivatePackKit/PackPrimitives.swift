@@ -20,6 +20,8 @@ public enum PackLimits {
     public static let maximumComponentLength = 96
     /// The receipt embeds its complete manifest.
     public static let maximumReceiptBytes = 4 * 1_048_576
+    /// GitHub's reply naming the commit the pack repository's HEAD points to.
+    public static let maximumPointerBytes = 65_536
     /// Retained immutable revisions, including the active one.
     public static let maximumRetainedRevisions = 3
 

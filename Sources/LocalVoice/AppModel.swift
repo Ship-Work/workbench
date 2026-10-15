@@ -910,7 +910,7 @@ final class AppModel: NSObject, ObservableObject {
     func showPanelPreview() {
         guard phase == .idle else { return }
         captureUsesHoldShortcut = false
-        _ = captureSettings()
+        rememberedCorrection = nil
         previewingPanel = true; onPhaseChange?()
     }
     func closePanelPreview() { previewingPanel = false; onPhaseChange?() }

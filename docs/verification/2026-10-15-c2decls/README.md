@@ -9,7 +9,7 @@ Branch `claude/retire-recorder-and-unused`, from the 15 October train (`claude/t
    - StageKitController: `hasOverlaySession` and `areOverlaysPaused` (copies of `hasActivePersonaSession` and `isPersonaSessionPaused`), `canStepOverlays`, `showBoard`, `stepOverlaySet`, `toggleOverlayVisibility`, `performShortcut` and `quickControlsView`. `escape()` stays; the app calls it three times.
    - `ReadbackModel.installServiceNowPack` and `ReadbackResources.installServiceNow`, which always threw, so the success notice could never show. Uninstall stays; the pack checks use it.
    - AppModel's `captureOutputModeLabel` and `captureShortcutInstruction`, written on every capture and read nowhere, and `captureDestinationName`. `CaptureSettings.outputLabel` stays.
-   - `PackLimits.maximumPointerBytes` and `maximumCachedFiles`, which nothing enforced although the table says it holds every bound the pack core enforces. PackStore's prune now keeps `PackLimits.maximumRetainedRevisions` instead of a literal 3, and GitHub sign-in uses `GitHubPackClient.jsonAccept` instead of repeating the string. Both are the same values.
+   - `PackLimits.maximumCachedFiles`, which nothing enforced although the table says it holds every bound the pack core enforces: the blob cache is bounded by the manifests prune keeps, not by a count. Three bounds the table names were repeated as literals, and now use the table: PackStore's prune keeps `PackLimits.maximumRetainedRevisions` instead of a literal 3, the pack repository's HEAD lookup uses `PackLimits.maximumPointerBytes` instead of `64 * 1_024`, and GitHub sign-in uses `GitHubPackClient.jsonAccept` instead of repeating the string. All three are the same values.
    - Strays: `CapturePanelController.chooserOffscreenForChecks`, `SnapSnapshot.sourceReference`, `SubscriptionCLI.claudeImagesVerified`, `TranscriptHandoffSkillCheck.bundledDeckIdentifiers` and `ToolbarShortcut.isUsable`.
 
 No migration, preservation or recovery code is touched, and no saved data is read or written differently. Every name was re-checked on the train head at 88c5e67, after the merge: none gained a caller. Each had only its own declaration in Sources, Tests and scripts, or a use inside the code deleted with it.
@@ -23,16 +23,26 @@ No migration, preservation or recovery code is touched, and no saved data is rea
 
 `before/` is `--render-surfaces` from `main`. `after/` is this branch, the same bytes before and after the merge. Dictate settings with the Shortcut row (ShortcutControl and ShortcutKeycap's one live caller), in light and dark. They are byte-identical.
 
-The whole gallery from this branch after the merge (`SURFACE_GALLERY_OK: 376 renders, 162 entries, 0 flags`) matches the train's render at 59753fc: all 376 PNGs are identical (338 byte-identical, 38 pixel-identical), and `index.html` and `manifest.json` are byte-identical. The train's one later change is how a Meetings recording finishes, with its checks; it touches no render. Before the merge, the branch's gallery against main's 350: 206 byte-identical, 144 pixel-identical, none different; the rest are renders the train added.
+The whole gallery from this branch after the merge (`SURFACE_GALLERY_OK: 376 renders, 162 entries, 0 flags`) matches the train's render at 59753fc: all 376 PNGs are identical (338 byte-identical, 38 pixel-identical), and `index.html` and `manifest.json` are byte-identical. The train's one later change is how a Meetings recording finishes, with its checks; it touches no render. Before the merge, the branch's gallery against main's 350: 206 byte-identical, 144 pixel-identical, none different; the rest are renders the train added. After the review follow-ups below, the gallery was rendered again and matches the same train render: 376 identical (319 byte-identical, 57 pixel-identical), with `index.html` and `manifest.json` byte-identical.
+
+## Review follow-ups
+
+An independent review found no P1 or P2 problems and two P3s, both answered in one later commit with no change in behaviour:
+
+- **`maximumPointerBytes` was enforced after all**, as the literal `64 * 1_024` in the pack repository's HEAD lookup. The constant is restored, with a comment, and that lookup now uses it. GitHub sign-in's two 64 KiB limits bound account and token replies, not pack data, and stay as they were.
+- **Opening the panel preview still built a capture settings value it no longer used.** It existed to refresh the two labels this branch deletes; its only remaining effect was clearing the remembered-correction notice. `showPanelPreview` now clears that notice directly.
 
 ## Checks run on the merged head (this Mac)
+
+Every check below was run again after the review follow-ups, with the same results.
+
 
 | Check | Result | Fails before? |
 |---|---|---|
 | `rg -n 'editingShortcut\|shortcutRecordingMessage\|onCancelShortcut\|onResetShortcuts\|VoiceShortcutSettings\|func editShortcut\|resetShortcuts\(' Sources Tests` | no matches | Yes: 24 matching lines on the train head |
 | `rg -n 'recorderMonitor\|finishEditing' Sources/LocalVoice/main.swift` (StageKit's recorder and CaptureImagePreview keep their own) | no matches | Yes: 11 on the train head |
-| `grep -rnw <name> Sources Tests scripts` for each of the 27 deleted names (7 from the recorder, 20 declarations) | no matches for any | Yes: all 27 found on the train head |
-| `swift build --disable-sandbox --product LocalVoice` | passes; the 14 changed files recompiled with no warning | — |
+| `grep -rnw <name> Sources Tests scripts` for each of the 26 deleted names (7 from the recorder, 19 declarations) | no matches for any | Yes: all 26 found on the train head |
+| `swift build --disable-sandbox --product LocalVoice` | passes; the 15 changed files recompiled with no warning | — |
 | `swift build -c release --disable-sandbox --product LocalVoice` | passes with no new warnings: the only four are in untouched files, `HandoffManualChecks.swift:218`, `PackCredentials.swift:36` and `PhoneLink.swift:591`, `:592` | — |
 | Every `--check-*` the checks phase runs (core, read-retirement, shortcut-migration, readback, snap-capture, presenter, providers, refinement, transcript-handoff, readback-pack, capture-preview, image-workspace, history-library, history-journey, handoff-jobs, subscription-cli, meetings, bug-report), plus floating-toolbar, live-dictation-delivery, insertion-boundary and feedback from `verify-preview.sh`, with the debug build | all 22 pass | — |
 | `scripts/test-read-retirement.py --binary` and `scripts/test-snap.sh` (which compiles `SnapStore.swift` alone) | pass | — |
