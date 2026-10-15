@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Exercise exact capture commit/transcribe/retry/cancel/recovery methods with inert IO.
 
-Production AppModel initialization, user defaults, keychain, clipboard, microphone,
-UI and network are never used. A synthetic WAV and recovery store live in /tmp;
-recognition, delivery and the state writer are injected fixtures.
+A production AppModel, user defaults, keychain, clipboard, microphone, UI and network
+are never used. A synthetic WAV and recovery store live in /tmp; recognition, delivery
+and the state writer are injected fixtures. AppModel's launch code runs on a fixture
+session and engine.
 """
 import hashlib
 from pathlib import Path
@@ -185,11 +186,13 @@ struct CaptureSettings {
         return result
     }
     func release() { let c = continuation; continuation = nil; c?.resume(returning: "um synthetic captured words") }
-    /// Preparing the speech model: ready, or this failure.
+    /// Preparing the speech model: ready, or this failure. Launch counts what it starts.
     var prepareFailure: Error?
     var state = RecognitionSnapshot()
+    var prepares = 0, observers = 0
+    func observe(_ observer: @escaping @Sendable (RecognitionSnapshot) -> Void) async { observers += 1 }
     func prepareCached() async throws {
-        state.sequence += 1
+        prepares += 1; state.sequence += 1
         state.admission = prepareFailure == nil ? .localReady : .unavailable
         state.failure = prepareFailure.map { RecognitionFailure(kind: .load, message: $0.localizedDescription) }
         if let prepareFailure { throw prepareFailure }
@@ -405,6 +408,41 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     /// Home's view of automatic paste has its own checks (HomeJourneyChecks); here it passes the outcome through.
     func noteAutomaticPaste(_ outcome: TextDelivery.Outcome, viaPaste: Bool) -> TextDelivery.Outcome { outcome }
     __METHODS__
+}
+
+/// AppModel's launch, compiled whole. The saved session is a fixture file that opens or not,
+/// and everything launch starts is counted, so nothing reads the person's session or model.
+@MainActor final class LaunchHarness: NSObject {
+    typealias VoicePreferences = FixtureVoicePreferences
+    final class ModelProgressSink: @unchecked Sendable {
+        weak var model: LaunchHarness?
+        init(_ model: LaunchHarness) { self.model = model }
+    }
+    struct Store {
+        let url: URL, opens: Bool
+        func load() throws -> SavedState { if opens { return SavedState() }; throw FixtureFailure.write }
+    }
+    enum MeetingTranscriptRemoval { static func reconcile(root: URL, history: Store) -> [String] { [] } }
+    enum Workbench { static func supportDirectory(component: String) -> URL { URL(fileURLWithPath: "/nonexistent-fixture/" + component) } }
+    final class Library { var preserved = 0; func preserveRetiredReading(_ text: String) { preserved += 1 } }
+    nonisolated(unsafe) static var nextStore = Store(url: URL(fileURLWithPath: "/nonexistent-fixture/state.json"), opens: true)
+    static weak var intentModel: LaunchHarness?
+    let preferences: VoicePreferences
+    let engine = Engine(), store = LaunchHarness.nextStore, library = Library(), meetings = AuxiliaryCaptureWork()
+    var undelivered = UnresolvedDeliverySlot()
+    var appActivation: AnyCancellable?
+    var loaded = false, restores = 0
+    var draftRevision: UInt64 = 0
+    var transcript = "" { didSet { draftRevision &+= 1 } }
+    var rawTranscript = "", speechText = "", history: [Transcript] = [], replacements: [Replacement] = []
+    var voice = "", rate = 180.0
+    var attention: Attention?
+    var recognition = RecognitionSnapshot(), ready = false, preparing = false, modelMessage = "", modelFailure: String?
+    func report(_ message: String, on page: Attention.Page, code: String? = nil) { attention = Attention(message: message, page: page, code: code) }
+    func refreshMicrophoneAuthorization() {}
+    func recordFirstDictation() {}
+    func restoreCaptureRecovery() { restores += 1 }
+    __LAUNCH__
 }
 
 @MainActor final class StageActivityHarness {
@@ -848,6 +886,19 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   "Final live span replacement follows History commit and never calls final paste")
         try check(!fieldModel.captureRecovery.hasRecovery && !FileManager.default.fileExists(atPath: fieldURL.path),
                   "Confirmed live field insertion releases original audio after delivery")
+
+        // With saving off, live words may already be in the field: the reason never says nothing was sent.
+        let fieldUnsaved = CaptureHarness(directory: folder("live-field-saving-off")); fieldUnsaved.loaded = false
+        _ = try recording(fieldUnsaved, seconds: 1, peak: -20)
+        let unsavedRecorder = FixtureLiveCapture(); unsavedRecorder.checkpoint = liveRecorder.checkpoint
+        let unsavedOwner = LiveDictationDelivery(); unsavedOwner.attempted = true
+        fieldUnsaved.liveCapture = unsavedRecorder; fieldUnsaved.liveDictation = unsavedOwner
+        fieldUnsaved.stopRecording(); try await waitUntil("live field with saving off") { fieldUnsaved.phase == .idle }
+        let unsavedReason = fieldUnsaved.captureFailure ?? ""
+        try check(unsavedReason.contains("Automatic saving is off") && !unsavedReason.contains("sent to your app")
+                  && unsavedReason.contains("Live text may remain in your app") && unsavedOwner.finishCalls == 0
+                  && fieldUnsaved.history.isEmpty && fieldUnsaved.store.calls == 0,
+                  "With saving off after live insertion, the reason does not say nothing reached the app: \(unsavedReason)")
 
         let fieldFailed = CaptureHarness(directory: folder("live-field-uncertain"))
         let fieldFailedURL = try recording(fieldFailed, seconds: 1, peak: -20)
@@ -1379,6 +1430,21 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(unprepared.ready && unprepared.modelMessage == RecognitionConfiguration().summary && unprepared.modelFailure == nil
                   && unprepared.startedAttempts.isEmpty && unprepared.transcript == "Old draft",
                   "Cached retry clears the failure while preserving saved words and never starting recording")
+        // Launch prepares the downloaded speech model whether or not the saved session opens. With
+        // saving off (the session could not be opened or backed up) recovery still waits, as before.
+        LaunchHarness.nextStore = .init(url: folder("launch-saving-off").appendingPathComponent("state.json"), opens: false)
+        let savingOffLaunch = LaunchHarness(preferences: FixtureVoicePreferences())
+        try check(!savingOffLaunch.loaded && savingOffLaunch.restores == 0
+                  && savingOffLaunch.attention?.message.contains("could not be opened or backed up") == true,
+                  "The launch fixture reaches saving off: \(String(describing: savingOffLaunch.attention?.message))")
+        try await waitUntil("speech preparation with saving off") { savingOffLaunch.ready }
+        try check(savingOffLaunch.engine.prepares == 1 && savingOffLaunch.engine.observers == 1 && savingOffLaunch.modelFailure == nil,
+                  "With saving off, launch still prepares the speech model once: \(savingOffLaunch.engine.prepares) preparations")
+        LaunchHarness.nextStore = .init(url: folder("launch-opened").appendingPathComponent("state.json"), opens: true)
+        let openedLaunch = LaunchHarness(preferences: FixtureVoicePreferences())
+        try await waitUntil("speech preparation with an opened session") { openedLaunch.ready }
+        try check(openedLaunch.loaded && openedLaunch.restores == 1 && openedLaunch.engine.prepares == 1 && openedLaunch.engine.observers == 1,
+                  "An opened session restores recovery and prepares the speech model once: \(openedLaunch.engine.prepares) preparations")
 
         // A refusal is shown where the person acted (1 October audit, finding 7). The Dictate page's
         // mic: the reason is Dictate's, whose banner is beside that mic, and the capture HUD's.
@@ -1437,6 +1503,8 @@ values = '\n'.join([core.imports(), core.extract(['VoiceError', 'SavedState', 'e
 fixture = fixture.replace('__CLEAR_CALL_SITES__', '[' + ', '.join('"%s"' % site for site in sorted(clear_sites)) + ']')
 fixture = fixture.replace('__UNDELIVERED_WRITERS__', '[' + ', '.join('"%s"' % site for site in sorted(writers)) + ']')
 fixture = fixture.replace('__STAGE_START__', stage_start)
+# Launch itself, with the readiness it projects and the records an undelivered result names.
+fixture = fixture.replace('__LAUNCH__', model.extract(['init(preferences:startSpeechLifecycle:)', 'prepare', 'acceptRecognition', 'deliveryRecords']))
 # Expose only the destination's access level to the fixture; keep its actual observer body.
 fixture = fixture.replace('__LIFECYCLE_PROPERTIES__', model.extract(['phase', 'destination', 'insertionContext']).replace('private var destination', 'var destination'))
 fixture = fixture.replace('__VALUES__', values).replace('__REQUEST__', request).replace('__LABELS__', labels).replace('__METHODS__', methods)
