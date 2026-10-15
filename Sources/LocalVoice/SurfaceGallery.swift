@@ -611,10 +611,24 @@ private struct HistoryNativeAcceptanceView: View {
             for index in pages.indices {
                 // A door names Snap, which is off and sits below the list's fold (#76).
                 if pages[index].route == "shortcuts" { keyboardFrames.byID = [:]; guard keyboard.reveal("voice.8") else { throw VoiceError.message("Keyboard has no Snap shortcut to reveal.") } }
-                let (rep, drawn) = try renderPage(pages[index].route, in: window)
+                var (rep, drawn) = try renderPage(pages[index].route, in: window)
                 if pages[index].route == "shortcuts" {
-                    guard let list = keyboardFrames.byID["keyboard.list"], let row = keyboardFrames.byID["keyboard.selected"],
-                          keyboard.selectedID == "voice.8", !list.isEmpty, list.insetBy(dx: -1, dy: -1).contains(row) else {
+                    func revealed() -> Bool {
+                        guard let list = keyboardFrames.byID["keyboard.list"], let row = keyboardFrames.byID["keyboard.selected"] else { return false }
+                        return keyboard.selectedID == "voice.8" && !list.isEmpty && list.insetBy(dx: -1, dy: -1).contains(row)
+                    }
+                    // The page scrolls on the main queue's next turn and reports the moved row after it,
+                    // which a slow CI runner can deliver after the settle: wait for it, bounded, then
+                    // render again so the saved page shows the scrolled list.
+                    if !revealed() {
+                        let deadline = Date().addingTimeInterval(2)
+                        while !revealed() && Date() < deadline {
+                            window.contentView?.layoutSubtreeIfNeeded()
+                            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02))
+                        }
+                        (rep, drawn) = try renderPage(pages[index].route, in: window)
+                    }
+                    guard revealed() else {
                         throw VoiceError.message("Keyboard at the \(name) size did not scroll the revealed Snap row into its list: \(keyboardFrames.byID).")
                     }
                 }
