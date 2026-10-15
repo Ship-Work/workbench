@@ -46,3 +46,10 @@ The reviewer's verdict was ship, with two P3 findings. Both are answered on this
 
 - After the saving-off stop, the next Dictate start and the next Shortcuts run told the person to use a Retry that is hidden. They now name Discard recovery… (row 4), with two checks that fail without the change.
 - `dictate.saving_disabled` was missing from the Dictate code list in `docs/bug-reporting.md`. It is now listed.
+
+## Integration review · 16 October
+
+The cross-stream review of the integrated train (31c4da7) sent two findings here. Both are fixed, each with a check in `scripts/test-capture-persistence.py` that fails without its fix.
+
+- **P2: with saving off, speech never prepared.** This predates the branch, but it sits on the saving-off journey. Launch returned early when the session could not be opened or backed up, before it started preparing speech. On a Mac with Parakeet downloaded, every surface still offered Download Parakeet, Dictate's start opened Models, and a Shortcuts run asked to finish preparing the speech model. So saving-off native steps 4 and 7 could not run as written. Launch now starts preparation alongside the readiness observer, before the session is read. Recovery restore still waits for an opened session, as before. The harness now compiles the real launch code against a fixture session and engine. With saving off, the model prepares once and recovery is not restored. With an opened session, recovery is restored and the model prepares once. Without the fix: "Timed out waiting for speech preparation with saving off".
+- **P3: the saving-off stop contradicted itself after live insertion.** The stop read "…was not added to History or sent to your app…", and then the failure added "Live text may remain in your app". When live insertion ran, the stop now reads "…was not added to History." The failure's own sentence says that live text may remain. Without live insertion, the wording is unchanged. Without the fix, the new check fails on the old sentence.

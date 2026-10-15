@@ -226,6 +226,8 @@ final class AppModel: NSObject, ObservableObject {
         let engine = self.engine, sink = ModelProgressSink(self)
         if startSpeechLifecycle {
             Task { await engine.observe { state in Task { @MainActor in sink.model?.acceptRecognition(state) } } }
+            // Speech does not depend on the saved session: with saving off, a downloaded model still prepares.
+            Task { await prepare() }
         }
         appActivation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.refreshMicrophoneAuthorization(); self?.meetings.refreshAdmission() }
@@ -260,7 +262,6 @@ final class AppModel: NSObject, ObservableObject {
         // With the draft settled: a delivery that did not finish comes back
         // only while its record still holds its words (#134 T5).
         undelivered.restore(savedUndelivered, loadedDraftRevision: loadedDraftRevision, in: deliveryRecords)
-        if startSpeechLifecycle { Task { await prepare() } }
     }
 
     /// Reject observer deliveries that crossed on their way back to the main actor.
@@ -774,7 +775,9 @@ final class AppModel: NSObject, ObservableObject {
         // that reason, never on Tidying your words…, and a Shortcuts run gets its one error.
         guard loaded else {
             canRetry = false
-            fail("Automatic saving is off for this session, so this dictation was not added to History or sent to your app. The words are in Dictate. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
+            // Live words may already be in the field; fail() says so, so this does not claim nothing was sent.
+            let notSaved = liveDictation?.attempted == true ? "was not added to History" : "was not added to History or sent to your app"
+            fail("Automatic saving is off for this session, so this dictation \(notSaved). The words are in Dictate. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
             captureFailure = self.error; onPhaseChange?(); return false
         }
         guard let record = captureRecovery.pending, let capture = record.capture else { return false }
