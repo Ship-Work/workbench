@@ -102,6 +102,24 @@ enum HomeJourneyChecks {
                       let hint = VoiceOptions.activationHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.", capture: $0)
                       return !hint.contains("⌥V") && !hint.contains("Press") && !hint.contains("Hold") && hint.contains("isn’t available")
                   }, "Dictate's Activation hint never teaches a Dictate shortcut macOS could not register")
+        // Dictate's hint and placeholder, History's empty state and Library's footer agree with the
+        // toolbar's Shortcut unavailable: none teaches a key that is off or not registered (#76).
+        let inUse = "⌥V is in use. Choose a different shortcut."
+        func keyLines(_ shortcut: VoiceShortcut, failure: String?) -> [String] {
+            CaptureMode.allCases.flatMap { [ContentView.recordingHint(shortcut, failure: failure, capture: $0),
+                                            ContentView.transcriptPlaceholder(shortcut, failure: failure, capture: $0)] }
+                + [HistoryView.emptyDetail(shortcut, failure: failure)]
+        }
+        try check(keyLines(dictateKey, failure: inUse).allSatisfy { !$0.contains("⌥V") && !$0.contains("Press") && !$0.contains("Hold") }
+                  && ContentView.recordingHint(dictateKey, failure: inUse, capture: .toggle).contains("Click the microphone"),
+                  "Dictate and History never teach a Dictate shortcut macOS could not register")
+        try check(keyLines(dictateOff, failure: nil).allSatisfy { !$0.contains("Off") }, "Dictate and History never teach a Dictate shortcut that is off")
+        try check(keyLines(dictateKey, failure: nil).allSatisfy { $0.contains("⌥V") }, "Dictate and History name the Dictate shortcut while it works")
+        let recallKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey))
+        try check(DemoLibraryView.footerSummary(count: 2, recall: recallKey, failure: "⌃⌥J is in use. Choose a different shortcut.") == "2 resources"
+                  && DemoLibraryView.footerSummary(count: 2, recall: VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey), enabled: false), failure: nil) == "2 resources"
+                  && DemoLibraryView.footerSummary(count: 2, recall: recallKey, failure: nil).hasSuffix("to recall"),
+                  "Library's footer offers its recall key only while it is on and registered")
 
         // Current work comes first in every state; the columns hold every result section once.
         try check(HomeJourney(transcripts: 1, hasCurrentWork: true).sections == [.currentWork] + results,

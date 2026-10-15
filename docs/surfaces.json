@@ -289,6 +289,14 @@
     "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself. Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed."
   },
   {
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.sound-settings",
+    "surface": "floating toolbar live controls",
+    "label": "Sound Settings…",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#156): a second silent dictation in a row opens Sound settings where the person acted, in place of Open Dictate…, the same label and pane as Meetings."
+  },
+  {
     "id": "LocalVoice.CleanupModelSettingsView.CleanupModelSettingsView.Button.cancel",
     "surface": "settings page",
     "label": "Cancel",
@@ -1349,13 +1357,13 @@
     "note": "Quality: the shelf's title is the receipt's own title, such as Copied, so the panel, Home and the floating receipt agree (#165). Runtime label from receipt . title; no rendered text assumed."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-036523842dab",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-041b2865004f",
     "surface": "quick panel status rows",
     "label": null,
-    "expression": "\"\\(receipt.wordCount) \\(receipt.wordCount == 1 ? \"word\" : \"words\")\"",
+    "expression": "TextRules . wordCountLabel ( receipt . wordCount )",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165). Runtime label; no rendered text assumed."
+    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165), from the one wordCountLabel that Dictate, History and Transcript review use, so one word reads 1 word everywhere (#357). Runtime label; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-09d99a85b0f2",
@@ -1653,11 +1661,11 @@
     "note": "Option: a door on Home to History, shown once right after the first dictation so its result can be found again; it opens History on Transcripts, where that dictation is newest (#15). Same words as the recent transcript's Open in Dictate."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-690989861a19",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-424786ff12f9",
     "surface": "window home",
     "label": null,
-    "expression": "model . phase == . requesting ? \"Cancel\" : model . phase == . recording ? \"Stop\" : \"Start dictating\"",
-    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9).",
+    "expression": "dictationTitle",
+    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9): Start dictating, Finish dictation or Cancel, the toolbar's names, and VoiceOver speaks the words shown (#357).",
     "kind": "capability",
     "belongsTo": "dictate"
   },
@@ -1695,12 +1703,12 @@
     "note": "Option: hides Home's first-dictation guide and saves that choice with the Dictate preferences; Show me a first dictation brings it back until the first dictation (#15)."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.finish-dictation",
     "surface": "window home",
-    "label": "Stop",
+    "label": "Finish dictation",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9)."
+    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Quality rename (#357): Stop became the toolbar's and panel's Finish dictation for the same action, as the strip's other rows name theirs in full."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop-drawing",

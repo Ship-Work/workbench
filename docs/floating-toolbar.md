@@ -67,7 +67,8 @@ tick; in the last ten seconds before the 5-minute limit, the accessible status n
 details.
 
 A technical failure keeps its recovery view: dictation has its reason, Retry,
-Record again or Open Dictate… and Dismiss. These commands and their workspace doors also stay in the chooser. Retry belongs only to an existing failure. Saved failures do not put
+Record again, Microphone Settings… or Sound Settings… where the fix is in System
+Settings, or Open Dictate…, and Dismiss. These commands and their workspace doors also stay in the chooser. Retry belongs only to an existing failure. Saved failures do not put
 warnings on the compact pill, the recording trace or Switch tool. A failure
 waiting before input-consuming work began cannot replace that work's revealed
 controls. Revealing, collapsing or choosing a tool does not acknowledge or retry
@@ -77,7 +78,8 @@ Delivery uses a brief, non-activating cue at the same place as No speech heard.
 Confirmed insertion is quiet. A copied fallback shows its title and useful next
 step for three seconds of unheld time. There is no word count, Review button, pin,
 dismiss button, placement menu or visible countdown. Hover or VoiceOver focus can
-hold the cue for reading. After it ends, the next hover reveals the toolbar.
+hold the cue for reading. VoiceOver hears the cue's title and next step once,
+without interrupting; confirmed insertion stays silent. After it ends, the next hover reveals the toolbar.
 The clipboard shelf and History retain the words and any unresolved delivery;
 ending the cue never discards them. An uncertain paste asks the person to check
 the destination before trying again and never suggests another automatic paste.

@@ -17,6 +17,8 @@ enum TextRules {
         return result
     }
     static func wordCount(_ text: String) -> Int { text.split(whereSeparator: { $0.isWhitespace }).count }
+    /// "1 word" or "N words", for a count shown beside a transcript.
+    static func wordCountLabel(_ count: Int) -> String { count == 1 ? "1 word" : "\(count) words" }
 }
 
 struct Transcript: Codable, Identifiable {

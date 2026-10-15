@@ -95,7 +95,7 @@ struct TranscriptReviewView: View {
                 Text(HistoryDate.text(item.date))
                 Text(model.historyLibrary.metadata(for: item.id).purpose.title)
                 Spacer()
-                Text("\(TextRules.wordCount(text)) words").monospacedDigit()
+                Text(TextRules.wordCountLabel(TextRules.wordCount(text))).monospacedDigit()
             }.font(.subheadline).foregroundStyle(.secondary)
             Picker("Wording", selection: $version) {
                 Text("Current text").tag(TranscriptExportVersion.cleaned)

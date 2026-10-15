@@ -174,11 +174,14 @@ struct DemoLibraryView: View {
             }.hidden()
         }
     }
-    /// The count, and the recall key only while it is on: “Off to recall” said nothing useful.
+    /// The count, and the recall key only while it is on and registered: “Off to recall” said
+    /// nothing useful, and a key another app holds recalls nothing (#76).
     private var footerSummary: String {
-        let count = "\(library.resources.count) \(library.resources.count == 1 ? "resource" : "resources")"
-        let recall = model.preferences.shortcut(3)
-        return recall.enabled ? count + " · \(recall.label) to recall" : count
+        Self.footerSummary(count: library.resources.count, recall: model.preferences.shortcut(3), failure: model.shortcutFailures[3])
+    }
+    nonisolated static func footerSummary(count: Int, recall: VoiceShortcut, failure: String?) -> String {
+        let resources = "\(count) \(count == 1 ? "resource" : "resources")"
+        return recall.usableLabel(failure: failure).map { resources + " · \($0) to recall" } ?? resources
     }
     private func performReturnAction(fromSearch: Bool) -> KeyPress.Result {
         guard WorkbenchHome.destination(model.page).section == "library", library.draft == nil, removal == nil,

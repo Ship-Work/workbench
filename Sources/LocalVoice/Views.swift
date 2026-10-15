@@ -50,6 +50,11 @@ struct ContentView: View {
                         Button("Microphone Settings…") { model.openMicrophoneSettings() }.controlSize(.small)
                             .help("Open Privacy & Security › Microphone in System Settings")
                     }
+                    // Two silent dictations in a row name Sound, where Dictate's input is chosen (#156).
+                    if bannerAttention?.code == AppModel.repeatedSilenceCode {
+                        Button("Sound Settings…") { model.openSoundSettings() }.controlSize(.small)
+                            .help("Open Sound in System Settings to check the input")
+                    }
                     // A kept capture's Retry sits beside the message that promises it, the same
                     // action as Capture recovery's. Only on Dictate, whose draft it fills.
                     if model.page == "dictate" && hasCurrentRecovery && model.canRetry {
@@ -158,7 +163,7 @@ struct ContentView: View {
                         HStack {
                             WorkbenchSectionTitle("Transcript")
                             Spacer()
-                            Text("\(TextRules.wordCount(model.transcript)) words").font(.caption).foregroundStyle(.secondary)
+                            Text(TextRules.wordCountLabel(TextRules.wordCount(model.transcript))).font(.caption).foregroundStyle(.secondary)
                         }
                         editor(text: $model.transcript, placeholder: transcriptPlaceholder, label: "Transcript")
                         rememberedCorrection
@@ -211,7 +216,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .disabled(!model.canToggleRecording)
-            .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Finish dictation" : "Start recording")
+            .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Finish dictation" : "Start dictating")
             VStack(alignment: .leading, spacing: 5) {
                 Text(captureTitle).font(Workbench.sectionTitle)
                 if model.phase == .recording {
@@ -300,16 +305,21 @@ struct ContentView: View {
     }
 
     private var recordingHint: String {
-        let shortcut = model.preferences.dictationShortcut
-        guard shortcut.enabled else { return "Click the microphone · Up to 5 minutes" }
-        return (model.preferences.capture == .hold ? "Hold " : "") + shortcut.label + " · Up to 5 minutes"
+        Self.recordingHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)
+    }
+    /// Names the Dictate shortcut only while it is on and registered, as the toolbar does (#76).
+    nonisolated static func recordingHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        guard let key = shortcut.usableLabel(failure: failure) else { return "Click the microphone · Up to 5 minutes" }
+        return (capture == .hold ? "Hold " : "") + key + " · Up to 5 minutes"
     }
 
     /// The empty transcript says how to fill it, with the shortcut as it is saved.
     private var transcriptPlaceholder: String {
-        let shortcut = model.preferences.dictationShortcut
-        guard shortcut.enabled else { return "Click the microphone. Your words appear here." }
-        return (model.preferences.capture == .hold ? "Hold " : "Press ") + shortcut.label + " or click the microphone. Your words appear here."
+        Self.transcriptPlaceholder(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)
+    }
+    nonisolated static func transcriptPlaceholder(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        guard let key = shortcut.usableLabel(failure: failure) else { return "Click the microphone. Your words appear here." }
+        return (capture == .hold ? "Hold " : "Press ") + key + " or click the microphone. Your words appear here."
     }
 
     private var deliverySummary: String {

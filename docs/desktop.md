@@ -10,7 +10,7 @@ The menu-bar panel starts and stops things in a second. The floating toolbar car
 
 Home holds only what the app shows nowhere else in that form. Everything else is one click away in the sidebar or History. In order:
 
-1. **What's running?** Current work, with each live thing's own Stop or End.
+1. **What's running?** Current work, with each live thing's own Stop, Finish or End.
 2. **Where do I start?** Only while someone has never dictated: the first-dictation guide.
 3. **What did I make that I'll come back to?** Your meetings, ready to copy and follow up; your Snap & Talk decks, ready to open or continue. Dictations and Snaps are passing captures; they stay in History.
 4. **What can Workbench use on this Mac?** Permissions, with what each is for and what still works without it.
