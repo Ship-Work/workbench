@@ -369,6 +369,9 @@ public final class StageKitController: ObservableObject {
         library.setVoiceRing(true)
         return { _ = library.replaceVoiceAccess(previous) }
     }
+    /// For the gallery's check that React to my voice reads this controller's own store: the voice
+    /// colour Persona started with, as red, green and blue.
+    public var personaVoiceColor: [Double] { let colour = coordinator.demoScenes.personas.voiceColor; return [colour.r, colour.g, colour.b] }
     public var scenesView: AnyView { AnyView(DemoScenesView(model: coordinator.demoScenes)) }
     public func personasView(editProfile: @escaping () -> Void) -> AnyView {
         AnyView(PersonaLibraryView(library: coordinator.demoScenes.personas, mode: .workspace, editProfile: editProfile))

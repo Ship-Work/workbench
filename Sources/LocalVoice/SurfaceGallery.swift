@@ -356,6 +356,8 @@ private struct HistoryNativeAcceptanceView: View {
         let stageDefaults = try SurfaceGallery.isolatedDefaults("StageKit", home: home)
         // Never look for a legacy StageMark preferences domain.
         stageDefaults.set(true, forKey: "legacyStagePreferencesSeeded.v1")
+        // A voice colour no preset has, with React to my voice left off, so Persona can show which store it read.
+        stageDefaults.set(Self.isolatedVoiceColor, forKey: "persona.voiceColor")
         let preferences = VoicePreferences.load(reserving: StageShortcutSettings.migrationReservations(defaults: stageDefaults))
         // The bounded Home pass keeps real synthetic recovery pending throughout the visit.
         // This must not become a Home task or be cleared merely by navigating.
@@ -559,7 +561,7 @@ private struct HistoryNativeAcceptanceView: View {
             return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: shots, host: host, pickers: [], pickerHost: [],
                 pages: [], entries: [], menus: [], placement: try checkToolbarPlacement())
         }
-        let refusal = try checkShortcutRefusal()
+        let refusal = try checkShortcutRefusal() + checkPersonaVoiceStore()
         var panels: [SurfaceGallery.Shot] = []
         final class PanelFrames { var byID: [String: CGRect] = [:] }
         let panelFrames = PanelFrames()
@@ -1598,6 +1600,17 @@ private struct HistoryNativeAcceptanceView: View {
             throw VoiceError.message("Keyboard still shows Dictate's key as refused after it was released.")
         }
         return ["A Dictate key macOS refused reaches Keyboard and Home through the app's own registration, offers no practice, and clears once released."]
+    }
+
+    static let isolatedVoiceColor = [0.123, 0.456, 0.789]
+
+    /// React to my voice keeps its choice and colour in the stage's own store, so the gallery's
+    /// isolated settings decide them, never the stage domain of the Mac it runs on.
+    func checkPersonaVoiceStore() throws -> [String] {
+        guard stage.personaVoiceColor == Self.isolatedVoiceColor else {
+            throw VoiceError.message("Persona read React to my voice from outside the gallery's own stage settings: colour \(stage.personaVoiceColor).")
+        }
+        return ["React to my voice reads the stage's own settings: Persona starts with the colour seeded in the gallery's isolated store."]
     }
 
     func checkToolbarVisibility() throws -> [String] {
