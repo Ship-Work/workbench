@@ -4323,7 +4323,7 @@ private struct HistoryNativeAcceptanceView: View {
         controls.toolbar.send(.holdBegan(.keyboard))
         for mode in ToolbarMode.allCases {
             model.toolbarMode = mode; settle(.revealed)
-            let expected = ToolbarAccessory.offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: false)
+            let expected = ToolbarAccessory.offered(for: ToolbarLiveState(mode: mode))
             let found = host.window?.contentView.map(buttons)?.filter { $0.accessibilityIdentifier() == "toolbar.accessory" } ?? []
             let title = expected?.title
             expect("\(mode.title)'s accessory, revealed with nothing live", [

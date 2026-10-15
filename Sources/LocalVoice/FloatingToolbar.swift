@@ -177,7 +177,7 @@ struct FloatingToolbar: View {
     /// live camera, so the camera is one click from the revealed pill.
     func accessory(_ live: ToolbarLiveState) -> ToolbarAccessory? {
         if live.mode == .persona { return stage.personaPicker == nil ? nil : .personaPicker }
-        return ToolbarAccessory.offered(for: live, selectedPersonaCopy: live.mode == .persona && stage.selectedPersonaCopy != nil)
+        return ToolbarAccessory.offered(for: live)
     }
     var quickControl: ToolbarQuickControl? {
         if live.mode == .present, stage.isPresenting { return .presentationView }

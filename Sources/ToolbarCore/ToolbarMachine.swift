@@ -16,7 +16,7 @@ public enum ToolbarTier: String, CaseIterable, Sendable {
     /// The compact rest, in every state (#134): one small mark whose indicator says what is
     /// running. Its whole job is to be findable and truthful; a click on it only reveals.
     case resting
-    /// One row: the tool launcher, what that tool does next, an optional accessory and More.
+    /// One row: the tool launcher, what that tool does next and an optional accessory.
     case revealed
 }
 
