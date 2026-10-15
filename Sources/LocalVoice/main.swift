@@ -417,6 +417,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // Home and Keyboard read the coach's catalogue, so it carries what macOS refused, at launch too.
         keyboard?.replaceEntries(shortcutEntries())
     }
+    /// The coach's catalogue as the panel, a page or Workbench coming forward finds it. A key
+    /// macOS refused is tried again first, so one another app has let go clears without a
+    /// relaunch (#76). Never while a key may be held: registering again drops its key-up.
+    func refreshShortcutEntries() {
+        if model.phase == .idle, !shortcutsSuspended {
+            if !hotkeys.failures.isEmpty { registerShortcuts(); return }
+            stage.refreshShortcutRegistration()
+        }
+        keyboard?.replaceEntries(shortcutEntries())
+    }
     private func setupMenus() {
         let menus = makeMainMenu()
         NSApp.mainMenu = menus.main; NSApp.servicesMenu = menus.services; NSApp.windowsMenu = menus.window; NSApp.helpMenu = menus.help
@@ -552,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         menuTarget.opened(capturing: TextDelivery.capture())
         // Each visit starts in the normal state, whatever the last one left.
-        model.refreshPermissions(); panelEditor.end(); keyboard.replaceEntries(shortcutEntries()); NSApp.activate(ignoringOtherApps: true)
+        model.refreshPermissions(); panelEditor.end(); refreshShortcutEntries(); NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         panelLeave.watch { [weak self] in self?.closeControls() }
@@ -686,6 +696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     func applicationDidBecomeActive(_ notification: Notification) {
         readback?.refreshPermissionState()
+        if stage != nil { refreshShortcutEntries() }
         PackLibraryModel.shared.checkAutomatically()
     }
 
@@ -733,7 +744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     /// `select` names the shortcut a door is about, so Keyboard opens on it rather than on the last selection (#76).
     func navigate(_ page: String, select id: String? = nil) {
-        keyboard?.stopInteraction(); keyboard?.replaceEntries(shortcutEntries())
+        keyboard?.stopInteraction(); refreshShortcutEntries()
         if let id { keyboard?.reveal(id) }
         model.page = page; showWindow()
     }

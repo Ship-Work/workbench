@@ -1595,11 +1595,12 @@ private struct HistoryNativeAcceptanceView: View {
         keyboard.beginPractice()
         guard !keyboard.isInteracting else { throw VoiceError.message("Keyboard offered practice on a Dictate key macOS refused.") }
         competing.unregister()
-        shell.registerShortcuts()
+        // The refresh the panel, a page and Workbench coming forward run: the gallery has none of those doors.
+        shell.refreshShortcutEntries()
         guard let released = keyboard.entries.first(where: { $0.id == "voice.1" }), released.error == nil else {
             throw VoiceError.message("Keyboard still shows Dictate's key as refused after it was released.")
         }
-        return ["A Dictate key macOS refused reaches Keyboard and Home through the app's own registration, offers no practice, and clears once released."]
+        return ["A Dictate key macOS refused reaches Keyboard and Home through the app's own registration, offers no practice, and clears once released and Keyboard is opened again."]
     }
 
     static let isolatedVoiceColor = [0.123, 0.456, 0.789]

@@ -446,11 +446,12 @@ struct TestRunner {
             let tests: [(String, () throws -> Void)] = [
                 ("drawing admission preserves independent guards", workbench.testDrawingAdmissionIsSeparateFromGeneralInteraction),
                 ("finish drawing preserves ink and settled input", workbench.testFinishDrawingPreservesBoardInkAndReportsSettledTransitions),
-                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing)
+                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing),
+                ("a refused key is tried again on refresh", workbench.testRefusedShortcutIsTriedAgainOnRefresh)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
-                do { try test() } catch { assertionFailures += 1; print("FAIL \(name): \(error)") }
+                do { try test() } catch let skip as TestSkipped { print("SKIP \(name): \(skip)"); continue } catch { assertionFailures += 1; print("FAIL \(name): \(error)") }
                 if assertionFailures == before { print("PASS \(name)") }
             }
             print("\(tests.count) tests · \(assertionCount) assertions · \(assertionFailures) failures")
@@ -1004,7 +1005,8 @@ struct TestRunner {
                 ("embedded navigation and recording suspension", workbench.testEmbeddedCallbacksAndSuspendedShortcutSettings),
                 ("drawing admission preserves independent guards", workbench.testDrawingAdmissionIsSeparateFromGeneralInteraction),
                 ("finish drawing preserves ink and settled input", workbench.testFinishDrawingPreservesBoardInkAndReportsSettledTransitions),
-                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing)
+                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing),
+                ("a refused key is tried again on refresh", workbench.testRefusedShortcutIsTriedAgainOnRefresh)
             ])
             let annotationMenu = AnnotationMenuTests()
             tests.append(contentsOf: [
