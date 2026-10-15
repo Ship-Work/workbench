@@ -917,6 +917,14 @@ func runCLI(_ args: [String]) async -> Int32 {
                 _ = NSApplication.shared
                 try LiveVoiceExperienceChecks.render(to: URL(fileURLWithPath: args[1]))
             }
+        case "--check-meeting-capture-native":
+            guard args.count == 2 || (args.count == 3 && args[2] == "--self-end") else { throw VoiceError.message("Usage: --check-meeting-capture-native NEW_OUTPUT_FOLDER [--self-end]") }
+            await MainActor.run {
+                _ = NSApplication.shared
+                NSApp.setActivationPolicy(.accessory)
+                NSApp.finishLaunching()
+            }
+            print(try await MeetingCaptureNativeCheck.run(output: URL(fileURLWithPath: args[1], isDirectory: true), selfEnd: args.count == 3))
         case "--check-live-voice-model":
             guard args.count == 2 || (args.count == 3 && args[2] == "--two-sources") else { throw VoiceError.message("Supply one synthetic audio fixture path and optionally --two-sources.") }
             try await LiveVoiceModelCheck.run(audio: URL(fileURLWithPath: args[1]), twoSources: args.count == 3)

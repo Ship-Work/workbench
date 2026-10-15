@@ -40,6 +40,8 @@ Join a supported call, accept Start, see progressive words, switch Mac/headphone
 
 Individual voice identification, automatic recording, calendar-title lookup and automatic sending/scheduling remain outside this change.
 
+`LocalVoice --check-meeting-capture-native NEW_FOLDER [--self-end]` runs the real pipeline without a person: a scratch player app with its own bundle identifier speaks a synthetic two-voice fixture, the production process source lists it, the production tap captures it, the cached Parakeet model recognises it live, and `MeetingModel` finishes and commits it; the receipt holds first sound, first words, the manifest, the live journal and the word error rate. Run it from the signed app (`open -n -W -a "Workbench Preview.app" --args …`) so that app's System Audio Recording permission applies: a refused tap delivers silence, not an error, and the check reports ten seconds of silence as the permission result. It proves the pipeline on this Mac, not any call app's remote stream; `remoteAudioVerified` stays false until a real call is recorded. See [the 15 October record](verification/2026-10-15-meeting-capture-native/README.md).
+
 ## Evidence from 5 October 2026
 
 - Synthetic checks: 206 meeting lifecycle checks, 34 recording-removal checks, 21 live-window checks, 184 Dictate persistence/delivery checks, 27 exact-field delivery checks, 14 voice-experience checks and 14 actual PCM writer/conversion checks. They cover timing jitter in both directions, repeated short replies, cancellation of queued inference, incomplete-live fallback, exact prior-format backups, route gaps, bounded callback loss, call-end countdowns and uncertain field writes.

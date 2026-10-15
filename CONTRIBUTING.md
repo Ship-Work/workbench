@@ -75,6 +75,8 @@ Several Python checks in `scripts/` compile exact members of `AppModel.swift` an
 
 CI also keeps a `surface-gallery` artifact: `LocalVoice --render-surfaces DIR` draws the menu-bar panel in fixed states and the top of every Home page at the default and minimum window sizes, in light and dark, with an `index.html` listing each entry and where it leads. It uses synthetic data in a temporary home and never reads saved work, preferences or Keychain. It flags an entry whose route has no page and a page no entry opens. When you add a button or key that opens a page, add it to the catalogue in `Sources/LocalVoice/SurfaceGallery.swift`; the app menus are read from the menu bar itself. `scripts/check-surfaces.py` also fails an app menu item that opens a page under a name other than the page's own.
 
+For the real Meetings pipeline (Core Audio tap, live Parakeet, finish and commit) with no human, run `--check-meeting-capture-native NEW_FOLDER` from a signed Preview with `open -n -W -a`, so its System Audio Recording permission applies; the receipt in NEW_FOLDER says what passed and the word error rate. It is not in the default suite. [The live voice contract](docs/live-voice.md#acceptance) describes it.
+
 For native History acceptance with synthetic content, quit both editions and run the installed signed Preview through the existing gallery's isolated home and preferences:
 
 ```sh
