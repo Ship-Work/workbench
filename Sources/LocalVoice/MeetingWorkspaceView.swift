@@ -421,11 +421,20 @@ final class MeetingOfferPanelController {
         hidePanel(); displayedOffer = nil
     }
 
+    /// The offer must reach a call that fills the screen or lives on another Space, and must not
+    /// leave when Workbench, a menu-bar app, is not the active app. Shared with the checks.
+    static func configure(_ panel: NSPanel) {
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+    }
+
     private static func presentPanel(offer: MeetingAudioApp, actions: Actions) -> () -> Void {
         let bounds = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let panel = NSPanel(contentRect: NSRect(x: bounds.maxX - 365, y: bounds.minY + 25, width: 340, height: 145),
             styleMask: [.nonactivatingPanel, .titled], backing: .buffered, defer: false)
-        panel.title = "Workbench"; panel.level = .floating; panel.isReleasedWhenClosed = false
+        panel.title = "Workbench"; panel.isReleasedWhenClosed = false
+        configure(panel)
         panel.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 12) {
             Label(MeetingDetector.offerTitle(for: offer), systemImage: "phone").font(.headline)
             Text(offer.name + " · Review to adjust the microphone before starting.").font(.callout)

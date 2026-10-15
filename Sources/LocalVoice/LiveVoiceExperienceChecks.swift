@@ -47,8 +47,27 @@ import SwiftUI
         let snapshot = LiveVoiceSnapshot(phase: .listening, recognitionDelayed: true)
         try expect(snapshot.recordingTitle == "Recording" && snapshot.transcriptStatus.contains("catching up"),
                    "delayed words do not claim capture stopped")
-        try expect(MeetingFollowUp.task.contains("Do not send, schedule or change anything")
-            && MeetingFollowUp.task.contains("no follow-up"), "follow-up drafts allow no-action calls and retain review")
+        // A meeting's own door prefers the bundled meeting skill and still offers the rest; the details
+        // door keeps the general skill alone; a History selection keeps the pack's remembered choice.
+        let builtIns = TranscriptHandoffSkill.builtIns
+        let packSkill = TranscriptHandoffSkill(id: "pack.example", title: "Pack skill", detail: "Synthetic", load: { throw VoiceError.message("synthetic") })
+        let meetingDoor = MeetingFollowUp.reviewSkills(meetingDoor: true, singleTranscript: true, builtIns: builtIns, packSkills: [packSkill], packPreferred: "pack.example")
+        try expect(builtIns.contains { $0.id == MeetingFollowUp.skillID } && meetingDoor.preferred == MeetingFollowUp.skillID
+            && meetingDoor.skills.map(\.id) == builtIns.map(\.id) + ["pack.example"], "a meeting's door offers every transcript skill with Meeting notes and follow-up preferred")
+        let detailsDoor = MeetingFollowUp.reviewSkills(meetingDoor: false, singleTranscript: true, builtIns: builtIns, packSkills: [packSkill], packPreferred: "pack.example")
+        try expect(detailsDoor.skills.map(\.id) == [TranscriptHandoffSkill.followUp.id] && detailsDoor.preferred == nil, "the details door keeps the general follow-up skill alone")
+        let selectionDoor = MeetingFollowUp.reviewSkills(meetingDoor: false, singleTranscript: false, builtIns: builtIns, packSkills: [packSkill], packPreferred: "pack.example")
+        try expect(selectionDoor.skills.count == builtIns.count + 1 && selectionDoor.preferred == "pack.example", "a History selection keeps the pack's remembered skill")
+        let meetingSkill = try TranscriptHandoffSkills.builtInText(MeetingFollowUp.skillID)
+        try expect(meetingSkill.contains("## Follow-up message") && meetingSkill.contains("Nothing is sent") && meetingSkill.contains("Owner?"),
+                   "the meeting skill asks for a follow-up message, flags missing owners and sends nothing")
+        try expect((builtIns.first { $0.id == MeetingFollowUp.skillID }?.defaultTask ?? "").contains("follow-up message"), "the meeting skill suggests its own task")
+        // A call that fills the screen or sits on another Space still sees the offer, and a menu-bar
+        // app's inactivity never hides it.
+        let offerPanel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 145), styleMask: [.nonactivatingPanel, .titled], backing: .buffered, defer: true)
+        MeetingOfferPanelController.configure(offerPanel)
+        try expect(offerPanel.collectionBehavior.contains(.canJoinAllSpaces) && offerPanel.collectionBehavior.contains(.fullScreenAuxiliary)
+                   && !offerPanel.hidesOnDeactivate && offerPanel.level == .floating, "the offer panel joins every Space, full-screen calls included, and stays while Workbench is inactive")
         try checkLongTranscriptLayout(expect)
         print("Live voice experience: \(count) checks passed")
     }

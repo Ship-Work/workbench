@@ -31,9 +31,23 @@ struct MeetingAutoFinish {
 }
 
 enum MeetingFollowUp {
-    /// The existing reviewed handoff interprets the transcript as evidence and
-    /// proposes next steps. A keyword guess never becomes a claimed decision.
-    static let task = """
-    Review this meeting or call and prepare the most useful next step. Start with a short account of its purpose and outcome, grounded in the transcript. Separate agreed decisions, explicit commitments, open questions and optional suggestions. For actions, include an owner and due date only when the speakers actually stated them; otherwise mark them unassigned or unspecified. Quote the brief supporting words for each commitment. Then draft the one most useful follow-up (for example a message, checklist or next-meeting agenda) when the conversation supports it. If the call was social or has no follow-up, say so rather than inventing tasks. Do not infer identities from You/Others. Do not send, schedule or change anything. Return drafts for review.
-    """
+    /// The bundled Meeting notes and follow-up skill: what changed, decisions, actions with an owner and a
+    /// date only when the speakers gave them, open questions and a follow-up message. Its own suggested
+    /// task applies; a keyword guess never becomes a claimed decision.
+    static let skillID = "workbench-meeting-follow-up"
+
+    /// The review's skills for a door. A meeting's own Prepare follow-up… offers every transcript skill
+    /// with the meeting skill preferred, so the person can still choose Coach or the general follow-up.
+    /// The other single-transcript door, Suggest details, keeps the general skill alone, as before.
+    /// A History selection keeps the pack's remembered choice.
+    static func reviewSkills(meetingDoor: Bool, singleTranscript: Bool, builtIns: [TranscriptHandoffSkill],
+                             packSkills: [TranscriptHandoffSkill], packPreferred: String?)
+        -> (skills: [TranscriptHandoffSkill], preferred: String?) {
+        if meetingDoor {
+            let skills = builtIns + packSkills
+            return (skills, skills.contains { $0.id == skillID } ? skillID : nil)
+        }
+        if singleTranscript { return ([.followUp], nil) }
+        return (builtIns + packSkills, packPreferred)
+    }
 }
