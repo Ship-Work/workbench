@@ -336,6 +336,28 @@ enum HandoffJobsChecks {
         try check(HomeMeetings.followUp(for: id, in: recaps.visibleJobs.filter { $0.id == laterDetails.id }, inputs: recapInputs,
                                         excluding: { recaps.isMetadataSuggestion($0) }) == nil,
                   "a meeting with only a details suggestion still offers Prepare follow-up…")
+        // A details suggestion is named as the door that asked for it. A follow-up, or a details
+        // task the person edited, keeps the skill's name, and the name leaves the fingerprint alone.
+        let editedDetails = try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task + " Also list action items.", skill: skill)
+        await recaps.loadTaskFiles(recaps.jobs)
+        try check(detailsJob.title == "Suggest details" && laterDetails.title == "Suggest details" && recaps.title(laterDetails) == "Suggest details",
+                  "an assistant's details suggestion is titled Suggest details")
+        try check(meetingFollowUp.title == "Prepare follow-up" && recaps.title(meetingFollowUp) == "Prepare follow-up" && first.title == "Prepare follow-up",
+                  "a meeting follow-up and a general task keep the skill's name")
+        try check(editedDetails.title == "Prepare follow-up" && !recaps.isMetadataSuggestion(editedDetails) && recaps.title(editedDetails) == "Prepare follow-up",
+                  "a details task the person edited is not a details suggestion and keeps the skill's name")
+        try check(try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task, skill: skill).id == laterDetails.id,
+                  "preparing the same details task again reuses it; the title is not part of the fingerprint")
+        // A details suggestion saved under the skill's name, before it had its own, reads as one.
+        var savedEarlier = laterDetails
+        savedEarlier.title = "Prepare follow-up"
+        try HandoffJobStore.write(HandoffJobStore.encode(savedEarlier), to: recaps.folder(laterDetails).appendingPathComponent("receipt.json"))
+        let restarted = HandoffJobsModel(directory: root.appendingPathComponent("home-recap"), switches: ({ _ in false }, { _, _ in }))
+        await restarted.loadTaskFiles(restarted.jobs)
+        let earlierDetails = restarted.jobs.first { $0.id == laterDetails.id }, earlierFollowUp = restarted.jobs.first { $0.id == meetingFollowUp.id }
+        try check(earlierDetails?.title == "Prepare follow-up" && earlierDetails.map(restarted.title) == "Suggest details"
+                  && earlierFollowUp.map(restarted.title) == "Prepare follow-up",
+                  "a details suggestion saved as Prepare follow-up shows as Suggest details; a real follow-up keeps its name")
 
         let snaps = SnapStore(root: root.appendingPathComponent("review-snaps"))
         let snap = try snaps.insert(originalPNG: image, width: 1, height: 1, title: "User-reviewed name", source: .screen)

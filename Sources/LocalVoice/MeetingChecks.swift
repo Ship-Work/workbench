@@ -641,9 +641,19 @@ enum MeetingChecks {
                                  microphonePermission: { permissions += 1; return true },
                                  captureFactory: { factories += 1; return factories == 1 ? capture : CaptureFixture() })
         await Task.yield()
-        model.useOffer(MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced"))
+        let call = MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced")
+        let otherApp = MeetingAudioApp(id: 951, name: "Synthetic app", bundleID: "example.synthetic")
+        model.useOffer(call); model.useOffer(otherApp)
+        try expect(model.selectedAppID == 951 && model.purpose == "meeting", "another app's offer after a call offer is saved as a Meeting")
+        model.useOffer(call); model.selectAudioSource(789)
+        try expect(model.selectedAppID == 789 && model.purpose == "meeting", "choosing another app's audio after a call offer is saved as a Meeting")
+        model.useOffer(call); model.selectAudioSource(nil); model.useMicrophoneOnly(); model.selectAudioSource(950)
+        try expect(model.purpose == "call", "a call that falls back to the microphone, or returns to its own audio, stays a Call")
+        model.purpose = "call"; model.useOffer(otherApp)
+        try expect(model.purpose == "call", "Call chosen in Save as stays a Call when another app is offered")
+        model.useOffer(call)
         try expect(model.selectedAppID == 950 && model.purpose == "call", "reviewing a call on this Mac records it as a Call")
-        model.purpose = "meeting"; model.selectedAppID = nil
+        model.selectedAppID = nil
         try expect(!model.detectionEnabled && source.calls == 0 && factories == 0 && permissions == 0,
                    "controller initialization does not detect, ask permission or capture")
         model.mayStart = { "Another Workbench recording is active." }

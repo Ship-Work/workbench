@@ -381,7 +381,7 @@ struct HistoryView: View {
                 if CommandLine.arguments.dropFirst().first == "--render-surfaces-pass" {
                     Image(systemName: "hourglass").foregroundStyle(Workbench.accent).accessibilityHidden(true)
                 } else { ProgressView().controlSize(.small) }
-                Text("Running · " + (jobs.jobs.first(where: { $0.id == jobs.activeID })?.title ?? "Hand off task"))
+                Text("Running · " + (jobs.jobs.first(where: { $0.id == jobs.activeID }).map(jobs.title) ?? "Hand off task"))
                     .font(.callout.weight(.medium)).lineLimit(1)
                 Spacer()
                 Button("Stop task", role: .destructive) { jobs.cancel() }

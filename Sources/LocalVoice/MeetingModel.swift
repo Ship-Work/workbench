@@ -57,7 +57,9 @@ final class MeetingModel: ObservableObject {
     }
     @Published var includeMicrophone = true { didSet { refreshAdmission() } }
     @Published var selectedAppID: Int32? { didSet { refreshAdmission() } }
-    @Published var purpose = "meeting"
+    @Published var purpose = "meeting" { didSet { callOfferSource = nil } }
+    /// The calling-service source whose offer chose Call. Any Save as choice clears it.
+    private var callOfferSource: Int32?
 
     var isBusy: Bool { isRecording || isProcessing || isStarting }
     var hostAdmission: (() -> MeetingHostAdmission)? { didSet { refreshAdmission() } }
@@ -231,8 +233,11 @@ final class MeetingModel: ObservableObject {
     func selectAudioSource(_ id: Int32?) {
         guard !isBusy else { return }
         selectedAppID = id
-        if id == nil { includeMicrophone = true }
+        if id == nil { includeMicrophone = true } else if id != callOfferSource { endOfferedCall() }
     }
+    /// Another app's audio saves as a Meeting again after a call offer chose Call. Microphone
+    /// only keeps it, so a call that falls back to the microphone stays a Call.
+    private func endOfferedCall() { if callOfferSource != nil { purpose = "meeting" } }
 
     func refreshApps() {
         switch detector.enumerateApps() {
@@ -712,11 +717,12 @@ final class MeetingModel: ObservableObject {
         if let issue = detector.lastError, !isBusy { error = issue }
     }
 
-    /// Chooses the offered source for review. A call on this Mac is saved as a Call.
+    /// Chooses the offered source for review. A call on this Mac is saved as a Call; a later
+    /// offer from another app is saved as a Meeting, unless the person chose Call in Save as.
     func useOffer(_ app: MeetingAudioApp) {
         guard !isBusy else { return }
         selectedAppID = app.id
-        if MeetingDetector.isCallService(app) { purpose = "call" }
+        if MeetingDetector.isCallService(app) { purpose = "call"; callOfferSource = app.id } else { endOfferedCall() }
     }
 
     /// The button acts on the offer it displayed. Never substitutes a new process/app.
