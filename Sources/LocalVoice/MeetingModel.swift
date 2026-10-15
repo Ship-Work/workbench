@@ -235,8 +235,9 @@ final class MeetingModel: ObservableObject {
         selectedAppID = id
         if id == nil { includeMicrophone = true } else if id != callOfferSource { endOfferedCall() }
     }
-    /// Another app's audio saves as a Meeting again after a call offer chose Call. Microphone
-    /// only keeps it, so a call that falls back to the microphone stays a Call.
+    /// Another app's audio saves as a Meeting again after a call offer chose Call, and so does the
+    /// next recording once that call's recording finishes. Until then Microphone only keeps it, so
+    /// a call that falls back to the microphone stays a Call.
     private func endOfferedCall() { if callOfferSource != nil { purpose = "meeting" } }
 
     func refreshApps() {
@@ -461,6 +462,8 @@ final class MeetingModel: ObservableObject {
         guard let capture = activeCapture, let session = activeSession, let manifest = activeManifest else { return }
         watcher?.cancel(); watcher = nil
         autoFinishSeconds = nil
+        // This recording's manifest already holds its purpose; the offered call ends with it.
+        endOfferedCall()
         capture.requestStop()
         let token = UUID(); generation = token
         notice = "Saving the original audio…"
