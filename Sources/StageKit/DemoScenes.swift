@@ -503,6 +503,18 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         personaSceneID = nil
         if let onOpenPersonas { onOpenPersonas() } else { showPersonas() }
     }
+    /// The device shape every new scene starts with: the saved My device, or the generic phone.
+    var newSceneViewport: DeviceViewport { myDevice ?? .phone }
+    /// Scene options › Reset layout: the selected scene's backdrop and device go back to where a new
+    /// scene starts, in the same device shape. Its name, logo, hand, Persona and ambience stay.
+    func resetLayout() {
+        guard var scene = selected else { return }
+        let fresh = DemoScene(background: scene.background)
+        scene.backgroundX = fresh.backgroundX; scene.backgroundY = fresh.backgroundY; scene.zoom = fresh.zoom
+        scene.phoneX = fresh.phoneX; scene.phoneY = fresh.phoneY; scene.phoneHeight = fresh.phoneHeight
+        scene.viewport = newSceneViewport
+        update(scene)
+    }
     func saveMyDevice() {
         guard let scene = selected else { return }
         do {
@@ -672,7 +684,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         let filename = try copyImage(url)
         let destination = root.appendingPathComponent(filename)
         var scene = DemoScene(name: String((name ?? url.deletingPathExtension().lastPathComponent).prefix(160)), background: filename)
-        scene.viewport = myDevice ?? .phone
+        scene.viewport = newSceneViewport
         do { try persist(scenes + [scene]); query = ""; selectedID = scene.id; notice = nil }
         catch { try? FileManager.default.removeItem(at: destination); throw error }
     }
@@ -685,7 +697,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try image.data.write(to: destination, options: .withoutOverwriting)
         var scene = DemoScene(name: String(name.prefix(160)), background: filename)
-        scene.viewport = myDevice ?? .phone
+        scene.viewport = newSceneViewport
         do { try persist(scenes + [scene]); query = ""; selectedID = scene.id; confirm("Scene saved. Choose Present when you are ready.") }
         catch { try? FileManager.default.removeItem(at: destination); throw error }
     }
@@ -722,7 +734,7 @@ final class DemoScenes: NSObject, ObservableObject, NSWindowDelegate {
                 let detail = try adapter.library.importAsset(Data(contentsOf: assets.appendingPathComponent(starter.detailFilename)))
                 var scene = DemoScene(name: starter.name, background: filename)
                 scene.ambience = SceneAmbience(preset: preset, cleanPlate: plate, detail: detail)
-                scene.viewport = myDevice ?? .phone
+                scene.viewport = newSceneViewport
                 try persist(scenes + [scene]); query = ""; selectedID = scene.id; notice = nil
             }
         } catch { try? FileManager.default.removeItem(at: root.appendingPathComponent(filename)); throw error }
