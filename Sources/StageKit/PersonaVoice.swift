@@ -420,7 +420,9 @@ struct PersonaVoiceAccess {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
     }
 
-    static var system: PersonaVoiceAccess {
+    /// The real microphone, with the choice and colour kept in `defaults`: the store the stage's
+    /// own settings use, so an isolated fixture never reads or writes the presenter's.
+    static func system(defaults: UserDefaults) -> PersonaVoiceAccess {
         let key = "persona.voiceRing", colorKey = "persona.voiceColor"
         return PersonaVoiceAccess(
             permission: {
@@ -434,14 +436,14 @@ struct PersonaVoiceAccess {
                 AVCaptureDevice.requestAccess(for: .audio) { granted in DispatchQueue.main.async { answer(granted) } }
             },
             makeSource: { PersonaMicrophoneLevel() },
-            savedChoice: { Workbench.stageDefaults.bool(forKey: key) },
-            saveChoice: { Workbench.stageDefaults.set($0, forKey: key) },
+            savedChoice: { defaults.bool(forKey: key) },
+            saveChoice: { defaults.set($0, forKey: key) },
             savedColor: {
-                guard let parts = Workbench.stageDefaults.array(forKey: colorKey) as? [Double], parts.count == 3,
+                guard let parts = defaults.array(forKey: colorKey) as? [Double], parts.count == 3,
                       parts.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return nil }
                 return InkColor(parts[0], parts[1], parts[2])
             },
-            saveColor: { Workbench.stageDefaults.set([$0.r, $0.g, $0.b], forKey: colorKey) })
+            saveColor: { defaults.set([$0.r, $0.g, $0.b], forKey: colorKey) })
     }
 }
 

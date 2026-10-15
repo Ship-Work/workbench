@@ -20,7 +20,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     let settings: SettingsStore
     let hotkeys = HotkeyManager()
     /// Only the app's own storage gets the real microphone for React to my voice.
-    lazy var demoScenes = DemoScenes(readOnlyReason: migrationFailure, personaVoice: usesAppStorage ? .system : nil)
+    lazy var demoScenes = DemoScenes(readOnlyReason: migrationFailure, personaVoice: usesAppStorage ? .system(defaults: settings.defaults) : nil)
     private let migrationFailure: String?
     @Published var tool = DrawingTool.pen
     @Published var isDrawing = false

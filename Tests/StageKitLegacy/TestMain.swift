@@ -234,6 +234,7 @@ struct TestRunner {
             let suite = PersonaVoiceTests(), latency = PersonaVoiceLatencyTests(), appearance = VoiceAppearanceTests()
             let tests: [(String, () throws -> Void)] = [
                 ("persona voice ring listens only while on and showing", suite.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
+                ("persona voice keeps its choice in the store it is given", suite.testSystemAccessKeepsTheChoiceInTheStoreItIsGiven),
                 ("persona voice ring asks while preparing and stops when unavailable", suite.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
                 ("persona voice ring single floating persona", suite.testSingleFloatingPersonaIsPlacedWithRoomForItsRing),
                 ("persona voice ring placement keeps artwork and ring on screen", suite.testPlacementKeepsArtworkSizeAndTheRingOnScreen),
@@ -939,6 +940,7 @@ struct TestRunner {
             ("Present persona chooser lists every card and only selects", personaWorkspace.testPresentChooserListsEveryCardAndOnlySelects),
             ("persona workspace keeps an unsaved arrangement across pages", personaWorkspace.testChangingPageKeepsAnUnsavedArrangement),
             ("persona voice ring listens only while on and showing", personaVoice.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
+            ("persona voice keeps its choice in the store it is given", personaVoice.testSystemAccessKeepsTheChoiceInTheStoreItIsGiven),
             ("persona voice ring asks while preparing and stops when unavailable", personaVoice.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
             ("persona voice a fault found by a show keeps its reason", personaVoice.testAFaultFoundByAShowKeepsItsReason),
             ("persona voice refusal offers Microphone Settings in the live menus", personaVoice.testRefusedMicrophoneOffersMicrophoneSettingsInTheLiveMenus),
