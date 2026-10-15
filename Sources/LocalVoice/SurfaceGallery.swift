@@ -2172,8 +2172,14 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("home", "offer", "Download or defer speech setup")
         state(.downloading, detail: "Downloading Parakeet · 42%")
         try shot("models", "download", "Measured download with reachable Cancel")
+        // Dictate's caption is the same line while speech prepares, wrapped, never clipped (#15).
+        guard model.preparing, !model.ready, model.modelMessage == "Downloading Parakeet · 42%" else {
+            throw VoiceError.message("The synthetic download did not reach Dictate's preparing state.")
+        }
+        try shot("dictate", "dictate-download", "Dictate while speech downloads")
         state(.cancelling, detail: "Setup cancelled. Any model load already in progress is finishing safely; recording will not start.")
         try shot("models", "cancelled-load", "Cancelled noninterruptible load")
+        try shot("dictate", "dictate-cancelled-load", "Dictate while a cancelled load finishes")
         state(failure: .init(kind: .invalidCache, message: "The saved model could not be prepared. Retry the saved files or explicitly download a replacement.", details: "Synthetic invalid vocabulary."))
         try shot("models", "cache-failure", "Saved-cache failure and deliberate recovery")
         state(admission: .serverUnverified, detail: "Local server configured, not yet verified")
@@ -2609,16 +2615,30 @@ private struct HistoryNativeAcceptanceView: View {
             model.preferences.firstDictationGuide = kept.guide
         }
         var shots: [SurfaceGallery.Shot] = []
+        final class Frames { var byID: [String: CGRect] = [:] }
+        let frames = Frames()
+        let measure: (String, CGRect) -> Void = { id, frame in
+            if id.hasPrefix("home.current-work.") || id.hasPrefix("home.speech.") || id == "home.decks.cover" { frames.byID[id] = frame }
+        }
+        /// Your decks' cover keeps its slot's width by 10/16 of it in every state: the sample's
+        /// 190 points and the newest deck's 140, never squeezed by a tall tile in its column.
+        func checkCover(_ id: String, width: CGFloat) throws {
+            guard let cover = frames.byID["home.decks.cover"], abs(cover.width - width) <= 1, abs(cover.height - cover.width / 1.6) <= 1 else {
+                throw VoiceError.message("Home's deck cover in state \(id) is \(frames.byID["home.decks.cover"].map { "\($0.width) × \($0.height)" } ?? "missing"), not \(width) points wide at 16:10.")
+            }
+        }
         func shot(_ id: String, _ title: String, _ detail: String, session: ReadbackModel? = nil, then change: (() -> Void)? = nil) throws {
             let window = offscreenWindow(size: size, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView])
             window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
             defer { window.contentViewController = nil; window.close() }
-            model.page = "home"
-            window.contentViewController = NSHostingController(rootView: WorkbenchHome(model: model, stage: stage, keyboard: keyboard, readback: session ?? readback, snap: snap))
+            model.page = "home"; frames.byID = [:]
+            window.contentViewController = NSHostingController(rootView: WorkbenchHome(model: model, stage: stage, keyboard: keyboard, readback: session ?? readback, snap: snap)
+                .environment(\.pageSectionFrames, measure))
             window.setContentSize(size)
             let frame = window.contentView?.superview ?? window.contentView!
             settle(frame, seconds: 1)
             if let change { change(); settle(frame, seconds: 1) }
+            try checkCover(id, width: session == nil ? 190 : 140)
             shots.append(try save(try snapshot(frame), id: "state-\(id)", title: title, detail: detail, file: "page-home-state-\(id)-\(theme).png", to: output))
         }
         model.history = []; model.transcript = ""; model.rawTranscript = ""
@@ -2631,6 +2651,21 @@ private struct HistoryNativeAcceptanceView: View {
         let speech = (ready: model.ready, preparing: model.preparing, message: model.modelMessage)
         try shot("speech-preparing", "Speech preparing at launch", "The on-device model is still preparing and the guide was skipped: Current work carries the setup line instead of an empty card.") { [self] in
             model.ready = false; model.preparing = true; model.modelMessage = "Preparing speech · first setup may take a few minutes"
+        }
+        // The banner holds Cancel setup, and never Not now beside it: Not now belongs to the guide.
+        guard let banner = frames.byID["home.current-work.speech"], !banner.isEmpty,
+              let cancel = frames.byID["home.speech.cancel-setup"], banner.insetBy(dx: -1, dy: -1).contains(cancel),
+              frames.byID["home.speech.not-now"] == nil else {
+            throw VoiceError.message("While speech prepared, Home's Current work did not show speech setup with Cancel setup and without Not now.")
+        }
+        // Speech never downloaded, the guide skipped, and a Hand off task running: Current work holds
+        // the task alone, never the download offer beside it (#15). The task runs in its own model and
+        // folder, so no later page shows it.
+        frames.byID = [:]
+        model.ready = false; model.preparing = false; model.modelMessage = "Download Parakeet to turn speech into text on this Mac."
+        shots.append(try renderTaskWithoutSpeech(to: output, measure: measure))
+        guard frames.byID["home.current-work.task"]?.isEmpty == false, frames.byID["home.current-work.speech"] == nil else {
+            throw VoiceError.message("With speech not downloaded and the guide skipped, Home's Current work showed the speech download beside a running task, or no task.")
         }
         model.ready = speech.ready; model.preparing = speech.preparing; model.modelMessage = speech.message
         model.preferences.firstDictationGuide = .offered
@@ -2677,6 +2712,45 @@ private struct HistoryNativeAcceptanceView: View {
         defer { MacPermissionReader.current = Self.permissions(allAllowed: false); keyboard.restorePractised([]) { _ in } }
         try shot("all-allowed", "Everything allowed, with a deck of your own", "Once every approval Workbench can check is allowed the panel folds to the foot of the right column; the newest session shows its first screen and its deck, and Your keys, with the first three practised, suggests the next three.", session: sessionReadback)
         return shots
+    }
+
+    /// Home's page while a Hand off task runs, through its own handoff model in a folder of its own
+    /// with the synthetic provider, so the task never reaches History or a later page. The task is
+    /// stopped before this returns.
+    func renderTaskWithoutSpeech(to output: URL, measure: @escaping (String, CGRect) -> Void) throws -> SurfaceGallery.Shot {
+        let folder = home.appendingPathComponent("Home task", isDirectory: true)
+        let board = NSPasteboard.withUniqueName()
+        let jobs = HandoffJobsModel(directory: folder, switches: ({ $0 == .claude }, { _, _ in }), pasteboard: board)
+        defer {
+            jobs.cancel(); try? wait("the synthetic task to stop") { !jobs.isBusy }
+            try? FileManager.default.removeItem(at: folder); board.releaseGlobally()
+        }
+        jobs.clock = { Date(timeIntervalSince1970: 1_789_546_900) }; jobs.runner = SurfacePass.syntheticProvider
+        let refreshing = Task { await jobs.refresh() }
+        try wait("a synthetic connection") { jobs.connections[.claude]?.ready == true }
+        _ = refreshing
+        let first = SurfacePass.history[0]
+        let source = HandoffSourceSnapshot(reference: .init(kind: .transcript, id: first.id), title: "Walkthrough notes", capturedAt: first.date,
+                                           text: first.text, originalText: first.rawText ?? first.text, role: .reference)
+        let job = try jobs.prepare(sources: [source], task: "Plan the walkthrough.", skill: TranscriptHandoffSkill.followUp.load())
+        guard jobs.start(job, provider: .claude) else { throw VoiceError.message("The synthetic Hand off task did not start.") }
+        try wait("a running task") { jobs.isBusy && jobs.jobs.first { $0.id == job.id }?.providerSessionID != nil }
+        // The content column of the default window, beside the sidebar.
+        let size = NSSize(width: SurfaceGallery.sizes[0].size.width - 216, height: SurfaceGallery.sizes[0].size.height)
+        model.page = "home"
+        let page = WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap, introduction: FounderIntroductionModel(),
+                                     jobs: jobs, meetings: model.meetings, keyboard: keyboard)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(Workbench.background).tint(Workbench.accent).workbenchTheme()
+            .environment(\.pageSectionFrames, measure)
+        let host = NSHostingView(rootView: page)
+        let window = offscreenWindow(size: size, styleMask: [.borderless])
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        settle(host, seconds: 1)
+        return try save(try snapshot(host), id: "state-task-without-speech", title: "A task running, speech not downloaded",
+                        detail: "The guide was skipped and Parakeet is not downloaded: Current work holds the running task alone, with no download offer beside it.",
+                        file: "page-home-state-task-without-speech-\(theme).png", to: output)
     }
 
     // MARK: History states

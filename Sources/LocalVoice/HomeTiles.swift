@@ -452,13 +452,16 @@ struct HomeDecksTile: View {
 /// A 16:10 thumbnail with an optional one-line caption, loaded off the main thread at
 /// thumbnail size.
 struct HomeThumbnail: View {
+    @Environment(\.pageSectionFrames) private var sectionFrames
     let url: URL?
     let revision: String
     let caption: String?
     @State private var image: NSImage?
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Color.clear.aspectRatio(16 / 10, contentMode: .fit)
+            // Always its slot's width by 10/16 of it: Home's content is framed to the window's
+            // height, which squeezes a vertically flexible view when a tall tile shares its column.
+            Color.clear.aspectRatio(16 / 10, contentMode: .fit).fixedSize(horizontal: false, vertical: true)
                 .overlay {
                     if let image { Image(nsImage: image).resizable().scaledToFill() }
                     else { Image(systemName: "photo").foregroundStyle(.tertiary) }
@@ -466,6 +469,7 @@ struct HomeThumbnail: View {
                 .background(Workbench.background)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Workbench.border))
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.decks.cover", $0) }
             if let caption { Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
