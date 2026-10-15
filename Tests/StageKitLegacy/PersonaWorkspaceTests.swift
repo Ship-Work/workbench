@@ -161,7 +161,6 @@ final class PersonaWorkspaceTests {
         XCTAssertTrue(fallback.width.isFinite && fallback.height.isFinite)
     }
 
-    /// Every file under a folder, for checking that nothing in it changed.
     /// Changing page keeps an unsaved Arrange overlays layout (#340). Each visit hosts a new
     /// workspace page, as the sidebar builds one per route. Coming back reopens Arrange overlays
     /// with the edits, what is typed there is kept for the next visit, and once nothing is
@@ -214,8 +213,18 @@ final class PersonaWorkspaceTests {
             library.removeGroup(group)
             XCTAssertTrue(visit() == nil, "A removed group's layout does not reopen")
             XCTAssertTrue(library.presentationDraft == nil, "and is dropped")
+
+            // Back, Done, Escape and Manage groups end in the Discard question. Offscreen it cannot be
+            // answered, so read its Discard changes action: it drops the kept layout too.
+            let view = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent("Sources/StageKit/PersonaLibraryView.swift"), encoding: .utf8)
+            let discard = view.components(separatedBy: "Button(\"Discard changes\", role: .destructive) {").dropFirst().first?
+                .components(separatedBy: "Button(\"Keep editing\"").first ?? ""
+            XCTAssertTrue(discard.contains("library.presentationDraft = nil"), "Discard changes discards the kept layout too")
         }
     }
+
+    /// Every file under a folder, for checking that nothing in it changed.
     private func contents(of folder: URL) throws -> [String: Data] {
         var result: [String: Data] = [:]
         let base = folder.resolvingSymlinksInPath().path
