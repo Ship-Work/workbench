@@ -328,6 +328,45 @@ final class PersonaSessionTests {
         XCTAssertTrue(f.library.groups.contains { $0.id == f.other }, "Other groups are untouched")
     }
 
+    /// A kept layout is checked against its group's members when it comes back (#340). Members
+    /// added or reordered elsewhere over an unchanged saved layout carry it along, so Save works;
+    /// a member its overlays use going drops it with a notice instead of offering a refused Save.
+    func testKeptArrangementFollowsItsGroupsMembersOrIsDropped() throws {
+        let f = try fixture(); defer { cleanup(f) }
+        let original = f.library.groups.first { $0.id == f.group }!
+        var moved = original.overlays!; moved[0].placement.x = 0.4
+        f.library.presentationDraft = PersonaPresentationDraft(groupID: f.group, original: original, overlays: moved, publicLabel: "Moved", selectedID: moved[0].id)
+        f.library.setGroupMembers([f.second.id, f.first.id], in: f.group)
+        let followed = f.library.restorablePresentationDraft()
+        XCTAssertEqual(followed?.original.personaIDs, [f.second.id, f.first.id], "Reordered members carry the kept layout along")
+        XCTAssertEqual(followed?.overlays, moved, "with its overlays as they were left")
+        XCTAssertEqual(followed?.publicLabel, "Moved")
+        XCTAssertTrue(f.library.notice == nil, "and nothing to report")
+        if let followed {
+            try f.library.saveGroupLayout(f.group, overlays: followed.overlays, publicLabel: followed.publicLabel, expected: followed.original)
+        }
+        XCTAssertEqual(f.library.groups.first { $0.id == f.group }?.overlays, moved, "so Save layout keeps it")
+
+        let saved = f.library.groups.first { $0.id == f.group }!
+        var added = saved.overlays!; added.append(PersonaOverlayItem(personaID: f.second.id))
+        f.library.presentationDraft = PersonaPresentationDraft(groupID: f.group, original: saved, overlays: added, publicLabel: "Moved", selectedID: nil)
+        f.library.setGroupMembers([f.first.id], in: f.group)
+        XCTAssertEqual(f.library.groups.first { $0.id == f.group }?.overlays, saved.overlays, "The saved layout did not use the removed member")
+        let before = try archive(f.root)
+        XCTAssertTrue(f.library.restorablePresentationDraft() == nil, "but the kept one did, so it is dropped")
+        XCTAssertEqual(try archive(f.root), before, "Dropping it writes nothing")
+        XCTAssertTrue(f.library.presentationDraft == nil, "and not offered again")
+        XCTAssertEqual(f.library.notice, "The unsaved overlay layout was discarded because its group's members changed.")
+        XCTAssertFalse(f.library.noticeIsDone, "as a problem the page shows")
+
+        f.library.notice = nil
+        let current = f.library.groups.first { $0.id == f.group }!
+        f.library.presentationDraft = PersonaPresentationDraft(groupID: f.group, original: current, overlays: Array(current.overlays!.reversed()), publicLabel: "Moved", selectedID: nil)
+        f.library.remove(f.first.id)
+        XCTAssertTrue(f.library.restorablePresentationDraft() == nil, "Removing a persona its overlays show drops the kept layout")
+        XCTAssertEqual(f.library.notice, "The unsaved overlay layout was discarded because its group's members changed.")
+    }
+
     func testReadOnlySessionsAndInteractionGuardsNeverWriteOrTrapOverlays() throws {
         let f = try fixture(); defer { cleanup(f) }
         let before = try files(f.root), displays = Displays()

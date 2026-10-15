@@ -287,9 +287,9 @@ struct PersonaLibraryView: View {
                 Text(library.groupRemovalMessage(removingGroup))
             }
             .onAppear {
+                // An unsaved Arrange overlays layout waits for Arrange overlays… (#340), so a visit or
+                // a door to a notice always lands on the page with its camera, shown and live panels.
                 if library.cameraOwnsSlot { source = .camera }
-                // Back on the page, an unsaved Arrange overlays layout reopens as it was left (#340).
-                if mode == .workspace, library.restorablePresentationDraft() != nil { preparingPresentation = true }
             }
             .onChange(of: library.liveSource) { _, value in source = value }
             .onDisappear {

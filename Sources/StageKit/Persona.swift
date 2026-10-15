@@ -407,9 +407,23 @@ final class PersonaLibrary: NSObject, ObservableObject {
     /// Save layout, Revert or Discard. Not published, so an edit never republishes the library,
     /// and never written to disk.
     var presentationDraft: PersonaPresentationDraft?
-    /// The unsaved layout while its group still exists; a removed group's draft is dropped.
+    /// The unsaved layout while it still fits its group; a removed group's draft is dropped. When
+    /// the group's members changed meanwhile, as adding or removing a persona on another page does,
+    /// a draft whose overlays are all still members over an unchanged saved layout follows the
+    /// members; any other is dropped with a notice, so Save is never offered one it must refuse.
     func restorablePresentationDraft() -> PersonaPresentationDraft? {
-        if let draft = presentationDraft, !groups.contains(where: { $0.id == draft.groupID }) { presentationDraft = nil }
+        guard let draft = presentationDraft else { return nil }
+        guard let group = groups.first(where: { $0.id == draft.groupID }) else { presentationDraft = nil; return nil }
+        if group.personaIDs == draft.original.personaIDs { return draft }
+        let members = Set(group.personaIDs)
+        guard group.overlays == draft.original.overlays, group.publicLabel == draft.original.publicLabel,
+              draft.overlays.allSatisfy({ members.contains($0.personaID) }) else {
+            presentationDraft = nil
+            notice = "The unsaved overlay layout was discarded because its group's members changed."
+            return nil
+        }
+        presentationDraft = PersonaPresentationDraft(groupID: draft.groupID, original: group, overlays: draft.overlays,
+                                                     publicLabel: draft.publicLabel, selectedID: draft.selectedID)
         return presentationDraft
     }
     var visibleItems: [SavedPersona] {
