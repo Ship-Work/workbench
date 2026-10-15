@@ -61,7 +61,8 @@ final class MeetingDetector {
 
     let source: MeetingProcessSource
     let options: Options
-    /// Persisted per-app opt-outs. The model owns loading and saving them.
+    /// Apps the detector stops offering for this run. In memory only;
+    /// nothing persists them.
     var disabledBundleIDs: Set<String> = []
     var snoozedUntil: Date?
     /// Detection stays off until the person turns it on.

@@ -162,7 +162,7 @@ struct WorkbenchControlState {
     }
 
     /// Home's Persona controls use the same own-capability projection as the
-    /// menu: Dictate, Snap & Talk or a shortcut change cannot claim its Hide or Show action.
+    /// menu: another capability's live work cannot claim its Hide or Show action.
     var personaAction: ToolbarNextAction { nextAction(.persona)! }
 
     /// What the Persona action does, for its tooltip. It follows the same

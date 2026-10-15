@@ -201,9 +201,9 @@ struct TranscriptHandoffManifest: Codable, Equatable {
     var evidence: TranscriptHandoffEvidence?
 }
 
-/// What a handoff folder holds and where: selected transcripts as records and
-/// one explicitly selected Snap & Talk session as evidence. History's Hand off
-/// writes the folder itself (`HandoffJobStore`).
+/// The portable handoff.json layout and the transcript records that History's
+/// Hand off (`HandoffJobStore`) writes into its task folder, and the reader for
+/// one chosen Snap & Talk session that the review turns into evidence items.
 enum TranscriptHandoffStore {
     static let manifestName = "handoff.json"
     static let skillEntryPoint = "SKILL.md"
@@ -266,7 +266,7 @@ enum TranscriptHandoffStore {
         let session: ReadbackManifest
         do { session = try ReadbackStore.load(from: root) }
         catch {
-            throw TranscriptHandoffError.message("That folder is not a readable Snap & Talk session. \(error.localizedDescription) No handoff folder was created.")
+            throw TranscriptHandoffError.message("That folder is not a readable Snap & Talk session. \(error.localizedDescription) Choose the session folder itself.")
         }
         let active = session.sections.filter { $0.deletedAt == nil }
         guard !active.isEmpty else {

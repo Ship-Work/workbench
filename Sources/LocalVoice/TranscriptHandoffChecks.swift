@@ -245,6 +245,9 @@ enum TranscriptHandoffChecks {
         } catch {
             try check(error.localizedDescription.contains("not a readable Snap & Talk session"),
                       "the review can say why a chosen folder is not a session")
+            try check(error.localizedDescription.hasSuffix("Choose the session folder itself.")
+                      && !error.localizedDescription.contains("handoff folder"),
+                      "the refusal ends with the next step, not the retired folder route's wording")
         }
         try check(files(in: session) == sourceBefore, "every refused handoff leaves the chosen session untouched")
         try check(files(in: notASession) == ["notes.txt": Data("Just a folder".utf8)], "a refused folder is left as it was")
