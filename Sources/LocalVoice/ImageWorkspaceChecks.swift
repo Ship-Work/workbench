@@ -223,6 +223,30 @@ enum ImageWorkspaceChecks {
             let captionUndo = try await press(shift: false)
             try check(caption?.isFieldEditor == false && captionUndo && liveEditor.undoStack.count == captionSteps - 1,
                       "⌘Z in a caption still undoes the image step")
+            // A caption's typing is a step on the image's Undo only. With its mark still selected, Edit › Undo
+            // from Title, Tags or Notes must not reach the caption's typing through the panel's own undo stack.
+            liveEditor.addTextForTyping(); try await settle(preview)
+            if let typed = livePanel.firstResponder as? NSTextView, !typed.isFieldEditor, let mark = liveEditor.selected {
+                // Two keystrokes with an update between them, so a text view the editor refreshed is typed into too.
+                typed.insertText("Hel", replacementRange: typed.selectedRange()); try await settle(preview)
+                typed.insertText("lo", replacementRange: typed.selectedRange()); try await settle(preview)
+                try check(liveEditor.selectedMark?.text == "Hello", "typing in a caption changes its mark")
+                for (name, view) in details {
+                    if let view { livePanel.makeFirstResponder(view) }
+                    try await settle(preview)
+                    let responder = livePanel.firstResponder
+                    try check(view != nil && (responder === view || (responder as? NSTextView)?.delegate === view), "\(name) takes focus beside a selected caption")
+                    let edit = liveEditor.draft.edit, undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
+                    // As Edit › Undo does: sent up the field's responder chain, which only acts when there is something to undo.
+                    if livePanel.firstResponder?.undoManager?.canUndo == true {
+                        _ = livePanel.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
+                    }
+                    try await settle(preview)
+                    try check(liveEditor.selected == mark && liveEditor.draft.edit == edit && liveEditor.selectedMark?.text == "Hello" && typed.string == "Hello"
+                              && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
+                              "Undo in \(name) after typing a caption leaves the caption, its mark and the image's steps alone")
+                }
+            } else { try check(false, "Text puts a new caption first for the undo check") }
             livePanel.makeFirstResponder(liveCanvas)
         } else { try check(false, "the live editor exposes its canvas for gesture cancellation") }
         let preservedEditor = preview.editing, preservedDraft = preview.editing?.draft
