@@ -58,10 +58,7 @@ final class AppModel: NSObject, ObservableObject {
     /// receipt and saved with the session, so hiding or clearing the receipt,
     /// or quitting, cannot resolve it (T5).
     @Published private(set) var undelivered = UnresolvedDeliverySlot() { didSet { if undelivered != oldValue { persist() } } }
-    @Published private(set) var captureOutputModeLabel = "Light cleanup"
-    @Published private(set) var captureShortcutInstruction = "Use Stop to finish"
     @Published var captureFailure: String?
-    var captureDestinationName: String? { destination?.app.localizedName }
     var canCancelCurrentCapture: Bool {
         [.requesting, .recording].contains(phase) || ([.transcribing, .cleaning].contains(phase) && transcriptionTask != nil)
     }
@@ -613,12 +610,7 @@ final class AppModel: NSObject, ObservableObject {
 
     private func captureSettings() -> CaptureSettings {
         rememberedCorrection = nil
-        let settings = CaptureSettings(preferences: preferences, cleanup: CleanupConfigurationStore().snapshot(), replacements: replacements)
-        captureOutputModeLabel = settings.outputLabel
-        captureShortcutInstruction = captureUsesHoldShortcut
-            ? "Release \(settings.preferences.dictationShortcut.label) to finish"
-            : (settings.preferences.dictationShortcut.enabled ? "Stop or \(settings.preferences.dictationShortcut.label) to finish" : "Use Stop to finish")
-        return settings
+        return CaptureSettings(preferences: preferences, cleanup: CleanupConfigurationStore().snapshot(), replacements: replacements)
     }
 
     private func transcribe(_ url: URL, duration: Double, temporary: Bool, settings: CaptureSettings? = nil, heldShortcut: Bool = false, recognizedText: String? = nil) {

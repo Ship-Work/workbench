@@ -783,14 +783,6 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         catch { newSessionStyleProblem = error.localizedDescription }
     }
 
-    func installServiceNowPack() {
-        do {
-            let installed = try skillPacks.installServiceNow()
-            selectNewSessionStyle(.serviceNow)
-            skillPackNotice = "ServiceNow \(installed.version) installed for new sessions. Existing sessions keep their current style."
-        } catch { skillPackNotice = error.localizedDescription; refreshSkillPacks() }
-    }
-
     func uninstallServiceNowPack() {
         do {
             try skillPacks.uninstallServiceNow()

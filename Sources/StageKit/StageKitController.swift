@@ -414,7 +414,6 @@ public final class StageKitController: ObservableObject {
         _ = try coordinator.demoScenes.personas.addImage(url, name: name,
                                                         card: PersonaCardStyle(label: name))
     }
-    public var quickControlsView: AnyView { AnyView(QuickControlsView(app: coordinator, settings: coordinator.settings)) }
     /// One native menu for the application menu bar or the shell's status menu.
     /// It refreshes tool state and shortcut labels whenever it opens; StageKit
     /// continues to own all drawing actions and their existing global keys.
@@ -475,9 +474,6 @@ public final class StageKitController: ObservableObject {
         guard let starter = SceneStarters.all.first(where: { $0.id == id }) else { throw SceneError.noScene }
         try coordinator.demoScenes.useStarter(starter)
     }
-    public var hasOverlaySession: Bool { coordinator.demoScenes.personas.sessionState.phase != .idle }
-    public var areOverlaysPaused: Bool { coordinator.demoScenes.personas.sessionState.phase == .paused }
-    public var canStepOverlays: Bool { coordinator.demoScenes.personas.sessionState.groups.count > 1 }
     public var timerText: String { coordinator.timerText }
     public var isTimerRunning: Bool { coordinator.timerRunning }
     public var hasTimerSession: Bool { coordinator.timerSessionStarted }
@@ -532,7 +528,6 @@ public final class StageKitController: ObservableObject {
     /// taking clicks; its ink stays with the board for the next time it opens.
     public func finishDrawing() { coordinator.finishDrawing() }
     public func clear() { coordinator.perform(.clear) }
-    public func showBoard() { coordinator.toggleBoard(.white) }
     public func showTimer() { coordinator.toggleTimer() }
     public func showScenes() { coordinator.showDemoScenes() }
     public func showPersonas() {
@@ -540,13 +535,7 @@ public final class StageKitController: ObservableObject {
         else { coordinator.demoScenes.showPersonas() }
     }
     public func focusOverlayControls() { coordinator.demoScenes.personas.focusOverlayControls() }
-    public func stepOverlaySet(_ offset: Int) { coordinator.demoScenes.personas.performOverlayAction(.stepGroup(offset)) }
-    public func toggleOverlayVisibility() { coordinator.demoScenes.personas.performOverlayAction(.pauseResume) }
     public func escape() { coordinator.escape() }
-    public func performShortcut(id: String) {
-        guard let action = Action(rawValue: id) else { return }
-        coordinator.perform(action)
-    }
     public func setShortcutsSuspended(_ suspended: Bool) { coordinator.setShortcutsSuspended(suspended) }
     public func refreshShortcutRegistration() { if started { coordinator.refreshShortcutRegistration() } }
 
