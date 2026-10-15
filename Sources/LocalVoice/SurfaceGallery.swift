@@ -1267,7 +1267,7 @@ private struct HistoryNativeAcceptanceView: View {
             }
             shots.append(try save(try snapshot(content), id: "transcript-review-" + name,
                 title: "Full transcript review, " + name + " window",
-                detail: "The existing Home/Meetings History door attaches the actual sheet for a long saved transcript while Dictate is busy. Full text scrolls; draft, original, selection and recording playback stay unchanged.",
+                detail: "The existing Home/Meetings History door attaches the actual sheet for a long saved transcript while Dictate is busy. Full text scrolls; draft, original, selection, reading and recording playback stay unchanged.",
                 file: "page-history-transcript-review-\(name)-\(theme).png", to: output))
             let done = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber, context: nil,
