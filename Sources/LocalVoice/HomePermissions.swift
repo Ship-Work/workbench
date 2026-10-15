@@ -73,7 +73,8 @@ enum MacPermission: String, CaseIterable, Identifiable {
     /// The lists that have a + button, for an entry a reset or a − removed.
     var listHasAddButton: Bool { asksForAdministrator }
     /// Where the switch is in Privacy & Security, in macOS's words. Call audio has no list of its
-    /// own name: from macOS 15 it sits inside Screen & System Audio Recording.
+    /// own name: from macOS 15 it sits inside Screen & System Audio Recording. Meetings' silent-app
+    /// line and saved note say the same words (docs/live-voice.md § Voice experience).
     var settingsPath: String {
         guard self == .callAudio else { return "Privacy & Security › \(name)" }
         if #available(macOS 15, *) { return "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only" }

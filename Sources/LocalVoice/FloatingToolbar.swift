@@ -10,28 +10,30 @@ enum FloatingToolbarSurface: Equatable {
     /// Nothing to show, or a screen capture that must not include the controls.
     case hidden
     /// The shared host: the compact mark at rest; revealed, the launcher row, or a result's own
-    /// controls. Dictation, narration and their results keep it up while Hide toolbar is on.
+    /// controls. Dictation, narration, a recording or finishing meeting and their results keep it
+    /// up while Hide toolbar is on.
     case tools
     /// The routine no-speech cue, for under two seconds, at the toolbar's place (#156).
     case cue
 
     static func resolve(enabled: Bool, capturingScreen: Bool, dictation: Bool, narration: Bool,
-                        cue: Bool = false) -> Self {
+                        meeting: Bool = false, cue: Bool = false) -> Self {
         if capturingScreen { return .hidden }
         if cue { return .cue }
-        return enabled || dictation || narration ? .tools : .hidden
+        return enabled || dictation || narration || meeting ? .tools : .hidden
     }
 
     /// Hide toolbar is authoritative for the tools (#155). Drawing, a presentation and
     /// personas are deliberately not consulted: they carry on without the tools, reachable
     /// by their keys and the menu-bar panel, and Show Floating Toolbar brings the tools back
     /// with their live state. A prompt insertion keeps the tools until it ends, because its
-    /// Stop is there. Recording, processing, narration and their results keep the
-    /// same host up, at rest as the compact mark, until they end.
+    /// Stop is there. Recording, processing, narration, a meeting that is recording or
+    /// finishing (#280, so its red dot and Finish are always on screen) and their results keep
+    /// the same host up, at rest as the compact mark, until they end.
     static func resolve(shown: Bool, drawing: Bool, presenting: Bool, persona: Bool, inserting: Bool,
-                        capturingScreen: Bool, dictation: Bool, narration: Bool, cue: Bool = false) -> Self {
+                        capturingScreen: Bool, dictation: Bool, narration: Bool, meeting: Bool, cue: Bool = false) -> Self {
         resolve(enabled: shown || inserting, capturingScreen: capturingScreen,
-                dictation: dictation, narration: narration, cue: cue)
+                dictation: dictation, narration: narration, meeting: meeting, cue: cue)
     }
 }
 

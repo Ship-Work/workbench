@@ -1,0 +1,31 @@
+{
+ "build": "Workbench Stable\nVersion: Development (unpackaged)\nSource: unknown\nBuild: Local development\nModified source: no\nmacOS: Version 26.5.1 (Build 25F80)",
+ "check: admission allows Start: Ready to record ": true,
+ "check: app audio only is the prepared source": true,
+ "elapsedSeconds": 33.519,
+ "failures": [
+  "The tap delivered only silence for 10 s. Audio Recording is not allowed for this identity (unbundled binary), and macOS shows no prompt for it. Run the check from the signed app: open -n -W -a \"Workbench Preview.app\" --args --check-meeting-capture-native NEW_FOLDER"
+ ],
+ "fixtureSeconds": 26.68675736961451,
+ "fixtureVoices": [
+  "Daniel",
+  "Samantha"
+ ],
+ "fixtureWords": 74,
+ "identity": "unbundled binary",
+ "macOS": "Version 26.5.1 (Build 25F80)",
+ "modelPrepareSeconds": 19.361,
+ "playerCompileSeconds": 0.695,
+ "playerLaunch": "LaunchServices",
+ "playerListedSeconds": 20.039,
+ "playerPID": 38686,
+ "selfEnd": false,
+ "startSeconds": 0.29,
+ "summary": [
+  "Meeting capture native check \u00b7 Stable Development (unpackaged) \u00b7 source unknown \u00b7 identity unbundled binary",
+  "Fixture: 74 words, 26.7 s, voices Daniel and Samantha",
+  "Fixture player launched: pid 38686, bundle dev.workbench.meeting-fixture-player, LaunchServices",
+  "Parakeet ready from cache in 19.4 s",
+  "Recording after 0.29 s \u00b7 Recording. Your original audio is being saved."
+ ]
+}

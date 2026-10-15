@@ -30,10 +30,41 @@ struct MeetingAutoFinish {
     }
 }
 
+/// Why the page says nothing has arrived from the chosen app. A refused System Audio Recording tap
+/// delivers silence rather than an error, so a call the app is using audio for, fifteen seconds in
+/// with no sound heard, gets one hedged sentence that says where the switch is in Privacy & Security,
+/// in the words Home's Permissions row uses for the running macOS (MacPermission.callAudio.settingsPath,
+/// the one place that knows). Never for a microphone-only recording, an app that is not using audio,
+/// an app the catalogue does not know or metadata Workbench cannot read (both read as unknown
+/// activity); it clears once sound arrives, and the source's health stays whatever capture reports.
+enum MeetingSilenceHint {
+    static let delaySeconds = 15.0
+
+    static func message(appName: String?, elapsed: Double, heard: Bool, activity: MeetingAutoFinish.Activity,
+                        settings: String = MacPermission.callAudio.settingsPath) -> String? {
+        guard let appName, !heard, elapsed >= delaySeconds, activity == .active else { return nil }
+        return "No sound has arrived from \(appName) yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check \(settings)."
+    }
+}
+
 enum MeetingFollowUp {
-    /// The existing reviewed handoff interprets the transcript as evidence and
-    /// proposes next steps. A keyword guess never becomes a claimed decision.
-    static let task = """
-    Review this meeting or call and prepare the most useful next step. Start with a short account of its purpose and outcome, grounded in the transcript. Separate agreed decisions, explicit commitments, open questions and optional suggestions. For actions, include an owner and due date only when the speakers actually stated them; otherwise mark them unassigned or unspecified. Quote the brief supporting words for each commitment. Then draft the one most useful follow-up (for example a message, checklist or next-meeting agenda) when the conversation supports it. If the call was social or has no follow-up, say so rather than inventing tasks. Do not infer identities from You/Others. Do not send, schedule or change anything. Return drafts for review.
-    """
+    /// The bundled Meeting notes and follow-up skill: what changed, decisions, actions with an owner and a
+    /// date only when the speakers gave them, open questions and a follow-up message. Its own suggested
+    /// task applies; a keyword guess never becomes a claimed decision.
+    static let skillID = "workbench-meeting-follow-up"
+
+    /// The review's skills for a door. A meeting's own Prepare follow-up… offers every transcript skill
+    /// with the meeting skill preferred, so the person can still choose Coach or the general follow-up.
+    /// The other single-transcript door, Suggest details, keeps the general skill alone, as before.
+    /// A History selection keeps the pack's remembered choice.
+    static func reviewSkills(meetingDoor: Bool, singleTranscript: Bool, builtIns: [TranscriptHandoffSkill],
+                             packSkills: [TranscriptHandoffSkill], packPreferred: String?)
+        -> (skills: [TranscriptHandoffSkill], preferred: String?) {
+        if meetingDoor {
+            let skills = builtIns + packSkills
+            return (skills, skills.contains { $0.id == skillID } ? skillID : nil)
+        }
+        if singleTranscript { return ([.followUp], nil) }
+        return (builtIns + packSkills, packPreferred)
+    }
 }

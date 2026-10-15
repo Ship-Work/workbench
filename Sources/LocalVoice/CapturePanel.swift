@@ -415,6 +415,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
             presenting: stage?.isPresenting == true, persona: stage?.hasActivePersona == true, inserting: model.promptInsertion.running,
             capturingScreen: capturingScreen,
             dictation: Self.showsDictation(model), narration: narrating,
+            meeting: model.meetings.isRecording || model.meetings.isProcessing,
             cue: (Self.showsCue(model) || Self.showsDeliveryCue(model)) && !narrating)
         if surface != self.surface {
             self.surface = surface

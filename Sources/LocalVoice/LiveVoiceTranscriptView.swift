@@ -18,7 +18,14 @@ extension LiveVoiceSnapshot {
     }
 
     var transcriptStatus: String {
-        if recognitionDelayed { return "Words are catching up · audio is still being kept" }
+        // Catching up is a real backlog, now. An incomplete pass still shows its words; the saved
+        // transcript comes from the original audio, and the line says so rather than catching up forever (#280).
+        if liveStopped && isActive { return "Live words stopped · the saved transcript will come from the original audio" }
+        if recognitionDelayed {
+            return liveIncomplete ? "Words are catching up · the saved transcript will come from the original audio"
+                                  : "Words are catching up · audio is still being kept"
+        }
+        if liveIncomplete && phase == .listening { return "Live words continue · the saved transcript will come from the original audio" }
         if let message, !message.isEmpty { return message }
         switch phase {
         case .preparing: return "Preparing live words…"
@@ -35,9 +42,17 @@ extension LiveVoiceSnapshot {
 struct LiveVoiceSourcesView: View {
     let sources: [LiveVoiceSourceStatus]
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 18) { rows }
-            VStack(alignment: .leading, spacing: 8) { rows }
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 18) { rows }
+                VStack(alignment: .leading, spacing: 8) { rows }
+            }
+            // A source's explanation is on the page under its line, not only in its tooltip (Fit rule 2).
+            ForEach(sources.filter { $0.message?.isEmpty == false }, id: \.source) { source in
+                Text(source.message ?? "").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("voice.source-note." + source.source.rawValue)
+            }
         }
     }
     private var rows: some View {

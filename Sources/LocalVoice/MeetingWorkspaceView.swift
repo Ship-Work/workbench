@@ -272,7 +272,7 @@ struct MeetingWorkspaceView: View {
                      ? "Microphone only records what this Mac can hear. Choose the call app to include people speaking through headphones."
                      : model.apps.first(where: { $0.id == model.selectedAppID }).map { MeetingAppCatalogue.known($0.bundleID)?.kind == .browser } == true
                         ? "A browser source can include audio from its other tabs."
-                        : "Records this app’s audio, including voices heard through headphones.")
+                        : "Records what this app plays, so the others are included even when you wear headphones. If no sound arrives, the page says so.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -394,7 +394,8 @@ final class MeetingOfferPanelController {
                     Task { [weak model] in
                         guard let model else { return }
                         await model.startOffered(offer)
-                        review()
+                        // A start that reached recording stays with the call; the pill shows it (#280).
+                        if Self.opensPageAfterStart(recording: model.isRecording) { review() }
                     }
                 },
                 review: { [weak model] in
@@ -411,6 +412,11 @@ final class MeetingOfferPanelController {
         }
     }
 
+    /// Start on the offer opens the Meetings page only when the start did not reach recording, so
+    /// the problem is in front; a recording that started leaves the person in their call, with the
+    /// pill's red dot and Finish on screen (docs/live-voice.md § Voice experience).
+    static func opensPageAfterStart(recording: Bool) -> Bool { !recording }
+
     private func hidePanel() {
         generation = UUID()
         closePanel?(); closePanel = nil
@@ -421,11 +427,20 @@ final class MeetingOfferPanelController {
         hidePanel(); displayedOffer = nil
     }
 
+    /// The offer must reach a call that fills the screen or lives on another Space, and must not
+    /// leave when Workbench, a menu-bar app, is not the active app. Shared with the checks.
+    static func configure(_ panel: NSPanel) {
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+    }
+
     private static func presentPanel(offer: MeetingAudioApp, actions: Actions) -> () -> Void {
         let bounds = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let panel = NSPanel(contentRect: NSRect(x: bounds.maxX - 365, y: bounds.minY + 25, width: 340, height: 145),
             styleMask: [.nonactivatingPanel, .titled], backing: .buffered, defer: false)
-        panel.title = "Workbench"; panel.level = .floating; panel.isReleasedWhenClosed = false
+        panel.title = "Workbench"; panel.isReleasedWhenClosed = false
+        configure(panel)
         panel.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 12) {
             Label(MeetingDetector.offerTitle(for: offer), systemImage: "phone").font(.headline)
             Text(offer.name + " · Review to adjust the microphone before starting.").font(.callout)

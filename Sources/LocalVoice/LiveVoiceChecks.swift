@@ -68,11 +68,17 @@ enum LiveVoiceChecks {
         try expect(replies.conversation == "You: Yes\n\nOthers: Yes\n\nYou: Certainly", "separate identical replies survive in their actual turn order")
 
         let failingDecoder = FixtureDecoder(failOn: 2)
+        let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
-            recognize: { try await failingDecoder.recognize($0) }, update: { _ in })
+            recognize: { try await failingDecoder.recognize($0) }, update: { lastFailedSnapshot.set($0) })
         failed.input.append(.init(source: .microphone, samples: samples(1..<19), sampleRate: 16_000, start: 0))
         let partial = await failed.finish()
         try expect(!partial.complete && !partial.notes.isEmpty && partial.completedThrough["microphone"] == 8, "failed second window cannot silently finalize partial text")
+        var stoppedWhileListening = lastFailedSnapshot.current
+        stoppedWhileListening.phase = .listening
+        try expect(lastFailedSnapshot.current.liveStopped && !lastFailedSnapshot.current.recognitionDelayed
+                   && stoppedWhileListening.transcriptStatus.hasPrefix("Live words stopped"),
+                   "a dead live loop says it stopped rather than catching up")
         try expect(partial.text == (1..<9).map { "word\($0)" }.joined(separator: " "), "failure retains confirmed earlier words")
 
         let shortDecoder = FixtureDecoder()
@@ -109,10 +115,53 @@ enum LiveVoiceChecks {
         let cancelledCalls = await heldDecoder.calls
         try expect(!cancelledResult.complete && cancelledCalls == 1 && cancelledResult.segments.isEmpty,
                    "Cancel waits for the running model request but never starts a queued window")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input and failure. No devices or models were used.")
+
+        // A boundary the next decode cannot reconcile degrades live words instead of ending them
+        // (#280): later words from the same source still arrive, the pass is incomplete, one note.
+        // Decodes: 0–10 s commits w7 as the seam anchor; 6–18 s places w7 0.8 s away, unmatchable;
+        // 14–20 s carries w18, which must still be shown.
+        let movedAnchor = FixtureDecoder(script: [
+            [.init(text: "w7", start: 7.0, end: 7.4)],
+            [.init(text: "w7", start: 0.2, end: 0.6), .init(text: "w12", start: 6.0, end: 6.4)],
+            [.init(text: "w18", start: 4.0, end: 4.4)]])
+        let moved = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+            recognize: { try await movedAnchor.recognize($0) }, update: { _ in })
+        moved.input.append(.init(source: .microphone, samples: [Float](repeating: 0.1, count: 320_000), sampleRate: 16_000, start: 0))
+        let degraded = await moved.finish()
+        try expect(degraded.text == "w7 w12 w18" && degraded.completedThrough["microphone"] == 20,
+                   "live words continue past a boundary the next decode cannot match")
+        try expect(!degraded.complete && degraded.notes.count == 1 && degraded.notes[0].contains("boundary at 8 s"),
+                   "an unmatched boundary marks the pass incomplete with one note; the saved transcript comes from the original audio")
+
+        // A decoder that falls more than 60 s behind loses the backlog, not the meeting (#280): the
+        // newest audio is still recognised, the pass is incomplete, one note.
+        let slowDecoder = FixtureDecoder(suspendFirst: true)
+        let behind = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+            recognize: { try await slowDecoder.recognize($0) }, update: { _ in })
+        behind.input.append(.init(source: .microphone, samples: samples(1..<4), sampleRate: 16_000, start: 0))
+        for _ in 0..<1_000 {
+            if await slowDecoder.isWaiting { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        try expect(await slowDecoder.isWaiting, "backlog fixture reaches inference")
+        behind.input.append(.init(source: .microphone, samples: samples(4..<74), sampleRate: 16_000, start: 3))
+        behind.input.append(.init(source: .microphone, samples: samples(74..<79), sampleRate: 16_000, start: 73))
+        await slowDecoder.resume()
+        let caughtUp = await behind.finish()
+        try expect(caughtUp.text == (74..<79).map { "word\($0)" }.joined(separator: " ") && caughtUp.completedThrough["microphone"] == 78,
+                   "live words skip a backlog past 60 s and continue with the newest audio")
+        try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
+                   "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, and live words that outlast an unmatched boundary or a backlog. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
+    private final class SnapshotBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = LiveVoiceSnapshot()
+        var current: LiveVoiceSnapshot { lock.lock(); defer { lock.unlock() }; return value }
+        func set(_ snapshot: LiveVoiceSnapshot) { lock.lock(); value = snapshot; lock.unlock() }
+    }
     private actor FixtureDecoder {
         var calls = 0
         var active = 0
@@ -120,9 +169,13 @@ enum LiveVoiceChecks {
         var lastLength = 0
         let failOn: Int?
         let suspendFirst: Bool
+        /// Words per call, relative to each request's audio; the last entry repeats.
+        let script: [[LiveVoiceWord]]?
         private var continuation: CheckedContinuation<Void, Never>?
         var isWaiting: Bool { continuation != nil }
-        init(failOn: Int? = nil, suspendFirst: Bool = false) { self.failOn = failOn; self.suspendFirst = suspendFirst }
+        init(failOn: Int? = nil, suspendFirst: Bool = false, script: [[LiveVoiceWord]]? = nil) {
+            self.failOn = failOn; self.suspendFirst = suspendFirst; self.script = script
+        }
         func resume() { continuation?.resume(); continuation = nil }
         func recordLength(_ length: Int) { lastLength = length }
         func recognize(_ samples: [Float]) async throws -> [LiveVoiceWord] {
@@ -131,6 +184,7 @@ enum LiveVoiceChecks {
             if calls == failOn { throw CheckFailure() }
             if suspendFirst && calls == 1 { await withCheckedContinuation { continuation = $0 } }
             await Task.yield()
+            if let script { return script[min(calls - 1, script.count - 1)] }
             var words: [LiveVoiceWord] = []
             var start = 0
             while start < samples.count {

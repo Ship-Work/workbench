@@ -43,7 +43,7 @@ live-work icon: at this size the symbol adds little useful information, and one
 symbol cannot describe concurrent work. Hover or click reveals the remembered
 tool and its action. Only recording adds a red dot and voice trace in a 48 × 20 capsule inside the same target. All other collapsed states stay icon-free (see Status at rest). The resting window is exactly that target, and everything outside it passes clicks through. Work never
 holds the row open, and a new failure or result never opens it either. Keep open
-is the one explicit way to keep it up. Dictation, narration and their
+is the one explicit way to keep it up. Dictation, narration, a recording or finishing meeting and their
 results keep the toolbar up even while Hide toolbar is on, at rest as the mark.
 
 Hover, after the 120 ms dwell, or a click reveals the row. A click on the mark
