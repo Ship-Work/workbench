@@ -10,6 +10,9 @@ struct SnapEditorView: View {
     let close: () -> Void
     let discard: () -> Void
     @FocusState private var textFocused: Bool
+    /// While Title, Tags or Notes has focus, ⌘Z and ⇧⌘Z belong to that field, not to the image.
+    private enum DetailsField: Hashable { case title, tags, notes }
+    @FocusState private var detailsField: DetailsField?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,9 +47,11 @@ struct SnapEditorView: View {
                 Button { editing.rotate() } label: { Image(systemName: "rotate.right") }
                     .help("Rotate clockwise").accessibilityLabel("Rotate clockwise")
                 Button { editing.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .disabled(editing.undoStack.isEmpty).help("Undo (⌘Z)").accessibilityLabel("Undo").keyboardShortcut("z", modifiers: .command)
+                    .disabled(editing.undoStack.isEmpty).help("Undo (⌘Z)").accessibilityLabel("Undo")
+                    .keyboardShortcut(detailsField == nil ? KeyboardShortcut("z", modifiers: .command) : nil)
                 Button { editing.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(editing.redoStack.isEmpty).help("Redo (⇧⌘Z)").accessibilityLabel("Redo").keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(editing.redoStack.isEmpty).help("Redo (⇧⌘Z)").accessibilityLabel("Redo")
+                    .keyboardShortcut(detailsField == nil ? KeyboardShortcut("z", modifiers: [.command, .shift]) : nil)
                 Spacer(minLength: 4)
                 Button { editing.showingDetails.toggle() } label: { Image(systemName: "sidebar.right") }
                     .help("Show or hide details").accessibilityLabel("Show or hide details")
@@ -125,12 +130,13 @@ struct SnapEditorView: View {
                 Divider()
             }
             Text("Details").font(.headline)
-            TextField("Title", text: $editing.draft.title).textFieldStyle(.roundedBorder).accessibilityLabel("Snap title")
+            TextField("Title", text: $editing.draft.title).textFieldStyle(.roundedBorder).focused($detailsField, equals: .title)
+                .accessibilityLabel("Snap title")
             TextField("Tags, separated by commas", text: Binding(get: { editing.draft.tags.joined(separator: ", ") }, set: { value in
                 editing.draft.tags = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            })).textFieldStyle(.roundedBorder).accessibilityLabel("Snap tags")
+            })).textFieldStyle(.roundedBorder).focused($detailsField, equals: .tags).accessibilityLabel("Snap tags")
             Text("Image notes").font(.caption.weight(.semibold))
-            TextEditor(text: $editing.draft.notes).frame(height: 85).font(.callout)
+            TextEditor(text: $editing.draft.notes).frame(height: 85).font(.callout).focused($detailsField, equals: .notes)
                 .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6)).accessibilityLabel("Image notes")
             Text("Notes stay with this Snap. Text boxes appear in the copied or exported image.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
