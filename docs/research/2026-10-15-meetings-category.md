@@ -36,6 +36,23 @@ What it establishes that no existing check does: the tap, aggregate device and I
 
 Results from the signed Preview identity are in [the verification record](../verification/2026-10-15-meeting-capture-native/README.md).
 
+## 2a. What this session built, in [#374](https://github.com/Ship-Work/workbench/pull/374)
+
+Each item is a Quality change at its owner with a check that fails without it, reviewed by an independent adversarial reader whose findings are fixed in the branch. Every count is from the branch head on this Mac.
+
+| Item | Why it comes first | Owner |
+| --- | --- | --- |
+| The real-capture check (section 2) | Nothing else can be believed until the pipeline is provable without a human | `MeetingCaptureNativeCheck` |
+| Silence from the chosen app is explained during the call and in the saved notes | The first thing a refused permission does is record a silent call and blame the other side; this Mac's Preview is in that state today | `MeetingSilenceHint`, `MeetingSummary.gaps` |
+| A device change restarts only the source it affects, a change on the other route joins a running recovery, and each recovery tick is one checked rule | The maintainer's own ask: switching headphones must not stop the transcription; before, it gapped both tracks | `MeetingRouteRecovery`, `MeetingSystemCapture` |
+| Live words outlast a boundary the next decode cannot match, and a backlog; a pass that dies says so | One re-decoded word at a commit boundary ended live words for the rest of a long call | `LiveVoiceWindow`, `LiveVoiceService`, the caption |
+| A recording keeps its controls with the toolbar hidden; Quit asks first | The contract promised the first; a ⌘Q meant for the call app lost the live words to Kept for later | `FloatingToolbarSurface.resolve`, `MeetingQuitChoice` |
+| Prepare follow-up… offers the bundled Meeting notes and follow-up skill | The skill written for exactly this job was unreachable from the meeting's own door | `MeetingFollowUp.reviewSkills` |
+| The offer reaches a full-screen call and other Spaces | One-click Start for every meeting type was not true for a full-screen Teams or Zoom | `MeetingOfferPanelController.configure` |
+| The site describes Meetings as it works and names the permission as macOS does | Public claims must match the accepted artifact | `site/` |
+
+Checks on the branch head: `--check-meetings` 326 meeting, 34 removal, 27 live voice and 27 experience checks (292, 34, 21 and 19 on the train head); `--check-floating-toolbar` 223; `--check-core` clean; `--check-handoff-jobs` 223; `--render-live-voice` 12 renders including the silent-app state; the surface registry 689 entries, unchanged; site tests 23. Hardware acceptance for the device-change work, the real-call acceptance in #280, and the permission-dependent run of the real-capture check are owed and listed in the PR.
+
 ## 3. Figma on Codex: what it is and whether it helps here
 
 The Codex app on this Mac has Figma's plugin cached (`~/.codex/plugins/cache/openai-curated-remote/figma/15.0.0`, fourteen skills) but not enabled: `config.toml` lists no `figma` plugin, and the plugin requires the Figma connector (an OAuth sign-in to Figma from the Codex app). No Figma desktop app is installed. Finishing the setup is a Codex-app action the maintainer takes: Plugins → Figma → enable, then connect the Figma account. Nothing in a repository can do that.
