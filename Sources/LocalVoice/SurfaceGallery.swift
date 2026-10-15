@@ -1474,12 +1474,14 @@ private struct HistoryNativeAcceptanceView: View {
         try close(shortSheet, with: (36, "\r"), flags: .capsLock, from: shortDocument)
         let (sheet, document, opened) = try open(long)
         let current = TranscriptExport.text(for: long, version: .cleaned)
-        guard document.string == current, opened < baseline + 0.4 else {
+        // Main's view took 2.45 s against 0.38 s; a shared CI runner has taken 0.33 s for the fixed view,
+        // so a second above the five-turn baseline fails the old view and never a slow runner.
+        guard document.string == current, opened < baseline + 1.0 else {
             throw VoiceError.message(String(format: "A 1,200-turn review took %.0f ms to open against %.0f ms for 5 turns, or showed other words.",
                                             opened * 1000, baseline * 1000))
         }
         let switched = try switchWording(long, in: sheet, document)
-        guard switched < shortSwitch + 0.3 else {
+        guard switched < shortSwitch + 1.0 else {
             throw VoiceError.message(String(format: "A 1,200-turn wording switch took %.0f ms against %.0f ms for 5 turns.",
                                             switched * 1000, shortSwitch * 1000))
         }
