@@ -42,10 +42,4 @@ enum TranscriptHistory {
         // updates that one record instead of adding a second copy of it.
         [capture] + history.filter { $0.id != capture.id }
     }
-    static func matching(_ history: [Transcript], query: String) -> [Transcript] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty ? history : history.filter {
-            $0.text.localizedCaseInsensitiveContains(query) || ($0.rawText?.localizedCaseInsensitiveContains(query) ?? false)
-        }
-    }
 }
