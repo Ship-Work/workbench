@@ -1046,7 +1046,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         meter = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let recorder = self.recorder else { return }
-                recorder.updateMeters(); self.recordingElapsed = recorder.currentTime
+                // A recorder that stopped by itself reads 0; the take's length never goes back.
+                recorder.updateMeters(); self.recordingElapsed = max(self.recordingElapsed, recorder.currentTime)
                 self.peakPower = max(self.peakPower, recorder.peakPower(forChannel: 0))
                 self.recordingLevel = max(0, min(1, Double(recorder.averagePower(forChannel: 0) + 55) / 55))
                 if self.recordingElapsed >= 300 { self.stopNarration() }
@@ -1064,10 +1065,25 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func stopNarration() { keepNarration(cue: true) }
 
+    /// AVAudioRecorder also ends a take itself, when an input device goes away or a write fails.
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor in self.narrationRecorderEnded(recorder) }
+    }
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        Task { @MainActor in self.narrationRecorderEnded(recorder) }
+    }
+
+    /// A take whose recorder stopped by itself is kept as Stop keeps it. The callback that follows
+    /// Stop, Cancel or Quit, or arrives once a newer take has begun, changes nothing.
+    func narrationRecorderEnded(_ ended: AnyObject) {
+        guard isRecording, let recorder, ended === recorder else { return }
+        keepNarration(cue: true, saved: "The microphone stopped, so narration ended. What was recorded was kept.")
+    }
+
     /// Stop and Quit keep a take the same way; quitting only skips the routine no-speech cue.
-    private func keepNarration(cue: Bool) {
+    private func keepNarration(cue: Bool, saved: String = "Narration saved. You can capture the next section while this one transcribes.") {
         guard isRecording, let context = recordingContext else { return }
-        let duration = recorder?.currentTime ?? recordingElapsed
+        let duration = max(recordingElapsed, recorder?.currentTime ?? 0)
         recorder?.stop(); recorder = nil; meter?.invalidate(); meter = nil
         isRecording = false; recordingSectionID = nil; recordingContext = nil; recordingLevel = 0
         do {
@@ -1092,7 +1108,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].status = .queued; current.sections[index].failure = nil
             try ReadbackStore.save(current, at: context.root); publish(current, for: context.root)
             enqueue(Job(root: context.root, sectionID: context.sectionID))
-            notice = "Narration saved. You can capture the next section while this one transcribes."
+            notice = saved
         } catch {
             markNeedsNarration(root: context.root, sectionID: context.sectionID, message: "The narration could not be saved. \(error.localizedDescription)")
         }
