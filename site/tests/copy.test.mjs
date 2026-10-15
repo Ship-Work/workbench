@@ -17,3 +17,9 @@ test('the phone-share help says what a window share leaves out, as Present\'s fo
   assert.ok(element(guide, 'phone-share').includes(
     'To include Draw, the Timer or a floating persona, share your entire display instead.'));
 });
+
+test('the guide says the complete words are copied when live insertion stops', () => {
+  // LiveDictationDelivery.finish copies the words whatever Restore clipboard says once its writer has stopped.
+  assert.ok(element(guide, 'dictate').includes(
+    'Moving or editing the field stops live insertion, and the complete words are copied, ready to paste.'));
+});
