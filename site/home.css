@@ -176,7 +176,7 @@
 .call .rec:before{content:"";width:6px;height:6px;border-radius:50%;background:#ff453a}
 .call .time{margin-left:auto;color:#9aa9aa;font-variant-numeric:tabular-nums;font-weight:500}
 .call-people{display:flex;gap:5px;margin-bottom:7px!important}
-.call-people span{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:750;background:#2b5f57;color:#d8f7ea}
+.call-people span{min-width:22px;height:22px;padding:0 7px;border-radius:11px;display:grid;place-items:center;font-size:9px;font-weight:750;background:#2b5f57;color:#d8f7ea}
 .call-people span:nth-child(2){background:#5b4a2a;color:#fbe7bd}
 .call-people span:nth-child(3){background:#9af0c6;color:#0f2b25}
 .line{color:#c3d1d1;margin-top:3px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
