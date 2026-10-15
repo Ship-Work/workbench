@@ -823,10 +823,15 @@ struct WorkbenchHomePage: View {
                 }
             }
             Spacer()
-            if model.preparing { Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling) }
-            else if !model.ready && model.recognition.configuration.provider == .parakeet {
+            if model.preparing {
+                Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.speech.cancel-setup", $0) }
+            } else if !model.ready && model.recognition.configuration.provider == .parakeet {
                 Button("Download Parakeet") { Task { await model.downloadSpeechModel() } }
-                if journey.offersNotNow { Button("Not now") { skipGuide() } }
+                if journey.offersNotNow {
+                    Button("Not now") { skipGuide() }
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.speech.not-now", $0) }
+                }
             }
             Button("Models…") { model.page = "models" }
         }.padding(16).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))

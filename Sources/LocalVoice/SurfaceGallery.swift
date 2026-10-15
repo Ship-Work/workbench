@@ -2599,7 +2599,9 @@ private struct HistoryNativeAcceptanceView: View {
         var shots: [SurfaceGallery.Shot] = []
         final class Frames { var byID: [String: CGRect] = [:] }
         let frames = Frames()
-        let measure: (String, CGRect) -> Void = { id, frame in if id.hasPrefix("home.current-work.") || id == "home.decks.cover" { frames.byID[id] = frame } }
+        let measure: (String, CGRect) -> Void = { id, frame in
+            if id.hasPrefix("home.current-work.") || id.hasPrefix("home.speech.") || id == "home.decks.cover" { frames.byID[id] = frame }
+        }
         /// Your decks' cover keeps its slot's width by 10/16 of it in every state: the sample's
         /// 190 points and the newest deck's 140, never squeezed by a tall tile in its column.
         func checkCover(_ id: String, width: CGFloat) throws {
@@ -2632,8 +2634,11 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("speech-preparing", "Speech preparing at launch", "The on-device model is still preparing and the guide was skipped: Current work carries the setup line instead of an empty card.") { [self] in
             model.ready = false; model.preparing = true; model.modelMessage = "Preparing speech · first setup may take a few minutes"
         }
-        guard frames.byID["home.current-work.speech"]?.isEmpty == false else {
-            throw VoiceError.message("Home's Current work did not show speech setup with Cancel setup while speech prepared.")
+        // The banner holds Cancel setup, and never Not now beside it: Not now belongs to the guide.
+        guard let banner = frames.byID["home.current-work.speech"], !banner.isEmpty,
+              let cancel = frames.byID["home.speech.cancel-setup"], banner.insetBy(dx: -1, dy: -1).contains(cancel),
+              frames.byID["home.speech.not-now"] == nil else {
+            throw VoiceError.message("While speech prepared, Home's Current work did not show speech setup with Cancel setup and without Not now.")
         }
         // Speech never downloaded, the guide skipped, and a Hand off task running: Current work holds
         // the task alone, never the download offer beside it (#15). The task runs in its own model and
