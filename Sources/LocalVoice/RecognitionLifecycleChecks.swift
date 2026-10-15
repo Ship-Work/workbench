@@ -116,6 +116,38 @@ enum RecognitionLifecycleChecks {
                   && stalled.admission == .unavailable && !stalled.canTranscribe,
                   "a stalled Download leaves speech unavailable and says the download did not finish")
 
+        // A fresh Mac has no saved files: launch's cached check ends on the download offer, never a
+        // failed setup with Retry model (#15). An invalid cache and a Download with no files stay failures.
+        func cachedEngine(_ cache: URL, download: RecognitionLocalModels.Operations = .init(download: { _, _ in }, load: RecognitionLocalModels.Operations.live.load)) -> RecognitionEngine {
+            RecognitionEngine(store: .init(defaults: defaults), services: .init(
+                prepareCached: { try await RecognitionLocalModels.prepareCached(cache: cache, progress: $0) },
+                acquire: { try await RecognitionLocalModels.acquire(cache: cache, operations: download, progress: $0) },
+                send: { _ in throw CheckFailure.expectedRefusal }))
+        }
+        let fresh = cachedEngine(root.appendingPathComponent("Fresh/parakeet-tdt-0.6b-v2-coreml", isDirectory: true))
+        var freshError: Error?
+        do { try await fresh.prepareCached() } catch { freshError = error }
+        let offer = await fresh.snapshot()
+        try check(freshError == nil && offer.failure == nil && offer.admission == .unavailable && !offer.canTranscribe && offer.phase == .idle
+                  && offer.line == "Download Parakeet to turn speech into text on this Mac.",
+                  "a fresh Mac's startup check ends on the download offer, not a failed setup")
+        do { _ = try await fresh.transcribe(audio); throw CheckFailure.expectedRefusal }
+        catch let failure as RecognitionFailure { try check(failure.kind == .missingAssets, "speech still refuses to transcribe before the download") }
+        let narration = ReadbackView.NarrationEngine(name: offer.line, ready: offer.canTranscribe, failure: offer.failure?.errorDescription)
+        try check(!narration.needsAttention, "Snap & Talk reads a fresh Mac's offer without the triangle or Retry model")
+        let corrupt = root.appendingPathComponent("Corrupt/parakeet-tdt-0.6b-v2-coreml", isDirectory: true)
+        for name in [ModelNames.ASR.preprocessorFile, ModelNames.ASR.encoderFile, ModelNames.ASR.decoderFile, ModelNames.ASR.jointFile] {
+            try FileManager.default.createDirectory(at: corrupt.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        try Data("{ malformed synthetic vocabulary".utf8).write(to: corrupt.appendingPathComponent(ModelNames.ASR.vocabularyFile))
+        let corrupted = cachedEngine(corrupt)
+        try? await corrupted.prepareCached()
+        try check((await corrupted.snapshot()).failure?.kind == .invalidCache, "an invalid saved cache still stops setup with its reason")
+        let emptyDownload = cachedEngine(root.appendingPathComponent("Empty/parakeet-tdt-0.6b-v2-coreml", isDirectory: true))
+        try? await emptyDownload.acquireSelectedModel()
+        let empty = await emptyDownload.snapshot()
+        try check(empty.failure?.kind == .missingAssets && !empty.canTranscribe, "a Download that yields no files still stops setup with its reason")
+
         let cache = root.appendingPathComponent("parakeet-tdt-0.6b-v2-coreml", isDirectory: true)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
         let sentinel = cache.appendingPathComponent("old-cache")
