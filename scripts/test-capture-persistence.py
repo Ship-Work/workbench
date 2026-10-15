@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Exercise exact capture commit/transcribe/retry/cancel/recovery methods with inert IO.
 
-Production AppModel initialization, user defaults, keychain, clipboard, microphone,
-UI and network are never used. A synthetic WAV and recovery store live in /tmp;
-recognition, delivery and the state writer are injected fixtures.
+A production AppModel, user defaults, keychain, clipboard, microphone, UI and network
+are never used. A synthetic WAV and recovery store live in /tmp; recognition, delivery
+and the state writer are injected fixtures. AppModel's launch code runs on a fixture
+session and engine.
 """
 import hashlib
 from pathlib import Path
@@ -24,9 +25,12 @@ methods = model.extract([
     'resumeWaitingDelivery', 'copyWaitingDelivery',
     # The Dictate shortcut's press and release, and the attempt it starts (#134 T5).
     'toggleRecording', 'recordAgain', 'shortcutChanged',
-    'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'importAudio(_:)', 'retryTranscription',
+    'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
+    'importAudio(_:)', 'retryTranscription',
+    # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
+    'transcribeForShortcut',
     # Transcription, its commit and the recovery it keeps.
-    'transcribe', 'admitNewCapture', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
+    'transcribe', 'admitNewCapture', 'savingOffRefusal', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
     'discardRecordingRecovery', 'discardCaptureRecovery', 'showCaptureRecoveryFiles', 'showSavedRecordings',
     # Manual copies and the undelivered result they resolve (#134 T5).
     'copyTranscript', 'deliveryRecords', 'unresolvedDelivery', 'copyTextWithReceipt', 'copyUnresolvedDelivery',
@@ -39,6 +43,10 @@ methods = model.extract([
     'fail', 'captureCue', 'captureCueClock', 'captureCueExpiry', 'announceForAccessibility', 'quietCapturesInARow',
     'endWithoutSpeech', 'showDroppedLessonCue', 'showCaptureCue', 'holdCaptureCue', 'dismissCaptureCue',
     'scheduleCaptureCueExpiry',
+    # Two silent captures in a row name System Settings › Sound and open it (#156).
+    'repeatedSilenceCode', 'canOpenSoundSettings', 'raisedCaptureFailure', 'dismissError',
+    # Where a dictation's words went, for VoiceOver (#165).
+    'announceFeedback',
     'saveNow', 'session', 'shutdown',
     # Preparing the speech model, whose failure is Home's (#134).
     'prepare', 'acceptRecognition', 'dismissCaptureFailure',
@@ -92,16 +100,36 @@ writers = undelivered_writers(model)
 # Launch restores the undelivered result only once capture recovery has settled the draft,
 # so a draft that recovery replaced drops a draft entry instead of showing it.
 launch = model.select(['init(preferences:startSpeechLifecycle:)'])[0].code
+# The recorder's start, which these checks script, clears the attention before any branch
+# can return; the card's Sound Settings… door follows the card's own failure and code (#156).
+assert re.search(r'guard recordingAttempt == attempt else \{ return \}\s*phase = \.requesting; attention = nil;',
+                 model.select(['startRecording(_:)'])[0].code), 'every new start clears the attention before it can return'
 assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery()') < launch.index('undelivered.restore('), \
     'launch restores the undelivered result after capture recovery'
 labels = model.extract(['retryCaptureLabel', 'retryCaptureHelp', 'hasCaptureRecovery', 'canRecordAgain',
                         'hasSavedRecordings', 'canDiscardCaptureRecovery'])
-request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest'])
+# Import audio opens the chosen file through the same plain-words helper the shortcut uses (#337).
+request = SwiftFile(PROJECT / 'Sources/LocalVoice/Shortcuts.swift').extract(['DictationRequest', 'ImportedAudio'])
 # Exercise the actual shell callback that Persona, Draw, Present and Timer share.
 shell = SwiftFile(PROJECT / 'Sources/LocalVoice/main.swift').type('AppDelegate')
 assert re.search(r'stage\.onBeginActivity\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.beginStageActivity\(\)\s*\}',
                  shell.select(['applicationDidFinishLaunching'])[0].code), 'Stage starts use the tested shell callback'
 stage_start = shell.extract(['beginStageActivity'])
+# Record again gives one result from every door (#337): the failure card and the chooser pass the
+# field the toolbar's own start reads, so a new door that drops it fails here. The gallery drives
+# the start-only guard with its own supplier.
+record_again_sites = []
+for source in sorted((PROJECT / 'Sources/LocalVoice').glob('*.swift')):
+    if source.name in ('AppModel.swift', 'SurfaceGallery.swift'):
+        continue
+    for number, line in enumerate(source.read_text().splitlines(), 1):
+        for call in re.findall(r'\brecordAgain\([^)]*\)', line):
+            record_again_sites.append((source.name, number, call))
+assert len(record_again_sites) >= 2, record_again_sites
+record_again_dropped = [site for site in record_again_sites if site[2] != 'recordAgain(target: controls.dictationTarget)']
+assert not record_again_dropped, f'Record again without the toolbar\'s field: {record_again_dropped}'
+assert re.search(r'controls\.dictationTarget\s*=\s*\{\s*\[weak self\]\s*in\s*self\?\.targetForDictation\(\)\s*\}',
+                 (PROJECT / 'Sources/LocalVoice/CapturePanel.swift').read_text()), 'the toolbar host supplies its own start\'s field'
 
 fixture = r'''
 import AppKit
@@ -116,6 +144,13 @@ import Combine
 __VALUES__
 __REQUEST__
 
+// FluidAudio's download error, which RecognitionFailure.classify reads. Nothing
+// here downloads; --check-providers classifies the real cases.
+enum DownloadError: Error {
+    case invalidResponse, rateLimited(statusCode: Int, message: String), downloadFailed(path: String, underlying: Error)
+    case modelNotFound(path: String), htmlErrorResponse(path: String, snippet: String), invalidArtifact(path: String, reason: String)
+    case stalled(path: String, window: TimeInterval), networkDisabled(operation: String), modelMissing(repo: String, missing: [String])
+}
 enum FixtureFailure: Error { case write }
 @MainActor final class StateStore {
     var saved: SavedState?
@@ -151,11 +186,13 @@ struct CaptureSettings {
         return result
     }
     func release() { let c = continuation; continuation = nil; c?.resume(returning: "um synthetic captured words") }
-    /// Preparing the speech model: ready, or this failure.
+    /// Preparing the speech model: ready, or this failure. Launch counts what it starts.
     var prepareFailure: Error?
     var state = RecognitionSnapshot()
+    var prepares = 0, observers = 0
+    func observe(_ observer: @escaping @Sendable (RecognitionSnapshot) -> Void) async { observers += 1 }
     func prepareCached() async throws {
-        state.sequence += 1
+        prepares += 1; state.sequence += 1
         state.admission = prepareFailure == nil ? .localReady : .unavailable
         state.failure = prepareFailure.map { RecognitionFailure(kind: .load, message: $0.localizedDescription) }
         if let prepareFailure { throw prepareFailure }
@@ -211,6 +248,9 @@ struct CaptureSettings {
     }
     static func capture() -> Target? { "Frontmost fixture field" }
     static func copy(_ text: String) -> Int? { copies.append(text); return copyFails ? nil : copies.count }
+    /// The pasteboard a copy was given; a check's own private board, never the user's clipboard.
+    static var lastPasteboard: NSPasteboard?
+    static func copy(_ text: String, to pasteboard: NSPasteboard) -> Int? { lastPasteboard = pasteboard; return copy(text) }
     static func deliver(_ text: String, target: Target?, mode: DeliveryMode, restoreClipboard: Bool,
                         fit: InsertionBoundary.Context? = nil) async -> Outcome {
         lastMode = mode; lastTarget = target?.name; lastFit = fit
@@ -251,6 +291,8 @@ struct CaptureSettings {
     func record(outcome: TextDelivery.Outcome, wordCount: Int) {
         receipts += 1; actual.record(outcome: outcome, wordCount: wordCount)
     }
+    var isHUDVisible: Bool { actual.isHUDVisible }
+    var receipt: ClipboardReceipt? { actual.receipt }
 }
 enum AudioRenderer { static func remove(_ url: URL?) {} }
 @MainActor final class AuxiliaryCaptureWork {
@@ -298,7 +340,7 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     var captureUsesHoldShortcut = false, isMicrophoneQuiet = false, rendering = false
     var microphoneStartFailure: ((TextDelivery.Target?) -> String?)?
     var microphoneFailure: AVAuthorizationStatus?
-    var onShowEditor: ((String) -> Void)?
+    var onShowEditor: ((String) -> Void)?, onCloseMenu: (() -> Void)?
     var undelivered = UnresolvedDeliverySlot()
     var draftRevision: UInt64 = 0
     var persistWork: DispatchWorkItem?
@@ -368,6 +410,41 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     __METHODS__
 }
 
+/// AppModel's launch, compiled whole. The saved session is a fixture file that opens or not,
+/// and everything launch starts is counted, so nothing reads the person's session or model.
+@MainActor final class LaunchHarness: NSObject {
+    typealias VoicePreferences = FixtureVoicePreferences
+    final class ModelProgressSink: @unchecked Sendable {
+        weak var model: LaunchHarness?
+        init(_ model: LaunchHarness) { self.model = model }
+    }
+    struct Store {
+        let url: URL, opens: Bool
+        func load() throws -> SavedState { if opens { return SavedState() }; throw FixtureFailure.write }
+    }
+    enum MeetingTranscriptRemoval { static func reconcile(root: URL, history: Store) -> [String] { [] } }
+    enum Workbench { static func supportDirectory(component: String) -> URL { URL(fileURLWithPath: "/nonexistent-fixture/" + component) } }
+    final class Library { var preserved = 0; func preserveRetiredReading(_ text: String) { preserved += 1 } }
+    nonisolated(unsafe) static var nextStore = Store(url: URL(fileURLWithPath: "/nonexistent-fixture/state.json"), opens: true)
+    static weak var intentModel: LaunchHarness?
+    let preferences: VoicePreferences
+    let engine = Engine(), store = LaunchHarness.nextStore, library = Library(), meetings = AuxiliaryCaptureWork()
+    var undelivered = UnresolvedDeliverySlot()
+    var appActivation: AnyCancellable?
+    var loaded = false, restores = 0
+    var draftRevision: UInt64 = 0
+    var transcript = "" { didSet { draftRevision &+= 1 } }
+    var rawTranscript = "", speechText = "", history: [Transcript] = [], replacements: [Replacement] = []
+    var voice = "", rate = 180.0
+    var attention: Attention?
+    var recognition = RecognitionSnapshot(), ready = false, preparing = false, modelMessage = "", modelFailure: String?
+    func report(_ message: String, on page: Attention.Page, code: String? = nil) { attention = Attention(message: message, page: page, code: code) }
+    func refreshMicrophoneAuthorization() {}
+    func recordFirstDictation() {}
+    func restoreCaptureRecovery() { restores += 1 }
+    __LAUNCH__
+}
+
 @MainActor final class StageActivityHarness {
     final class Surface {
         var hides = 0
@@ -393,11 +470,11 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         }
         let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         func folder(_ name: String) -> URL { root.appendingPathComponent(name, isDirectory: true) }
-        func wave() -> Data {
-            var data = Data()
+        func wave(rate: UInt32 = 16000, seconds: UInt32 = 1) -> Data {
+            var data = Data(), bytes = rate * seconds * 2
             func tag(_ string: String) { data.append(contentsOf: string.utf8) }
             func le<T: FixedWidthInteger>(_ value: T) { var value = value.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) } }
-            tag("RIFF"); le(UInt32(32036)); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(UInt32(16000)); le(UInt32(32000)); le(UInt16(2)); le(UInt16(16)); tag("data"); le(UInt32(32000)); data.append(Data(repeating: 0, count: 32000)); return data
+            tag("RIFF"); le(36 + bytes); tag("WAVEfmt "); le(UInt32(16)); le(UInt16(1)); le(UInt16(1)); le(rate); le(rate * 2); le(UInt16(2)); le(UInt16(16)); tag("data"); le(bytes); data.append(Data(repeating: 0, count: Int(bytes))); return data
         }
         let wav = wave()
         let observed = CaptureHarness(directory: folder("opaque-lifecycle"))
@@ -606,6 +683,20 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         let invalidImport = root.appendingPathComponent("invalid.wav"); try Data("not audio".utf8).write(to: invalidImport)
         importing.importAudio(invalidImport)
         try check(importing.captureRecovery.pending?.id == importRecoveryID && FileManager.default.fileExists(atPath: importRecoveryURL.path), "Invalid audio import leaves current retry audio in place")
+        // Each refusal is one plain sentence (#337): an unreadable file says so with formats to try,
+        // a readable one over 30 minutes says only that it is too long, and the Transcribe shortcut
+        // throws the same sentence to Shortcuts.
+        try check(importing.attention == Attention(message: ImportedAudio.unreadable, page: .dictate, code: "dictate.audio_unreadable"),
+                  "An unreadable import says why in words: \(String(describing: importing.attention?.message))")
+        let longImport = root.appendingPathComponent("over-thirty-minutes.wav"); try wave(rate: 1000, seconds: 1801).write(to: longImport)
+        importing.importAudio(longImport)
+        try check(importing.attention == Attention(message: "Choose an audio file between 1 second and 30 minutes long.", page: .dictate, code: "dictate.audio_unreadable")
+                  && importing.captureRecovery.pending?.id == importRecoveryID && importing.engine.calls == 0,
+                  "A recording over 30 minutes is refused as too long, not unreadable: \(String(describing: importing.attention?.message))")
+        let shortcutImport = CaptureHarness(directory: folder("shortcut-import")); var shortcutRefusal = "no refusal"
+        do { _ = try await shortcutImport.transcribeForShortcut(invalidImport) } catch { shortcutRefusal = error.localizedDescription }
+        try check(shortcutRefusal == ImportedAudio.unreadable && shortcutImport.shortcutRequest.id == nil && shortcutImport.engine.calls == 0,
+                  "The Transcribe shortcut gives Shortcuts the same plain sentence for an unreadable file: \(shortcutRefusal)")
         importing.importAudio(importRecoveryURL); await finish(importing)
         try check(importing.history.count == 1 && importing.history.first?.id == importRecoveryID && !importing.hasCaptureRecovery, "Importing the current recovery transcribes with its owned identity and never moves the URL first")
         let cancelled = CaptureHarness(directory: folder("cancelled"))
@@ -631,6 +722,33 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         shortcut.cancelShortcut(requestID); shortcut.store.fails = false; shortcut.retryTranscription()
         try check(replies == 1 && shortcut.engine.calls == 1 && TextDelivery.calls == 0, "Save retry cannot resume a failed/cancelled Shortcuts continuation")
         try check(try Data(contentsOf: importedURL) == wav && shortcut.history.count == 1, "Imported source bytes survive failed commit, cancel and successful save retry")
+
+        // A session that could not be opened or backed up saves nothing: the dictation stops with
+        // that reason instead of staying on Tidying your words…, and Shortcuts gets one error.
+        let unsavedShortcut = CaptureHarness(directory: folder("unsaved-shortcut")); unsavedShortcut.loaded = false
+        let unsavedID = UUID(); var unsavedReplies = 0, unsavedFailed = false
+        try unsavedShortcut.shortcutRequest.begin(id: unsavedID) { result in unsavedReplies += 1; if case .failure = result { unsavedFailed = true } }
+        unsavedShortcut.run(importedURL, owned: false); await finish(unsavedShortcut)
+        try check(unsavedReplies == 1 && unsavedFailed && unsavedShortcut.shortcutRequest.id == nil && unsavedShortcut.phase == .idle,
+                  "With saving off, a Shortcuts run returns one error and Dictate stops: \(unsavedReplies) replies, \(unsavedShortcut.phase)")
+        try check(unsavedShortcut.transcript == "Synthetic captured words." && unsavedShortcut.history.isEmpty && unsavedShortcut.store.calls == 0,
+                  "With saving off, the words stay in Dictate and nothing is written")
+        unsavedShortcut.cancelShortcut(unsavedID)
+        try check(unsavedReplies == 1, "A later Cancel in Shortcuts cannot reply a second time")
+        var unsavedRefusal = "no refusal"
+        do { _ = try await unsavedShortcut.transcribeForShortcut(importedURL) } catch { unsavedRefusal = error.localizedDescription }
+        try check(unsavedRefusal.contains("Discard recovery…") && !unsavedRefusal.contains("Retry") && unsavedShortcut.shortcutRequest.id == nil,
+                  "With saving off, the next Shortcuts run names Discard recovery…, not a Retry that is not shown: \(unsavedRefusal)")
+        let unsaved = CaptureHarness(directory: folder("unsaved")); unsaved.loaded = false
+        let unsavedURL = try unsaved.makeRecording(wav)
+        unsaved.run(unsavedURL, owned: true); await finish(unsaved)
+        try check(unsaved.phase == .idle && unsaved.transcriptionTask == nil && unsaved.captureFailure?.contains("Automatic saving is off") == true,
+                  "With saving off, Dictate says why it stopped: \(unsaved.phase), \(String(describing: unsaved.captureFailure))")
+        try check(!unsaved.canRetry && unsaved.hasCaptureRecovery && unsaved.canDiscardCaptureRecovery,
+                  "With saving off, Retry saving is not offered and Discard recovery… is the way back to dictating")
+        let unsavedAdmits = unsaved.admitsCapture()
+        try check(!unsavedAdmits && unsaved.captureFailure?.contains("Discard recovery…") == true && unsaved.captureFailure?.contains("Retry") == false,
+                  "With saving off, the next start names Discard recovery…, not a Retry that is not shown: \(String(describing: unsaved.captureFailure))")
 
         // Preserve malformed/future records and malicious paths; do not follow symlinks.
         for (name, data) in [
@@ -769,6 +887,19 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(!fieldModel.captureRecovery.hasRecovery && !FileManager.default.fileExists(atPath: fieldURL.path),
                   "Confirmed live field insertion releases original audio after delivery")
 
+        // With saving off, live words may already be in the field: the reason never says nothing was sent.
+        let fieldUnsaved = CaptureHarness(directory: folder("live-field-saving-off")); fieldUnsaved.loaded = false
+        _ = try recording(fieldUnsaved, seconds: 1, peak: -20)
+        let unsavedRecorder = FixtureLiveCapture(); unsavedRecorder.checkpoint = liveRecorder.checkpoint
+        let unsavedOwner = LiveDictationDelivery(); unsavedOwner.attempted = true
+        fieldUnsaved.liveCapture = unsavedRecorder; fieldUnsaved.liveDictation = unsavedOwner
+        fieldUnsaved.stopRecording(); try await waitUntil("live field with saving off") { fieldUnsaved.phase == .idle }
+        let unsavedReason = fieldUnsaved.captureFailure ?? ""
+        try check(unsavedReason.contains("Automatic saving is off") && !unsavedReason.contains("sent to your app")
+                  && unsavedReason.contains("Live text may remain in your app") && unsavedOwner.finishCalls == 0
+                  && fieldUnsaved.history.isEmpty && fieldUnsaved.store.calls == 0,
+                  "With saving off after live insertion, the reason does not say nothing reached the app: \(unsavedReason)")
+
         let fieldFailed = CaptureHarness(directory: folder("live-field-uncertain"))
         let fieldFailedURL = try recording(fieldFailed, seconds: 1, peak: -20)
         let fieldFailedRecorder = FixtureLiveCapture(); fieldFailedRecorder.checkpoint = liveRecorder.checkpoint
@@ -783,6 +914,27 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check((try Data(contentsOf: savedFieldAudio)) == wav && !fieldFailed.captureRecovery.hasRecovery,
                   "Uncertain live insertion preserves its exact original audio in existing Saved recordings")
 
+        // A writer that never wrote leaves the words copied (test-live-dictation.py):
+        // nothing in the field is uncertain, so no review entry and no kept audio.
+        let fieldUntouched = CaptureHarness(directory: folder("live-field-untouched"))
+        let fieldUntouchedURL = try recording(fieldUntouched, seconds: 1, peak: -20)
+        let untouchedRecorder = FixtureLiveCapture(); untouchedRecorder.checkpoint = liveRecorder.checkpoint
+        let untouchedOwner = LiveDictationDelivery()
+        untouchedOwner.outcome = .init(message: "Copied.", clipboardChangeCount: 1, failure: .focusChanged, pasteWasAttempted: false)
+        fieldUntouched.liveCapture = untouchedRecorder; fieldUntouched.liveDictation = untouchedOwner
+        var untouchedHeard: [String] = []; fieldUntouched.announceFeedback = { untouchedHeard.append($0) }
+        let untouchedID = fieldUntouched.captureRecovery.pending!.id
+        fieldUntouched.stopRecording(); try await waitUntil("untouched live field") { fieldUntouched.phase == .idle }
+        try check(untouchedHeard.count == 1 && untouchedHeard.first == fieldUntouched.clipboardReceipt.receipt.map { $0.title + ". " + $0.detail }
+                  && untouchedHeard.first?.hasPrefix("Copied. ") == true, "VoiceOver hears once that a field never written left the words copied (#165)")
+        try check(untouchedOwner.finishCalls == 1 && TextDelivery.calls == pasteCallsBeforeField && fieldUntouched.history.count == 1
+                  && fieldUntouched.unresolvedDelivery == nil && fieldUntouched.clipboardReceipt.actual.receipt?.title == "Copied",
+                  "A live writer that never wrote ends as a copy, with no ⌘V fallback and no review entry")
+        let untouchedSaved = fieldUntouched.captureRecovery.savedRecordingsDirectory.appendingPathComponent(untouchedID.uuidString)
+        try check(!fieldUntouched.captureRecovery.hasRecovery && !FileManager.default.fileExists(atPath: untouchedSaved.path)
+                  && !FileManager.default.fileExists(atPath: fieldUntouchedURL.path),
+                  "A field never written releases its original audio instead of keeping it in Saved recordings")
+
         let fieldCancel = CaptureHarness(directory: folder("live-field-cancel-changed"))
         let fieldCancelURL = try recording(fieldCancel, seconds: 1, peak: -20)
         let fieldCancelOwner = LiveDictationDelivery(); fieldCancelOwner.attempted = true
@@ -791,6 +943,50 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         fieldCancel.cancelRecording()
         try check(fieldCancelOwner.cancelCalls == 1 && fieldCancel.canRetry && fieldCancel.status == fieldCancelOwner.cancellationProblem
                   && (try Data(contentsOf: fieldCancelURL)) == wav, "Cancel with changed field keeps audio and reports that text remains")
+        // That reason shows where the person acted, not only in the status: the toolbar's
+        // result with Retry and Dismiss, the Dictate banner and the panel's recovery row.
+        func expectLiveTextKept(_ model: CaptureHarness, _ problem: String, _ audio: URL, _ path: String) throws {
+            try check(model.phase == .idle && model.captureFailure == problem && model.status == problem
+                      && model.attention == Attention(message: problem, page: .dictate, code: "dictate.cancel_live_text_kept")
+                      && model.canRetry && model.hasCaptureRecovery && (try Data(contentsOf: audio)) == wav,
+                      "Cancel that leaves live words explains it, with Retry and the recording kept (\(path))")
+        }
+        try expectLiveTextKept(fieldCancel, fieldCancelOwner.cancellationProblem!, fieldCancelURL, "recording")
+        let keptProblem = "Cancelled, but words already written in Fixture remain. The recording is kept."
+        func keptOwner(_ problem: String?) -> LiveDictationDelivery {
+            let owner = LiveDictationDelivery(); owner.attempted = true; owner.cancellationProblem = problem; return owner
+        }
+        let liveCancel = CaptureHarness(directory: folder("live-field-cancel-capture"))
+        let liveCancelURL = try recording(liveCancel, seconds: 1, peak: -20)
+        liveCancel.liveCapture = FixtureLiveCapture(); liveCancel.liveDictation = keptOwner(keptProblem)
+        var shownWhenIdle: String?
+        liveCancel.onPhaseChange = { if liveCancel.phase == .idle { shownWhenIdle = liveCancel.captureFailure } }
+        liveCancel.cancelRecording(); try await waitUntil("live capture cancel") { liveCancel.phase == .idle }
+        try expectLiveTextKept(liveCancel, keptProblem, liveCancelURL, "live capture")
+        try check(shownWhenIdle == keptProblem, "The result is in place before the toolbar hears the capture end")
+        try check(liveCancel.admitsCapture() && liveCancel.captureFailure == nil && liveCancel.attention == nil,
+                  "The next capture keeps that audio for later and clears the result")
+        let heldCancel = CaptureHarness(directory: folder("live-field-cancel-held"))
+        let heldCancelURL = try recording(heldCancel, seconds: 1, peak: -20)
+        let heldCancelRecorder = FixtureLiveCapture(); heldCancelRecorder.hold = true
+        heldCancel.liveCapture = heldCancelRecorder; heldCancel.liveDictation = keptOwner(keptProblem)
+        heldCancel.stopRecording(); try await waitUntil("held live finish") { heldCancelRecorder.continuation != nil }
+        heldCancel.cancelCurrentCapture()
+        heldCancelRecorder.continuation?.resume(); heldCancelRecorder.continuation = nil
+        try await waitUntil("held live cancel") { heldCancel.phase == .idle }
+        try expectLiveTextKept(heldCancel, keptProblem, heldCancelURL, "finishing")
+        let transcribingCancel = CaptureHarness(directory: folder("live-field-cancel-transcribing"))
+        let transcribingURL = try transcribingCancel.makeRecording(wav); transcribingCancel.engine.delayed = true
+        transcribingCancel.liveDictation = keptOwner(keptProblem)
+        transcribingCancel.run(transcribingURL, owned: true); try await waitForEngine(transcribingCancel)
+        transcribingCancel.cancelCurrentCapture(); transcribingCancel.engine.release(); await finish(transcribingCancel)
+        try expectLiveTextKept(transcribingCancel, keptProblem, transcribingURL, "transcribing")
+        let quietCancel = CaptureHarness(directory: folder("live-field-cancel-restored"))
+        let quietCancelURL = try recording(quietCancel, seconds: 1, peak: -20)
+        quietCancel.liveCapture = FixtureLiveCapture(); quietCancel.liveDictation = keptOwner(nil)
+        quietCancel.cancelRecording(); try await waitUntil("restored live cancel") { quietCancel.phase == .idle }
+        try check(quietCancel.captureFailure == nil && quietCancel.attention == nil && !quietCancel.canRetry && !quietCancel.hasCaptureRecovery
+                  && !FileManager.default.fileExists(atPath: quietCancelURL.path), "A Cancel that restored the field stays quiet and discards")
 
         let partialModel = CaptureHarness(directory: folder("live-partial"))
         _ = try recording(partialModel, seconds: 1, peak: -20)
@@ -823,26 +1019,47 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   "Cancellation during the final window cannot save or deliver late words")
         var announced: [String] = []
         let tap = CaptureHarness(directory: folder("no-speech-tap")); tap.announceForAccessibility = { announced.append($0) }
+        var tapFeedback: [String] = []; tap.announceFeedback = { tapFeedback.append($0) }
         let tapURL = try recording(tap, seconds: 0.2, peak: -20)
         tap.stopRecording()
         try check(tap.captureCue?.reason == .tooShort && tap.captureFailure == nil && tap.error == nil && tap.phase == .idle
                   && !tap.canRetry && tap.engine.calls == 0, "An accidental tap is a routine cue, not a failure")
         try check(announced == ["No speech heard"] && tap.captureCue?.message == "No speech heard", "VoiceOver hears the cue's own words, once")
+        try check(!tap.canOpenSoundSettings, "A tap offers no Sound Settings…")
+        try check(tapFeedback.isEmpty, "The no-speech cue is heard through its own announcement only")
         try check(!FileManager.default.fileExists(atPath: tapURL.path) && !tap.captureRecovery.hasRecovery, "A tap keeps nothing, as before")
         let hush = CaptureHarness(directory: folder("no-speech-quiet")); hush.announceForAccessibility = { _ in }
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue?.reason == .tooQuiet && hush.captureFailure == nil && hush.error == nil && hush.status.contains("Sound"),
                   "Silence is a routine cue, with the microphone hint in the status")
+        try check(!hush.canOpenSoundSettings, "One silence offers no Sound Settings…")
         // A second silent capture in a row points at the microphone, not a pause.
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue == nil && hush.captureFailure?.contains("twice in a row") == true && hush.error != nil,
                   "A second silent capture in a row gets the explicit panel with where to look")
+        try check(hush.canOpenSoundSettings && hush.attention?.code == "dictate.no_speech_repeated" && !hush.canRetry,
+                  "That panel and Dictate's banner offer Sound Settings…, where the input is chosen (#156)")
         _ = try recording(hush, seconds: 3, peak: -70)
         hush.stopRecording()
         try check(hush.captureCue?.reason == .tooQuiet && hush.captureFailure == nil,
                   "After that panel the count starts again, so the next silence is a cue")
+        try check(!(hush.captureFailure != nil && hush.canOpenSoundSettings), "The next silence's cue shows no Sound Settings… card")
+        // The card's door follows the code the card's failure was raised with, so dismissing Dictate's
+        // banner leaves the card its door, while dismissing the card or any later failure ends it.
+        let muted = CaptureHarness(directory: folder("no-speech-muted")); muted.announceForAccessibility = { _ in }
+        for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
+        try check(muted.canOpenSoundSettings, "Two silences in a row offer Sound Settings…")
+        muted.dismissError()
+        try check(muted.attention == nil && muted.captureFailure?.contains("System Settings › Sound") == true && muted.canOpenSoundSettings,
+                  "Dismissing Dictate's banner leaves the card that names Sound with its Sound Settings…")
+        muted.dismissCaptureFailure()
+        try check(!muted.canOpenSoundSettings, "Dismissing the card takes Sound Settings… with it")
+        for _ in 0..<2 { _ = try recording(muted, seconds: 3, peak: -70); muted.stopRecording() }
+        muted.phase = .recording; muted.fail("Synthetic engine failure.")
+        try check(!muted.canOpenSoundSettings && muted.captureFailure == "Synthetic engine failure.",
+                  "A later failure with another code offers no Sound Settings…")
 
         let nothing = CaptureHarness(directory: folder("no-speech-recognised")); nothing.announceForAccessibility = { _ in }
         nothing.engine.result = ""
@@ -850,6 +1067,7 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         nothing.run(nothingURL, owned: true); await finish(nothing)
         try check(nothing.captureCue?.reason == .nothingRecognised(keptAudio: true) && nothing.captureFailure == nil && nothing.error == nil
                   && nothing.phase == .idle && nothing.history.isEmpty, "Sound that came back as no words is a routine cue, not a failure")
+        try check(!nothing.canOpenSoundSettings, "No words recognised offers no Sound Settings…")
         try check(nothing.canRetry && nothing.retryCaptureLabel == "Retry transcription" && (try Data(contentsOf: nothingURL)) == wav,
                   "Its recording is kept exactly, with Retry on the Dictate page")
         nothing.dismissCaptureCue()
@@ -1058,6 +1276,39 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         afterQuit.saveNow()
         try check(afterQuit.store.saved?.undelivered == nil && afterQuit.store.saved?.history.count == 2, "once resolved, the next save carries nothing undelivered")
 
+        // VoiceOver hears where a dictation's words went: the cue's own words, once, at the priority
+        // that waits for current speech. A confirmed paste stays quiet, as its cue does (#165).
+        func heard(_ name: String, _ outcome: TextDelivery.Outcome, shortcut: Bool = false) async throws -> (CaptureHarness, [String], [String]) {
+            let model = CaptureHarness(directory: folder(name))
+            var feedback: [String] = [], cues: [String] = []
+            model.announceFeedback = { feedback.append($0) }; model.announceForAccessibility = { cues.append($0) }
+            if shortcut { try model.shortcutRequest.begin(id: UUID()) { _ in } }
+            TextDelivery.nextOutcome = outcome
+            model.run(try model.makeRecording(wav), owned: true); await finish(model)
+            TextDelivery.nextOutcome = TextDelivery.Outcome()
+            return (model, feedback, cues)
+        }
+        let (copiedModel, copiedHeard, copiedCues) = try await heard("heard-copied", TextDelivery.Outcome())
+        try check(copiedHeard == ["Copied. Synthetic delivery detail"] && copiedCues.isEmpty && copiedModel.clipboardReceipt.isHUDVisible,
+                  "a copied dictation is heard once, in the cue's own words")
+        let (pastedModel, pastedHeard, _) = try await heard("heard-pasted", TextDelivery.Outcome(message: "Pasted.", clipboardChangeCount: nil, wasPasted: true, pasteWasAttempted: true))
+        try check(pastedHeard.isEmpty && !pastedModel.clipboardReceipt.isHUDVisible && pastedModel.history.count == 1,
+                  "a confirmed paste is quiet, and shows no cue")
+        let (_, unsureHeard, _) = try await heard("heard-unconfirmed", TextDelivery.Outcome(message: "Paste sent · insertion could not be confirmed.", failure: .pasteUnconfirmed, pasteWasAttempted: true))
+        try check(unsureHeard.count == 1 && unsureHeard.first?.hasPrefix("Paste unconfirmed. Check the destination") == true,
+                  "an unconfirmed paste is heard once, with where to look")
+        let (_, stoppedHeard, _) = try await heard("heard-stopped", TextDelivery.Outcome(message: "Delivery stopped. The transcript is in History.", clipboardChangeCount: nil, failure: .cancelled))
+        try check(stoppedHeard == ["Delivery stopped. The transcript is in History."], "stopped delivery is heard once, without its title twice")
+        let (_, sentHeard, _) = try await heard("heard-sent", TextDelivery.Outcome(message: "Sent to Notes · still copied.", destinationName: "Notes", pasteWasAttempted: true))
+        try check(sentHeard == ["Sent to Notes · still copied."], "a paste sent where it cannot be confirmed is heard once, without its title twice")
+        let (_, shortcutHeard, _) = try await heard("heard-shortcut", TextDelivery.Outcome(), shortcut: true)
+        try check(shortcutHeard.isEmpty, "a Shortcuts run returns its words to Shortcuts and announces nothing")
+        let windowBoard = NSPasteboard.withUniqueName()
+        defer { windowBoard.releaseGlobally() }
+        var windowHeard: [String] = []; copiedModel.announceFeedback = { windowHeard.append($0) }
+        copiedModel.copyTranscript(); _ = copiedModel.copyCapture(copiedModel.history[0], pasteboard: windowBoard)
+        try check(windowHeard.isEmpty, "window copies keep their own confirmations, so nothing is heard twice")
+
         // The words decide: the same words copied from the draft resolve a transcript's unconfirmed paste.
         let uncertain = CaptureHarness(directory: folder("uncertain"))
         TextDelivery.nextOutcome = TextDelivery.Outcome(message: "Paste sent · insertion could not be confirmed.", failure: .pasteUnconfirmed, pasteWasAttempted: true)
@@ -1121,6 +1372,27 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         draft.copyTranscript()
         try check(draft.unresolvedDelivery == nil, "copying the unchanged draft again resolves it")
 
+        // History confirms a Copy by what it wrote (#338): the outcome, never the status line,
+        // which an empty copy leaves saying the last copy's words.
+        let historyCopy = CaptureHarness(directory: folder("history-copy"))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let words = Transcript(id: UUID(), text: "Synthetic words to copy again.", seconds: 1, rawText: "synthetic words to copy again")
+        let copiesBeforeHistory = TextDelivery.copies.count
+        let wrote = historyCopy.copyCapture(words, pasteboard: board)
+        try check(wrote?.failure == nil && wrote?.message == TextDelivery.copiedMessage && TextDelivery.copies.last == words.text
+                  && TextDelivery.copies.count == copiesBeforeHistory + 1 && TextDelivery.lastPasteboard === board,
+                  "a transcript copy writes its exact words to the pasteboard it is given and reports the write")
+        let empty = Transcript(id: UUID(), text: "", seconds: 1, rawText: "")
+        try check(historyCopy.copyCapture(empty, pasteboard: board) == nil && TextDelivery.copies.count == copiesBeforeHistory + 1
+                  && historyCopy.status == TextDelivery.copiedMessage,
+                  "an empty transcript attempts nothing and reports nothing, though the status still says the last copy's words")
+        TextDelivery.copyFails = true
+        let refused = historyCopy.copyCapture(words, pasteboard: board)
+        TextDelivery.copyFails = false
+        try check(refused?.failure == .copyFailed && refused?.message == historyCopy.status && refused?.message != TextDelivery.copiedMessage,
+                  "a refused write reports the failure it shows")
+
         // T4's fallback: a lesson the host drops after asking gives this attempt's cue after all.
         let dropped = CaptureHarness(directory: folder("hold-lesson-dropped"), tips: tips("dropped"))
         dropped.coach.canPresent = { true }
@@ -1158,6 +1430,21 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(unprepared.ready && unprepared.modelMessage == RecognitionConfiguration().summary && unprepared.modelFailure == nil
                   && unprepared.startedAttempts.isEmpty && unprepared.transcript == "Old draft",
                   "Cached retry clears the failure while preserving saved words and never starting recording")
+        // Launch prepares the downloaded speech model whether or not the saved session opens. With
+        // saving off (the session could not be opened or backed up) recovery still waits, as before.
+        LaunchHarness.nextStore = .init(url: folder("launch-saving-off").appendingPathComponent("state.json"), opens: false)
+        let savingOffLaunch = LaunchHarness(preferences: FixtureVoicePreferences())
+        try check(!savingOffLaunch.loaded && savingOffLaunch.restores == 0
+                  && savingOffLaunch.attention?.message.contains("could not be opened or backed up") == true,
+                  "The launch fixture reaches saving off: \(String(describing: savingOffLaunch.attention?.message))")
+        try await waitUntil("speech preparation with saving off") { savingOffLaunch.ready }
+        try check(savingOffLaunch.engine.prepares == 1 && savingOffLaunch.engine.observers == 1 && savingOffLaunch.modelFailure == nil,
+                  "With saving off, launch still prepares the speech model once: \(savingOffLaunch.engine.prepares) preparations")
+        LaunchHarness.nextStore = .init(url: folder("launch-opened").appendingPathComponent("state.json"), opens: true)
+        let openedLaunch = LaunchHarness(preferences: FixtureVoicePreferences())
+        try await waitUntil("speech preparation with an opened session") { openedLaunch.ready }
+        try check(openedLaunch.loaded && openedLaunch.restores == 1 && openedLaunch.engine.prepares == 1 && openedLaunch.engine.observers == 1,
+                  "An opened session restores recovery and prepares the speech model once: \(openedLaunch.engine.prepares) preparations")
 
         // A refusal is shown where the person acted (1 October audit, finding 7). The Dictate page's
         // mic: the reason is Dictate's, whose banner is beside that mic, and the capture HUD's.
@@ -1185,6 +1472,26 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(busyOpen.page == "dictate" && busyOpen.pendingTranscript?.id == saved.id && busyOpen.transcript == "Old draft" && busyOpen.attention == nil,
                   "Open goes ahead once Dictate is idle, behind Keep or Replace, and History's wait goes")
 
+        // Record again from the failure card or the chooser delivers where the toolbar's own start
+        // does (#337). The field is read once the start-only guard (#211) admits the start, so the
+        // admission and the destination see it; a refused start never reads it.
+        let fieldAgain = CaptureHarness(directory: folder("record-again-field"))
+        var admittedTarget: String?
+        fieldAgain.microphoneStartFailure = { admittedTarget = $0?.name; return nil }
+        fieldAgain.destination = nil
+        fieldAgain.recordAgain(target: { "Field fixture" })
+        try check(fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture" && admittedTarget == "Field fixture",
+                  "Record again starts toward the field the toolbar reads: \(String(describing: fieldAgain.destination?.name))")
+        var fieldReads = 0
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .requesting && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while requesting neither reads the field nor changes the request")
+        try fieldAgain.recorderStarted(audio: 2, peak: -20, wav: wav)
+        fieldAgain.recordAgain(target: { fieldReads += 1; return "A later field" })
+        try check(fieldReads == 0 && fieldAgain.phase == .recording && fieldAgain.destination?.name == "Field fixture",
+                  "Record again while recording neither reads the field nor stops the recording")
+        fieldAgain.cancelCurrentCapture()
+
         print("CAPTURE_PERSISTENCE_CHECKS_OK: \(assertions) checks; exact AppModel capture methods, real recovery files, synthetic audio, injected recognition/delivery/state writes")
     }
 }
@@ -1196,6 +1503,8 @@ values = '\n'.join([core.imports(), core.extract(['VoiceError', 'SavedState', 'e
 fixture = fixture.replace('__CLEAR_CALL_SITES__', '[' + ', '.join('"%s"' % site for site in sorted(clear_sites)) + ']')
 fixture = fixture.replace('__UNDELIVERED_WRITERS__', '[' + ', '.join('"%s"' % site for site in sorted(writers)) + ']')
 fixture = fixture.replace('__STAGE_START__', stage_start)
+# Launch itself, with the readiness it projects and the records an undelivered result names.
+fixture = fixture.replace('__LAUNCH__', model.extract(['init(preferences:startSpeechLifecycle:)', 'prepare', 'acceptRecognition', 'deliveryRecords']))
 # Expose only the destination's access level to the fixture; keep its actual observer body.
 fixture = fixture.replace('__LIFECYCLE_PROPERTIES__', model.extract(['phase', 'destination', 'insertionContext']).replace('private var destination', 'var destination'))
 fixture = fixture.replace('__VALUES__', values).replace('__REQUEST__', request).replace('__LABELS__', labels).replace('__METHODS__', methods)

@@ -145,6 +145,38 @@ enum DemoLibraryChecks {
         model.newPrompt("Next prompt")
         guard model.draft?.content == "Next prompt" && model.draftNotice == nil else { throw VoiceError.message("Prompt creation did not resume after finishing the editor") }
 
+        // Quit asks only about typed changes, and the answer never clears the editor itself.
+        var discardQuestions = 0, discardAnswer = false
+        model.approveDiscard = { discardQuestions += 1; return discardAnswer }
+        model.draft = nil
+        model.noteDraftEdit(DemoResource(title: "No editor", content: "Typed nowhere"))
+        guard model.draftWorkingCopy == nil, model.canTerminate(), discardQuestions == 0 else { throw VoiceError.message("Quit asked with no resource editor open") }
+        model.newPrompt("Quit prompt")
+        guard let quitDraft = model.draft else { throw VoiceError.message("Quit fixture could not open a prompt editor") }
+        model.noteDraftEdit(quitDraft)
+        guard model.canTerminate(), discardQuestions == 0 else { throw VoiceError.message("Quit asked about an editor with no changes") }
+        var typed = quitDraft; typed.title = "Typed title"; typed.content = "Quit prompt with typed additions"
+        model.noteDraftEdit(typed)
+        guard !model.canTerminate(), discardQuestions == 1, model.draft == quitDraft, model.draftWorkingCopy == typed else {
+            throw VoiceError.message("Keep editing did not refuse Quit with the typed prompt intact")
+        }
+        discardAnswer = true
+        guard model.canTerminate(), discardQuestions == 2, model.draft == quitDraft, model.draftWorkingCopy == typed else {
+            throw VoiceError.message("Discard cleared the editor before the app terminated")
+        }
+        var foreign = typed; foreign.id = UUID(); foreign.content = "Another resource"
+        model.noteDraftEdit(foreign)
+        guard model.draftWorkingCopy == typed else { throw VoiceError.message("An edit for another resource replaced the open editor's text") }
+        model.draft = nil
+        guard model.draftWorkingCopy == nil, model.canTerminate(), discardQuestions == 2 else { throw VoiceError.message("Quit asked after Cancel closed the editor") }
+        guard let saved = model.resources.first(where: { $0.id == second.id }) else { throw VoiceError.message("Quit fixture lost its saved prompt") }
+        model.draft = saved
+        var revised = saved; revised.content = "Second, revised"
+        model.noteDraftEdit(revised)
+        guard model.hasUnsavedDraft, model.save(revised) else { throw VoiceError.message("Quit fixture could not save an edited prompt") }
+        model.draft = nil
+        guard model.canTerminate(), discardQuestions == 2 else { throw VoiceError.message("Quit asked about a resource that was already saved") }
+
         let previewDirectory = directory.appendingPathComponent("quick-look")
         let previewStore = DemoLibraryStore(directory: previewDirectory)
         try FileManager.default.createDirectory(at: previewDirectory, withIntermediateDirectories: true)
@@ -227,7 +259,7 @@ enum DemoLibraryChecks {
         guard previewModel.previewingResourceID == nil, accessStops == 5 else {
             throw VoiceError.message("Removing a previewed resource did not close Quick Look and release access")
         }
-        print("DEMO_LIBRARY_MODEL_CHECKS_OK: selection, drafts, Quick Look lifecycle, moved bookmarks, failures, and access release passed")
+        print("DEMO_LIBRARY_MODEL_CHECKS_OK: selection, drafts, Quit with typed changes, Quick Look lifecycle, moved bookmarks, failures, and access release passed")
     }
 
     @MainActor static func runQuickLookPanelChecks(_ urls: [URL]) throws {

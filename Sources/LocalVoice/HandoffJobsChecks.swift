@@ -161,6 +161,53 @@ enum HandoffJobsChecks {
         try check(manual.contains(phrase) && manual.contains("Original wording:") && manual.contains("Attach these selected image"), "manual fallback includes selected words and exact attachment step")
         let connected = HandoffJobStore.prompt(snapshot: snapshot, skill: followUpText, folder: folder, manual: false)
         try check(connected.contains("format requested by the task") && connected.contains("REFERENCE"), "connected task output and source roles explicit")
+        // A two-sided meeting saves its labelled conversation as the text and the same words
+        // unlabelled as the original (MeetingRecovery.commitCheckpoint). Built by the real
+        // producer, with same-side pauses so labels repeat, an hour-long call is sent once.
+        let marker = "Unique marker: the cobalt orchard plan stays."
+        let call = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<620).map { (index: Int) -> LiveVoiceSegment in
+            let words = "Point \(index + 1). Maya will review the proposal on Thursday and Sam will confirm the room."
+            let source: LiveVoiceSource = index / 2 % 2 == 0 ? .microphone : .app
+            return LiveVoiceSegment(source: source, start: Double(index) * 6, end: Double(index) * 6 + 5,
+                                    text: index == 310 ? words + " " + marker : words, isFinal: true)
+        })
+        try check(call.conversation.count > 55_000 && call.conversation.contains("You: Point 2.") && call.conversation.contains("\n\nOthers: Point 4."),
+                  "the synthetic call is an hour-long labelled conversation whose labels repeat")
+        let calls = HandoffJobsModel(directory: root.appendingPathComponent("call"))
+        let callJob = try calls.prepare(sources: [HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: UUID()),
+            title: "Synthetic call", capturedAt: Date(timeIntervalSince1970: 200), text: call.conversation, originalText: call.text,
+            role: .reference, seconds: 3_720)], task: MeetingFollowUp.task, skill: skill)
+        let callFolder = calls.folder(callJob)
+        let callSnapshot = try HandoffJobStore.read(HandoffSnapshotRecord.self, at: callFolder.appendingPathComponent("selection.json"))
+        let callPrompts = [true, false].map { HandoffJobStore.prompt(snapshot: callSnapshot, skill: followUpText, folder: callFolder, manual: $0) }
+        try check(callPrompts.allSatisfy { !$0.contains("Original wording:") && $0.components(separatedBy: marker).count == 2 },
+                  "a two-sided meeting's unlabelled original is not sent a second time")
+        let callProblem = HandoffRunReadiness.inputProblem(provider: .codex, prompt: callPrompts[1], imageBytes: [])
+        let readyRunner = SubscriptionConnection(provider: .codex, executable: URL(fileURLWithPath: "/usr/bin/false"), version: "synthetic",
+                                                 ready: true, detail: "Synthetic fixture; no process or network.")
+        try check(callPrompts[1].count < SubscriptionCLILimits.maximumPromptCharacters && callProblem == nil
+                  && HandoffRunReadiness.evaluate(provider: .codex, enabled: true, checking: false, connection: readyRunner, busy: false,
+                                                  compatible: true, inputProblem: callProblem).state == .ready,
+                  "an hour-long two-sided meeting stays within the connected limit, so Start task is offered")
+        let callPortable = try HandoffJobStore.read(TranscriptHandoffManifest.self, at: callFolder.appendingPathComponent("handoff.json"))
+        try check(callSnapshot.items[0].originalText == call.text
+                  && (try Data(contentsOf: callFolder.appendingPathComponent(callPortable.transcripts[0].originalFile))) == Data(call.text.utf8),
+                  "the frozen selection and portable original keep the unlabelled words byte for byte")
+        var editedCall = callSnapshot
+        editedCall.items[0].text = call.conversation.replacingOccurrences(of: "Point 7. Maya", with: "Point 7. Avery")
+        try check(HandoffJobStore.prompt(snapshot: editedCall, skill: followUpText, folder: callFolder, manual: false).contains("Original wording:"),
+                  "a meeting edited after it was saved keeps its original wording beside the text")
+        // Only a label opening the text or a paragraph is a label; any other difference keeps the original.
+        let shapes: [(text: String, original: String, adds: Bool)] = [
+            ("You: Ready.\n\nOthers:  Agreed,\nthanks.", "Ready. Agreed, thanks.", false),
+            ("You: Ready.\n\nOthers: You: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready. Others: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready.\n\n\nOthers: Agreed.", "Ready. Agreed.", true),
+            ("You: Ready.\n\nOthers: Agreed.", "Ready. Agreed. More.", true),
+            ("You: Ready.\n\nOthers: Agreed. More.", "Ready. Agreed.", true),
+        ]
+        try check(shapes.allSatisfy { HandoffJobStore.originalAddsWording(text: $0.text, original: $0.original) == $0.adds },
+                  "an original that differs from the conversation only by its opening labels and spacing is the only one left out")
         // Resolve the actual links supplied to an assistant from the documents
         // each route asks it to produce, rather than checking a path fragment.
         func imageLinks(in prompt: String) throws -> [String] {
@@ -274,6 +321,43 @@ enum HandoffJobsChecks {
         try check(detailsPrompt.contains("Recording limitations are preserved separately")
             && !detailsPrompt.contains("preserve these qualifications in your result"),
             "details task retains recording limitations without forcing them into the JSON proposal")
+        // Home's recap: a details suggestion made after the follow-up, from the same meeting, is
+        // not shown as the follow-up; with only the suggestion, Prepare follow-up… stays.
+        let recaps = HandoffJobsModel(directory: root.appendingPathComponent("home-recap"), switches: ({ _ in false }, { _, _ in }))
+        var recapClock = Date(timeIntervalSince1970: 1_000)
+        recaps.clock = { recapClock.addTimeInterval(1); return recapClock }
+        let meetingFollowUp = try recaps.prepare(sources: [sources[0]], task: MeetingFollowUp.task, skill: skill)
+        let laterDetails = try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task, skill: skill)
+        await recaps.loadTaskFiles(recaps.jobs)
+        let recapInputs = { (job: HandoffJob) in recaps.files(job)?.inputs.items.map(\.reference) ?? [] }
+        try check(laterDetails.createdAt > meetingFollowUp.createdAt && recaps.isMetadataSuggestion(laterDetails)
+                  && HomeMeetings.followUp(for: id, in: recaps.visibleJobs, inputs: recapInputs, excluding: { recaps.isMetadataSuggestion($0) })?.id == meetingFollowUp.id,
+                  "Home's recap names the meeting's follow-up, not a newer details suggestion")
+        try check(HomeMeetings.followUp(for: id, in: recaps.visibleJobs.filter { $0.id == laterDetails.id }, inputs: recapInputs,
+                                        excluding: { recaps.isMetadataSuggestion($0) }) == nil,
+                  "a meeting with only a details suggestion still offers Prepare follow-up…")
+        // A details suggestion is named as the door that asked for it. A follow-up, or a details
+        // task the person edited, keeps the skill's name, and the name leaves the fingerprint alone.
+        let editedDetails = try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task + " Also list action items.", skill: skill)
+        await recaps.loadTaskFiles(recaps.jobs)
+        try check(detailsJob.title == "Suggest details" && laterDetails.title == "Suggest details" && recaps.title(laterDetails) == "Suggest details",
+                  "an assistant's details suggestion is titled Suggest details")
+        try check(meetingFollowUp.title == "Prepare follow-up" && recaps.title(meetingFollowUp) == "Prepare follow-up" && first.title == "Prepare follow-up",
+                  "a meeting follow-up and a general task keep the skill's name")
+        try check(editedDetails.title == "Prepare follow-up" && !recaps.isMetadataSuggestion(editedDetails) && recaps.title(editedDetails) == "Prepare follow-up",
+                  "a details task the person edited is not a details suggestion and keeps the skill's name")
+        try check(try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task, skill: skill).id == laterDetails.id,
+                  "preparing the same details task again reuses it; the title is not part of the fingerprint")
+        // A details suggestion saved under the skill's name, before it had its own, reads as one.
+        var savedEarlier = laterDetails
+        savedEarlier.title = "Prepare follow-up"
+        try HandoffJobStore.write(HandoffJobStore.encode(savedEarlier), to: recaps.folder(laterDetails).appendingPathComponent("receipt.json"))
+        let restarted = HandoffJobsModel(directory: root.appendingPathComponent("home-recap"), switches: ({ _ in false }, { _, _ in }))
+        await restarted.loadTaskFiles(restarted.jobs)
+        let earlierDetails = restarted.jobs.first { $0.id == laterDetails.id }, earlierFollowUp = restarted.jobs.first { $0.id == meetingFollowUp.id }
+        try check(earlierDetails?.title == "Prepare follow-up" && earlierDetails.map(restarted.title) == "Suggest details"
+                  && earlierFollowUp.map(restarted.title) == "Prepare follow-up",
+                  "a details suggestion saved as Prepare follow-up shows as Suggest details; a real follow-up keeps its name")
 
         let snaps = SnapStore(root: root.appendingPathComponent("review-snaps"))
         let snap = try snaps.insert(originalPNG: image, width: 1, height: 1, title: "User-reviewed name", source: .screen)

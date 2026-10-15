@@ -56,6 +56,35 @@ final class DemoModeTests {
         try SceneLibraryStorage.textLogo("Backdrop").write(to: backdrop)
         try reopened.addImage(backdrop)
         XCTAssertEqual(reopened.selected?.viewport, .tablet, "New scenes start with the saved device shape")
+        // Reset layout puts a scene back where a new scene starts, in the same saved device shape.
+        XCTAssertNotNil(reopened.selected)
+        guard var moved = reopened.selected else { return }
+        var tuned = DeviceViewport.phone; tuned.corners = 0.2
+        moved.viewport = tuned; moved.phoneX = 0.12; moved.phoneY = 0.3; moved.phoneHeight = 0.6
+        moved.zoom = 2; moved.backgroundX = 0.1; moved.backgroundY = 0.9; moved.name = "Customer scene"
+        moved.showsPhone = false; moved.gentleMotion = true
+        XCTAssertTrue(reopened.update(moved))
+        reopened.resetLayout()
+        let fresh = DemoScene(background: "x")
+        for model in [reopened, DemoScenes(root: root, systemIntegrationEnabled: false)] {
+            let reset = model.scenes.first { $0.id == moved.id }
+            XCTAssertNotNil(reset)
+            guard let reset else { return }
+            XCTAssertEqual(reset.viewport, .tablet, "Reset layout keeps the saved device shape, as a new scene does")
+            XCTAssertEqual([reset.phoneX, reset.phoneY, reset.phoneHeight, reset.zoom, reset.backgroundX, reset.backgroundY],
+                           [fresh.phoneX, fresh.phoneY, fresh.phoneHeight, fresh.zoom, fresh.backgroundX, fresh.backgroundY])
+            XCTAssertEqual(reset.name, "Customer scene"); XCTAssertEqual(reset.showsPhone, false); XCTAssertEqual(reset.gentleMotion, true)
+            XCTAssertEqual(reset.logo, moved.logo); XCTAssertEqual(reset.hand, moved.hand); XCTAssertEqual(reset.persona, moved.persona)
+        }
+        // With no saved device, Reset layout gives the generic phone, as before.
+        let plain = try temporary(); defer { try? FileManager.default.removeItem(at: plain) }
+        try SceneLibraryStorage.textLogo("Original backdrop").write(to: plain.appendingPathComponent("image.png"))
+        var unsaved = DemoScene(background: "image.png"); unsaved.viewport = .tablet; unsaved.phoneX = 0.2
+        try SceneStorage.save([unsaved], to: plain.appendingPathComponent("scenes.json"))
+        let generic = DemoScenes(root: plain, systemIntegrationEnabled: false)
+        XCTAssertTrue(generic.myDevice == nil)
+        generic.resetLayout()
+        XCTAssertEqual(generic.selected?.viewport, .phone); XCTAssertEqual(generic.selected?.phoneX, fresh.phoneX)
     }
     func testIndependentSpaceRecoveryAndManualChanges() throws {
         let original = URL(fileURLWithPath: "/original.heic")

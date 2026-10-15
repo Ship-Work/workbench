@@ -8,16 +8,15 @@ struct ShortcutKeycap: View {
     var body: some View {
         Button { model.onEditShortcut?(id) } label: {
             HStack(spacing: 7) {
-                Text(model.editingShortcut == id ? "Press keys…" : model.preferences.shortcut(id).label)
+                Text(model.preferences.shortcut(id).label)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                 Image(systemName: "pencil").font(.system(size: 10))
             }.padding(.horizontal, 10).padding(.vertical, 7)
-                .foregroundStyle(model.editingShortcut == id ? Workbench.accent : .primary)
+                .foregroundStyle(.primary)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(model.editingShortcut == id ? Workbench.accent : .clear))
         }.buttonStyle(.plain).disabled(model.phase != .idle)
             .accessibilityLabel("Edit \(title.lowercased()) shortcut")
-            .help("Click to change · Escape cancels · Delete disables")
+            .help("Opens Settings › Keyboard with this shortcut selected")
     }
 }
 
@@ -32,32 +31,11 @@ struct ShortcutControl: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 if showsTitle { Text(title); Spacer() }
-                if model.editingShortcut == id { Button("Cancel") { model.onCancelShortcut?() }.buttonStyle(.workbenchLink) }
                 ShortcutKeycap(model: model, id: id, title: title)
                 if !showsTitle { Spacer() }
             }
-            if model.editingShortcut == id {
-                if let message = model.shortcutRecordingMessage { WorkbenchNote(message, font: .caption) }
-                else { Text("Press your combination. Use ⌃, ⌥ or ⌘ with a key.").font(.caption).foregroundStyle(.secondary) }
-            }
             if let failure = model.shortcutFailures[id] { WorkbenchNote(failure, font: .caption) }
         }
-    }
-}
-
-struct VoiceShortcutSettings: View {
-    @ObservedObject var model: AppModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Click a shortcut, then press your preferred combination.").font(.caption).foregroundStyle(.secondary)
-            ShortcutControl(model: model, id: 1, title: "Dictate")
-            ShortcutControl(model: model, id: 2, title: "Quick controls")
-            ShortcutControl(model: model, id: 5, title: "Snap & Talk")
-            ShortcutControl(model: model, id: 3, title: "Library")
-            Text("Escape cancels. Delete turns a shortcut off. Existing shortcuts stay unchanged if a combination is unavailable.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button("Restore default shortcuts") { model.onResetShortcuts?() }
-        }.disabled(model.phase != .idle)
     }
 }
 
@@ -89,12 +67,17 @@ struct VoiceOptions: View {
                     ForEach(CaptureMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().fixedSize()
                 // The same words the one-time hold lesson uses, with the shortcut as it is saved (#134 T5).
-                Text(model.preferences.capture == .hold
-                     ? HoldLesson.title(shortcut: model.preferences.dictationShortcut.label) + " " + HoldLesson.body
-                     : "Press \(model.preferences.dictationShortcut.label) to start dictating, and again to finish.")
+                // With the shortcut off, or held by another app, there is no key to teach; the keycap above sets one (#15).
+                Text(VoiceOptions.activationHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.disabled(model.phase != .idle)
+    }
+    nonisolated static func activationHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        guard shortcut.enabled else { return "Applies to the Dictate shortcut, which is off. Click the shortcut above to set one." }
+        guard failure == nil else { return "Applies to the Dictate shortcut, which isn’t available. Click the shortcut above to choose another." }
+        return capture == .hold ? HoldLesson.title(shortcut: shortcut.label) + " " + HoldLesson.body
+            : "Press \(shortcut.label) to start dictating, and again to finish."
     }
 }
 

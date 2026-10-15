@@ -18,6 +18,15 @@ protocol MeetingProcessSource: AnyObject {
     var isAvailable: Bool { get }
     var unavailableReason: String { get }
     func snapshot() throws -> [MeetingProcessSnapshot]
+    /// Only the processes detection can act on: catalogue apps and the calling
+    /// service. Polls read this; the picker reads the whole snapshot.
+    func detectionSnapshot() throws -> [MeetingProcessSnapshot]
+}
+
+extension MeetingProcessSource {
+    func detectionSnapshot() throws -> [MeetingProcessSnapshot] {
+        try snapshot().filter { MeetingDetector.considers($0.bundleID) }
+    }
 }
 
 /// The real source. Every value comes from CoreAudio process metadata, which
@@ -27,14 +36,20 @@ final class MeetingSystemProcessSource: MeetingProcessSource {
     var isAvailable: Bool { MeetingCoreAudio.isProcessMetadataAvailable }
     var unavailableReason: String { MeetingCoreAudio.unavailableReason }
 
-    func snapshot() throws -> [MeetingProcessSnapshot] {
+    func snapshot() throws -> [MeetingProcessSnapshot] { try snapshot(including: { _ in true }) }
+
+    func detectionSnapshot() throws -> [MeetingProcessSnapshot] { try snapshot(including: MeetingDetector.considers) }
+
+    /// The bundle identifier is read first, so a process left out costs one
+    /// property read: no PID, activity or AppKit lookup.
+    private func snapshot(including: (String) -> Bool) throws -> [MeetingProcessSnapshot] {
         guard isAvailable else { return [] }
         let own = ProcessInfo.processInfo.processIdentifier
         var result: [MeetingProcessSnapshot] = []
         for object in try MeetingCoreAudio.processObjectsChecked() {
-            guard let pid = MeetingCoreAudio.processID(of: object), pid != own,
-                  let bundleID = MeetingCoreAudio.bundleID(of: object),
-                  !MeetingAppCatalogue.isExcluded(bundleID) else { continue }
+            guard let bundleID = MeetingCoreAudio.bundleID(of: object),
+                  !MeetingAppCatalogue.isExcluded(bundleID), including(bundleID),
+                  let pid = MeetingCoreAudio.processID(of: object), pid != own else { continue }
             let application = NSRunningApplication(processIdentifier: pid)
             result.append(MeetingProcessSnapshot(pid: Int32(pid), bundleID: bundleID,
                                                  isRunningInput: try MeetingCoreAudio.activity(object, input: true),
@@ -61,7 +76,8 @@ final class MeetingDetector {
 
     let source: MeetingProcessSource
     let options: Options
-    /// Persisted per-app opt-outs. The model owns loading and saving them.
+    /// Apps the detector stops offering for this run. In memory only;
+    /// nothing persists them.
     var disabledBundleIDs: Set<String> = []
     var snoozedUntil: Date?
     /// Detection stays off until the person turns it on.
@@ -106,7 +122,7 @@ final class MeetingDetector {
         guard source.isAvailable,
               MeetingAppCatalogue.known(app.bundleID) != nil || Self.isCallService(app) else { return .unknown }
         do {
-            let processes = try source.snapshot().filter {
+            let processes = try source.detectionSnapshot().filter {
                 $0.bundleID == app.bundleID || MeetingAppCatalogue.known($0.bundleID)?.bundleID == app.bundleID
             }
             return processes.contains { $0.isRunningInput || $0.isRunningOutput } ? .active : .inactive
@@ -187,7 +203,7 @@ final class MeetingDetector {
     }
 
     private func read() -> [MeetingProcessSnapshot] {
-        do { let value = try source.snapshot(); lastError = nil; return value }
+        do { let value = try source.detectionSnapshot(); lastError = nil; return value }
         catch {
             lastError = "Audio activity could not be checked. \(error.localizedDescription)"
             forgetObservations()
@@ -217,17 +233,17 @@ final class MeetingDetector {
         streaks.removeAll()
     }
 
-    /// The wording the surface shows. It claims a possibility, never a fact.
-    static func offerText(for app: MeetingAudioApp) -> String {
-        if isCallService(app) { return "A FaceTime or phone call may be active on this Mac. Review the audio source before recording." }
-        return "\(app.name) is using the microphone, so a call may be running. Record this meeting?"
-    }
-
     static func offerTitle(for app: MeetingAudioApp) -> String {
         isCallService(app) ? "Possible call on this Mac" : "Possible call in " + app.name
     }
 
     static func isCallService(_ app: MeetingAudioApp) -> Bool { MeetingAppCatalogue.callServiceBundleIDs.contains(app.bundleID) }
+
+    /// Only a catalogue app or the calling service can become an offer or own a
+    /// catalogue choice, so a poll needs no other process's metadata.
+    static func considers(_ bundleID: String) -> Bool {
+        MeetingAppCatalogue.known(bundleID) != nil || MeetingAppCatalogue.callServiceBundleIDs.contains(bundleID)
+    }
 
     private static func offerRank(_ bundleID: String) -> Int {
         if MeetingAppCatalogue.callServiceBundleIDs.contains(bundleID) { return 2 }

@@ -137,6 +137,11 @@ actor RecognitionEngine {
             finishPreparation()
         } catch {
             let intentionallyCancelled = cancelled || Task.isCancelled || state.configurationRevision != revision || error is CancellationError
+            // Files that were never downloaded are the offer, not a failed setup: a fresh Mac
+            // reads "Download Parakeet…", never Retry model (#15). A Download that yields none stays one.
+            if !intentionallyCancelled, !acquire, (error as? RecognitionFailure)?.kind == .missingAssets {
+                finishPreparation(); return
+            }
             if !intentionallyCancelled {
                 state.failure = RecognitionFailure.classify(error, acquiring: acquire)
             }

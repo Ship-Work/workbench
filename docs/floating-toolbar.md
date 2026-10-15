@@ -67,7 +67,8 @@ tick; in the last ten seconds before the 5-minute limit, the accessible status n
 details.
 
 A technical failure keeps its recovery view: dictation has its reason, Retry,
-Record again or Open Workbench and Dismiss. These commands and their workspace doors also stay in the chooser. Retry belongs only to an existing failure. Saved failures do not put
+Record again, Microphone Settings… or Sound Settings… where the fix is in System
+Settings, or Open Dictate…, and Dismiss. Retry, Record again and Dismiss message also stay in the chooser, whose Dictate row opens the workspace; the System Settings doors stay on the card and Dictate's page. Retry belongs only to an existing failure. Saved failures do not put
 warnings on the compact pill, the recording trace or Switch tool. A failure
 waiting before input-consuming work began cannot replace that work's revealed
 controls. Revealing, collapsing or choosing a tool does not acknowledge or retry
@@ -77,7 +78,8 @@ Delivery uses a brief, non-activating cue at the same place as No speech heard.
 Confirmed insertion is quiet. A copied fallback shows its title and useful next
 step for three seconds of unheld time. There is no word count, Review button, pin,
 dismiss button, placement menu or visible countdown. Hover or VoiceOver focus can
-hold the cue for reading. After it ends, the next hover reveals the toolbar.
+hold the cue for reading. VoiceOver hears the cue's title and next step once,
+without interrupting; confirmed insertion stays silent. After it ends, the next hover reveals the toolbar.
 The clipboard shelf and History retain the words and any unresolved delivery;
 ending the cue never discards them. An uncertain paste asks the person to check
 the destination before trying again and never suggests another automatic paste.
@@ -167,7 +169,9 @@ existing workspace; hovering another header never retargets that button.
 Each live or recoverable tool has its own visible, named commands immediately
 under its header. Dictate keeps Stop/Cancel, Copy now, saved-recording review and
 recovery, and unresolved-delivery review/copy/dismiss. Snap reviews the retained draft;
-Snap & Talk finishes/cancels the current narration and reviews its current session.
+Snap & Talk finishes/cancels the current narration and reviews its current session;
+its Cancel follows the page's rule, so a take longer than ten seconds opens Snap & Talk
+asking "Discard this narration?" there.
 Draw stops drawing. Present ends the live scene or stops an insertion. Persona
 hides, resumes or ends the live copy/set. Independent Meetings and Timer appear
 below the six tools only while they have work or recovery; they never become
@@ -304,13 +308,18 @@ sized from its content's `onGeometryChange` report, never from a background
 
 From the toolbar's Prompts, the original field, value and UTF-16 selection are
 captured before the picker opens. Supported fields receive confirmed literal
-chunks; other readable fields get one guarded paste labelled as such. Without
+chunks, two Characters first and then doubling to 256, each confirmed after 45 ms, so
+a 2,000-Character prompt lands in about a second and one at the 50,000-Character
+limit in about ten seconds; other readable fields get one guarded paste labelled as such. Without
 Accessibility approval, or with no readable field, the action is Copy prompt: one
 copy of the exact text and the Copied, Paste with ⌘V. receipt, with no paste or
 Accessibility write. Library's Saved Prompts… never captures an external field: it
 copies the complete prompt through Library's copy owner and reports clipboard
 failure beside the resource. The last delivery is one line naming its destination,
-with Details for the full reason. Escape, Stop, changed focus/selection/value and
+with Details for the full reason. Since the picker has closed by then, a delivery
+that ends any other way than inserted also shows dictation's brief delivery cue at
+the toolbar's place: Delivery stopped with its short reason, or the paste
+fallback's Copied or Paste unconfirmed; a confirmed insertion or paste stays quiet. Escape, Stop, changed focus/selection/value and
 shortcut editing cancel insertion. No partial write is replayed and no submit key
 is sent. (Restored 7 October 2026: the consolidation had removed the toolbar door
 without an owner decision.)

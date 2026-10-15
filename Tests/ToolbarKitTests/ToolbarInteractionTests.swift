@@ -324,6 +324,47 @@ final class ToolbarInteractionTests: XCTestCase {
         }
     }
 
+    /// A held Space acts once on the next action, a capture choice and next persona, as it does on
+    /// the launcher and accessory (#225): AppKit's NSButton clicks on every Space key-down, repeats too.
+    @MainActor func testActionButtonsIgnoreAHeldSpace() throws {
+        _ = NSApplication.shared
+        var presses = 0, captures = 0, quick = 0
+        let rows: [(String, ToolbarRow, () -> Int)] = [
+            ("toolbar.primary", ToolbarRow(state: ToolbarViewState(name: "space", tier: .revealed, mode: .dictate),
+                                           press: { { presses += 1 } }), { presses }),
+            ("toolbar.capture.region", ToolbarRow(state: ToolbarViewState(name: "space", tier: .revealed, mode: .snapAndTalk,
+                                                                          captureChoices: [.region, .window, .screen]),
+                                                  pressCapture: { _ in { captures += 1 } }), { captures }),
+            ("toolbar.next-persona", ToolbarRow(state: ToolbarViewState(name: "space", tier: .revealed, mode: .persona, showsAccessory: true,
+                                                                        quickControl: .nextPersona),
+                                                pressQuick: { { quick += 1 } }), { quick })]
+        for (identifier, row, count) in rows {
+            let view = NSHostingView(rootView: row)
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: view.fittingSize), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = view
+            defer { window.contentView = nil; window.close() }
+            view.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let button = try XCTUnwrap(descendants(view).compactMap { $0 as? NSButton }.first { $0.accessibilityIdentifier() == identifier }, identifier)
+            XCTAssertTrue(button.isEnabled, identifier)
+            XCTAssertTrue(window.makeFirstResponder(button), identifier)
+            // NSButton clicks only for a Space that carries its character, sent to the focused button.
+            func space(repeated: Bool) -> NSEvent {
+                NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                 context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: repeated, keyCode: 49)!
+            }
+            let before = count()
+            button.keyDown(with: space(repeated: false))
+            XCTAssertEqual(count(), before + 1, "\(identifier): a Space press acts once")
+            for _ in 0..<5 { button.keyDown(with: space(repeated: true)) }
+            XCTAssertEqual(count(), before + 1, "\(identifier): a held Space does not repeat the action")
+            button.keyDown(with: space(repeated: false))
+            XCTAssertEqual(count(), before + 2, "\(identifier): a fresh press still acts")
+            button.performClick(nil)
+            XCTAssertEqual(count(), before + 3, "\(identifier): Accessibility activation remains available")
+        }
+    }
+
     @MainActor func testMouseUpContributesTheFinalDragPosition() {
         _ = NSApplication.shared
         let button = LauncherButton(frame: NSRect(x: 0, y: 0, width: 48, height: 40))

@@ -174,11 +174,6 @@ struct ReadbackSkillPackStore {
         }
     }
 
-    @discardableResult
-    func installServiceNow() throws -> ReadbackSkillPackReference {
-        throw ReadbackError.message("Open Packs to install the current company pack from its private repository. Existing sessions remain available.")
-    }
-
     func uninstallServiceNow() throws {
         // Only this app-owned pack directory is removed. Sessions hold independent copies.
         if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }

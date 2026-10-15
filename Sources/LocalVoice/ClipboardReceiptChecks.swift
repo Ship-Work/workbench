@@ -27,14 +27,8 @@ enum ClipboardReceiptChecks {
         clock += 0.1; model.expireHUD(firstEvent)
         try check(!model.isHUDVisible && model.receipt?.isClipboardCurrent == true && model.pendingExpiry == nil,
                   "copied HUD expires at its deadline but current clipboard shelf remains")
-        let retainedID = model.receipt?.id
-        model.revealHUD()
-        try check(model.isHUDVisible && model.receipt?.id == retainedID && model.receipt?.canSuggestPaste == true
-                  && clipboardCount == 10, "reveal reopens the same safe-to-paste receipt without recopying")
         clipboardCount = 11; model.refreshClipboardOwnership()
         try check(model.receipt == nil && !model.isHUDVisible, "unrelated copy clears the stale shelf")
-        model.revealHUD()
-        try check(model.receipt == nil && !model.isHUDVisible, "reveal cannot resurrect a stale clipboard receipt")
 
         clipboardCount = 12
 
@@ -106,6 +100,11 @@ enum ClipboardReceiptChecks {
                                                  wasPasted: false, destinationName: "Notes", failure: .pasteUnconfirmed), wordCount: 2)
         try check(model.receipt?.title == "Paste unconfirmed" && model.receipt?.wasPasted == false && model.receipt?.canSuggestPaste == false,
                   "unconfirmed paste remains distinct from confirmed insertion")
+        model.record(outcome: TextDelivery.Outcome(message: "Paste sent.", clipboardChangeCount: 12,
+                                                 wasPasted: false, destinationName: "Notes", failure: .pasteUnconfirmed), wordCount: 2, source: .prompt)
+        try check(model.receipt?.title == "Paste unconfirmed" && model.receipt?.detail.contains("The prompt is still copied.") == true
+                  && model.receipt?.detail.contains("transcript") == false && model.receipt?.canSuggestPaste == false,
+                  "an unconfirmed prompt paste names the prompt, not a transcript")
         model.record(outcome: TextDelivery.Outcome(message: "Paste sent before cancellation.", clipboardChangeCount: 12,
                                                  wasPasted: false, destinationName: "Notes", failure: .cancelled,
                                                  pasteWasAttempted: true), wordCount: 2)
@@ -115,6 +114,15 @@ enum ClipboardReceiptChecks {
                                                  wasPasted: true, destinationName: "Notes", pasteWasAttempted: true), wordCount: 2)
         try check(model.receipt?.isClipboardCurrent == true && model.receipt?.canSuggestPaste == false,
                   "confirmed paste without restoration does not suggest pasting twice")
+        // Dictate's page shows the cue in the words VoiceOver hears, so a detail that starts with
+        // the title never reads it twice.
+        model.record(outcome: TextDelivery.Outcome(message: "Sent to Notes · still copied.", clipboardChangeCount: 12,
+                                                 wasPasted: false, destinationName: "Notes", pasteWasAttempted: true), wordCount: 2)
+        try check(model.receipt.map(DictateDeliveryReceipt.line) == "Sent to Notes · still copied.",
+                  "Dictate's delivery line says a title the detail already starts with once")
+        model.record(outcome: copied(12), wordCount: 2)
+        try check(model.receipt.map(DictateDeliveryReceipt.line) == "Copied. Paste with ⌘V.",
+                  "Dictate's delivery line keeps the title before any other detail")
         model.clear()
 
         // Use a unique pasteboard: these checks never touch the user's clipboard.

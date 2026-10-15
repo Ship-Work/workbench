@@ -57,7 +57,9 @@ final class MeetingModel: ObservableObject {
     }
     @Published var includeMicrophone = true { didSet { refreshAdmission() } }
     @Published var selectedAppID: Int32? { didSet { refreshAdmission() } }
-    @Published var purpose = "meeting"
+    @Published var purpose = "meeting" { didSet { callOfferSource = nil } }
+    /// The calling-service source whose offer chose Call. Any Save as choice clears it.
+    private var callOfferSource: Int32?
 
     var isBusy: Bool { isRecording || isProcessing || isStarting }
     var hostAdmission: (() -> MeetingHostAdmission)? { didSet { refreshAdmission() } }
@@ -80,10 +82,9 @@ final class MeetingModel: ObservableObject {
     var onStateChange: (() -> Void)?
 
     static let detectionKey = "workbench.meeting.detect.v1"
-    static let keptForLater = "Recording was cancelled. Original audio was kept."
+    nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
     /// The one refusal whose fix is in System Settings, so the page can offer it beside this message only.
     static let microphoneRefused = MeetingProblem.microphoneDenied.message
-    static let disabledAppsKey = "workbench.meeting.disabled-apps.v1"
     private let directory: URL
     private let defaults: UserDefaults
     private let detector: MeetingDetector
@@ -139,7 +140,6 @@ final class MeetingModel: ObservableObject {
         self.startupNoticeDelayNanoseconds = startupNoticeDelayNanoseconds
         detectionEnabled = defaults.bool(forKey: Self.detectionKey)
         automaticallyFinishCalls = defaults.object(forKey: "workbench.meeting.auto-finish.v1") as? Bool ?? true
-        detector.disabledBundleIDs = Set(defaults.stringArray(forKey: Self.disabledAppsKey) ?? [])
         configureDetection()
         recoveryTask = Task { [weak self] in await self?.refreshRecovery() }
         refreshAdmission()
@@ -167,9 +167,12 @@ final class MeetingModel: ObservableObject {
             if microphone == .restricted { refusal = .microphoneRestricted }
         }
         if refusal == nil, selectedAppID == nil, !includeMicrophone { refusal = .noSource }
-        let next = MeetingAdmission(microphone: microphone, captureProblem: refusal, recognitionProblem: speech)
+        let next = MeetingAdmission(microphone: microphone, captureProblem: refusal, recognitionProblem: speech,
+                                    speechPreparing: host.recognition.isPreparing)
         if admission != next { admission = next }
         if let problem, [.microphoneDenied, .microphoneRestricted, .microphoneUnconfirmed].contains(problem), microphone == .authorized { setProblem(nil) }
+        // A start refused while speech was not ready is settled once it is.
+        if case .speech? = problem, host.recognition.canTranscribe { setProblem(nil) }
     }
 
     func updateHostAdmission(_ value: MeetingHostAdmission) { host = value; refreshAdmission() }
@@ -231,8 +234,12 @@ final class MeetingModel: ObservableObject {
     func selectAudioSource(_ id: Int32?) {
         guard !isBusy else { return }
         selectedAppID = id
-        if id == nil { includeMicrophone = true }
+        if id == nil { includeMicrophone = true } else if id != callOfferSource { endOfferedCall() }
     }
+    /// Another app's audio saves as a Meeting again after a call offer chose Call, and so does the
+    /// next recording once that call's recording finishes. Until then Microphone only keeps it, so
+    /// a call that falls back to the microphone stays a Call.
+    private func endOfferedCall() { if callOfferSource != nil { purpose = "meeting" } }
 
     func refreshApps() {
         switch detector.enumerateApps() {
@@ -242,6 +249,13 @@ final class MeetingModel: ObservableObject {
             else { appEnumeration = .failed(issue.message) }
         }
         refreshAdmission()
+    }
+
+    /// Returning to Workbench rereads the audio apps (CoreAudio metadata only, no permission or
+    /// capture) so the picker and Ready to record match what is running now.
+    func refreshSourcesOnReturn() {
+        guard !isBusy, !shuttingDown else { refreshAdmission(); return }
+        refreshApps()
     }
 
     func start(expectedApp: MeetingAudioApp? = nil) async {
@@ -449,6 +463,8 @@ final class MeetingModel: ObservableObject {
         guard let capture = activeCapture, let session = activeSession, let manifest = activeManifest else { return }
         watcher?.cancel(); watcher = nil
         autoFinishSeconds = nil
+        // This recording's manifest already holds its purpose; the offered call ends with it.
+        endOfferedCall()
         capture.requestStop()
         let token = UUID(); generation = token
         notice = "Saving the original audio…"
@@ -632,7 +648,7 @@ final class MeetingModel: ObservableObject {
                 else if let message = capture.recoveryMessage {
                     self.voiceSession.phase = .reconnecting; self.voiceSession.message = message
                 } else if self.voiceSession.phase == .reconnecting { self.voiceSession.phase = .listening; self.voiceSession.message = nil }
-                var reason = capture.stopReason
+                var reason = capture.stopReason, lowDisk = false
                 if self.elapsed >= MeetingSegmentPlan.maximumMeetingSeconds { reason = "The two-hour recording limit was reached." }
                 ticks += 1
                 if ticks % 4 == 0, let app = self.recordingApp {
@@ -644,9 +660,12 @@ final class MeetingModel: ObservableObject {
                     let root = self.directory
                     let bytes = try? await MeetingFileWork.run { MeetingDiskBudget.availableBytes(at: root) }
                     guard self.generation == token, self.isRecording else { return }
-                    if let bytes, bytes < MeetingDiskBudget.stopFloorBytes { reason = "Recording stopped because disk space is running low." }
+                    if let bytes, bytes < MeetingDiskBudget.stopFloorBytes { reason = "Recording stopped because disk space is running low."; lowDisk = true }
                 }
-                if let reason { await self.finishCapture(process: false, reason: reason); return }
+                // A meeting that ends itself (the time limit, a source that could not reconnect, microphone
+                // access removed) finishes like Finish meeting, with the reason as a note. Low disk keeps
+                // the recording for later, and if processing fails it falls back to Kept for later as before.
+                if let reason { await self.finishCapture(process: !lowDisk, reason: reason); return }
                 if self.autoFinishSeconds == 0 {
                     await self.finishCapture(process: true); return
                 }
@@ -679,7 +698,7 @@ final class MeetingModel: ObservableObject {
     private func configureDetection() {
         detectionTask?.cancel(); detectionTask = nil
         detector.isEnabled = detectionEnabled
-        if !detectionEnabled { offer = nil; return }
+        if !detectionEnabled { if offer != nil { offer = nil }; return }
         guard !shuttingDown else { return }
         if !detector.isAvailable { error = detector.unavailableReason; return }
         detectionTask = Task { [weak self] in
@@ -692,21 +711,24 @@ final class MeetingModel: ObservableObject {
     }
 
     /// One metadata poll, shared by the timer and deterministic lifecycle checks.
-    /// It cannot request permission or open a capture.
+    /// It cannot request permission or open a capture. It publishes only a change, so an
+    /// idle poll every three seconds redraws nothing that observes this model.
     func refreshDetection() {
-        guard detectionEnabled, !shuttingDown else { offer = nil; return }
+        guard detectionEnabled, !shuttingDown else { if offer != nil { offer = nil }; return }
         refreshAdmission()
         detector.isSuppressed = isBusy || host.closing || !host.recognition.canTranscribe
             || host.captureProblem != nil || mayStart?() != nil
-        offer = detector.evaluate()
-        if let issue = detector.lastError, !isBusy { error = issue }
+        let next = detector.evaluate()
+        if next != offer { offer = next }
+        if let issue = detector.lastError, !isBusy, problem != .unknown(issue) { error = issue }
     }
 
-    /// Chooses the offered source for review. A call on this Mac is saved as a Call.
+    /// Chooses the offered source for review. A call on this Mac is saved as a Call; a later
+    /// offer from another app is saved as a Meeting, unless the person chose Call in Save as.
     func useOffer(_ app: MeetingAudioApp) {
         guard !isBusy else { return }
         selectedAppID = app.id
-        if MeetingDetector.isCallService(app) { purpose = "call" }
+        if MeetingDetector.isCallService(app) { purpose = "call"; callOfferSource = app.id } else { endOfferedCall() }
     }
 
     /// The button acts on the offer it displayed. Never substitutes a new process/app.
@@ -750,11 +772,6 @@ final class MeetingModel: ObservableObject {
 
     func dismissOffer() { if let offer { detector.dismiss(offer) }; offer = nil }
     func snoozeOffers() { detector.snooze(); offer = nil }
-    func disableOffers(for app: MeetingAudioApp) {
-        detector.disable(app)
-        defaults.set(Array(detector.disabledBundleIDs).sorted(), forKey: Self.disabledAppsKey)
-        offer = nil
-    }
 
     /// The app's terminateLater hook awaits this before replying to macOS.
     func prepareForShutdown() async {

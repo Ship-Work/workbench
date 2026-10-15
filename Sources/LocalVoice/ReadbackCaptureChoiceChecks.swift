@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import SwiftUI
 
 /// The real new-section path with synthetic images and denied microphone before recorder
 /// construction. No screen, audio device, live session, clipboard or permission prompt is used.
@@ -19,8 +20,8 @@ enum ReadbackCaptureChoiceChecks {
 
     @MainActor static func run() async throws {
         var passed = 0
-        func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-            guard condition() else { throw ReadbackError.message("READBACK_CAPTURE_CHOICE_CHECK_FAILED: " + message) }
+        func check(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+            guard try condition() else { throw ReadbackError.message("READBACK_CAPTURE_CHOICE_CHECK_FAILED: " + message) }
             passed += 1
         }
         let fm = FileManager.default
@@ -30,13 +31,40 @@ enum ReadbackCaptureChoiceChecks {
             samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         let image = bitmap.representation(using: .png, properties: [:])!
 
-        for scenario in ["cancel", "permission", "late-denial", "close", "replace", "shutdown", "shutdown-settle", "task-cancel", "commit"] {
+        // Replace screenshot and Redo use the page's Capture area on a section with known files.
+        let corrections = ["replace-area", "replace-region", "replace-escape", "replace-close", "replace-no-screen", "replace-screen", "redo-escape", "redo-mic-denied", "redo-recorder-fails"]
+        let originalScreen = Data("Original synthetic screen".utf8)
+        for scenario in ["cancel", "permission", "late-denial", "close", "replace", "shutdown", "shutdown-settle", "task-cancel", "commit"] + corrections {
             let domain = fm.temporaryDirectory.appendingPathComponent("Workbench.CaptureChoices.\(UUID().uuidString)").path
             let defaults = UserDefaults(suiteName: domain)!
             defer { defaults.removePersistentDomain(forName: domain) }
             let directory = fixture.appendingPathComponent(scenario)
             let root = directory.appendingPathComponent("Session")
-            _ = try ReadbackStore.create(at: root, title: "Synthetic capture choices")
+            var session = try ReadbackStore.create(at: root, title: "Synthetic capture choices")
+            let sectionID = UUID(), sectionDirectory = "items/\(sectionID.uuidString.lowercased())"
+            if corrections.contains(scenario) {
+                try ReadbackStore.createPrivateDirectory(root.appendingPathComponent(sectionDirectory), includingParents: false)
+                try ReadbackStore.writePrivate(originalScreen, to: root.appendingPathComponent(sectionDirectory + "/screen.png"))
+                for name in ["narration.wav", "narration-original.txt", "narration.txt"] {
+                    try ReadbackStore.writePrivate(Data("Original synthetic \(name)".utf8), to: root.appendingPathComponent(sectionDirectory + "/" + name))
+                }
+                session.sections = [ReadbackSection(id: sectionID, capturedAt: Date(timeIntervalSince1970: 10), displayName: "Synthetic display",
+                    directory: sectionDirectory, screenshot: sectionDirectory + "/screen.png", audio: sectionDirectory + "/narration.wav",
+                    originalTranscript: sectionDirectory + "/narration-original.txt", transcript: sectionDirectory + "/narration.txt",
+                    status: .ready, failure: nil, deletedAt: nil)]
+                try ReadbackStore.save(session, at: root)
+            }
+            func files() throws -> [String: Data] {
+                var found: [String: Data] = [:]
+                for case let url as URL in fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])!
+                    where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                    found[url.path] = try Data(contentsOf: url)
+                }
+                return found
+            }
+            let history = root.appendingPathComponent(sectionDirectory + "/history")
+            var before: [String: Data] = [:]
+            func unchanged() -> Bool { (try? files()) == before }
             defaults.set([root.path], forKey: "readback.recentSessionPaths.v1")
             let source = Source()
             var microphone: AVAuthorizationStatus = .authorized
@@ -46,7 +74,8 @@ enum ReadbackCaptureChoiceChecks {
                 captureDisplay: { screenCalls += 1; return ReadbackScreenshot(data: image, displayName: "Synthetic display", screenFrame: .zero) },
                 skillPacks: ReadbackSkillPackStore(root: directory.appendingPathComponent("Packs")),
                 screenAccess: .init(isGranted: { screenGranted }, request: { fatalError("No permission request in checks") }),
-                captureSelection: source, microphoneAccess: { microphone })
+                captureSelection: source, microphoneAccess: { microphone },
+                makeNarrationRecorder: { _, _ in throw ReadbackError.message("Capture choice checks never record.") })
             defer { model.shutdown() }
             model.mayBeginCapture = { denial }
             model.onHideForEditorCapture = { hides += 1 }
@@ -62,6 +91,7 @@ enum ReadbackCaptureChoiceChecks {
             }
             let manifestURL = root.appendingPathComponent("session.json")
             var expected = try Data(contentsOf: manifestURL)
+            before = try files()
             source.acquire = { image }
 
             switch scenario {
@@ -109,6 +139,75 @@ enum ReadbackCaptureChoiceChecks {
                 model.onHideForEditorCapture = { [weak model] in hides += 1; model?.shutdown() }
                 await model.captureNewSection(fromEditor: true, mode: .region)
                 try check(source.modes.isEmpty && restores == 1, "shutdown during settling never opens a selector afterwards")
+            case "replace-area":
+                // Leaving the page rebuilds its view, never the model, so the chosen area survives the visit (#358).
+                try check(model.captureArea == .screen, "a fresh session page starts on Screen")
+                let page = try HostedPage(model)
+                try check(page.captureArea?.label(forSegment: page.captureArea?.selectedSegment ?? -1) == "Screen", "the page shows Screen at first")
+                page.choose("Region")
+                try check(model.captureArea == .region, "choosing Region on the page sets the session page's Capture area")
+                page.close()
+                let revisit = try HostedPage(model)
+                defer { revisit.close() }
+                try check(revisit.captureArea?.label(forSegment: revisit.captureArea?.selectedSegment ?? -1) == "Region",
+                    "returning to the page shows the Region chosen before leaving")
+                let relaunched = ReadbackModel(engine: RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults)), defaults: defaults,
+                    captureDisplay: { throw ReadbackError.message("A relaunched model never captures here.") },
+                    skillPacks: ReadbackSkillPackStore(root: directory.appendingPathComponent("Packs")),
+                    screenAccess: .init(isGranted: { screenGranted }, request: { fatalError("No permission request in checks") }),
+                    captureSelection: Source(), microphoneAccess: { .denied },
+                    makeNarrationRecorder: { _, _ in throw ReadbackError.message("Capture choice checks never record.") })
+                let relaunchArea = relaunched.captureArea
+                relaunched.shutdown()
+                try check(relaunchArea == .screen, "the choice lasts for this run only: a relaunch starts on Screen")
+                await model.replaceScreenshot(sectionID, mode: model.captureArea)
+                try check(source.modes == [.region] && screenCalls == 0, "Replace follows the kept area through its selector, not the screen")
+            case "replace-region":
+                await model.replaceScreenshot(sectionID, mode: .region)
+                let replaced = try Data(contentsOf: root.appendingPathComponent(sectionDirectory + "/screen.png"))
+                let archived = try fm.contentsOfDirectory(at: history, includingPropertiesForKeys: nil).map { try Data(contentsOf: $0) }
+                try check(source.modes == [.region] && screenCalls == 0 && replaced == image && archived == [originalScreen],
+                    "Replace uses the chosen region's selector and archives the earlier screenshot")
+                try check(model.manifest?.sections.first?.audio == sectionDirectory + "/narration.wav" && model.manifest?.sections.first?.status == .ready,
+                    "Replace keeps the section's narration")
+            case "replace-escape":
+                source.acquire = { nil }
+                await model.replaceScreenshot(sectionID, mode: .window)
+                try check(source.modes == [.window] && unchanged() && !fm.fileExists(atPath: history.path) && model.notice == nil,
+                    "Escape in Replace's selector leaves every session file as it was")
+            case "replace-close":
+                source.acquire = { [weak model] in model?.closeSession(); return image }
+                await model.replaceScreenshot(sectionID, mode: .region)
+                try check(source.cancellations == 1 && unchanged(), "closing the session cancels Replace's selector and discards its image")
+            case "replace-no-screen":
+                screenGranted = false; model.refreshPermissionState()
+                await model.replaceScreenshot(sectionID, mode: .region)
+                try check(source.modes.isEmpty && hides == 0 && unchanged() && model.notice == model.permissionsProblem,
+                    "Replace without Screen Recording explains before hiding or capturing")
+            case "replace-screen":
+                microphone = .denied; model.refreshPermissionState()
+                await model.replaceScreenshot(sectionID)
+                let replaced = try Data(contentsOf: root.appendingPathComponent(sectionDirectory + "/screen.png"))
+                try check(screenCalls == 1 && source.modes.isEmpty && replaced == image, "Screen keeps its display capture, and Replace works with the microphone off")
+            case "redo-escape":
+                source.acquire = { nil }
+                await model.redoBoth(sectionID, mode: .region)
+                try check(source.modes == [.region] && unchanged() && model.notice == nil, "Escape in Redo's selector changes nothing and starts no microphone")
+            case "redo-mic-denied":
+                microphone = .denied; model.refreshPermissionState()
+                await model.redoBoth(sectionID, mode: .window)
+                try check(source.modes.isEmpty && hides == 0 && unchanged() && model.notice == model.permissionsProblem,
+                    "Redo without the microphone explains before opening a selector it could not narrate")
+            case "redo-recorder-fails":
+                // The microphone is allowed but the recorder cannot start, as with no input device.
+                await model.redoBoth(sectionID, mode: .region)
+                let replaced = try Data(contentsOf: root.appendingPathComponent(sectionDirectory + "/screen.png"))
+                let archived = try fm.contentsOfDirectory(at: history, includingPropertiesForKeys: nil).map { try Data(contentsOf: $0) }
+                try check(source.modes == [.region] && replaced == image && archived == [originalScreen]
+                    && model.manifest?.sections.first?.audio == sectionDirectory + "/narration.wav" && model.manifest?.sections.first?.status == .ready,
+                    "Redo whose recorder cannot start keeps the new screenshot and the earlier narration")
+                try check(model.notice?.hasPrefix("The screenshot was replaced and its narration was kept, but recording could not start.") == true,
+                    "Redo whose recorder cannot start says the screenshot was replaced, not that nothing changed")
             default:
                 for mode in [SnapCapture.Mode.region, .window] {
                     microphone = .authorized; model.refreshPermissionState()
@@ -125,15 +224,62 @@ enum ReadbackCaptureChoiceChecks {
                     try check(saved == image && section.audio == nil && section.status == .needsNarration,
                         "the exact image survives microphone refusal and remains available for narration")
                 }
+                // Without a microphone, typing a note is how the capture is finished (#63).
+                let first = model.activeSections[0].id
+                model.updateTranscript("Note", for: first)
+                let noted = try ReadbackStore.load(from: root).sections.first { $0.id == first }
+                try check(noted?.status == .ready && noted?.audio == nil, "a typed note makes the refused capture ready without audio")
             }
             try check(!model.isCapturing && !model.isRecording && !model.blocksDictation, "\(scenario) releases capture without starting a recorder")
             try check(hides == restores, "\(scenario) restores every hidden editor")
-            if scenario != "commit" {
+            if !["commit", "replace-area", "replace-region", "replace-screen", "redo-recorder-fails"].contains(scenario) {
                 let after = try Data(contentsOf: manifestURL)
                 try check(after == expected && saves == 0, "\(scenario) preserves session bytes and saves no new Snap")
             }
             source.acquire = { nil }
         }
         print("READBACK_CAPTURE_CHOICE_CHECKS_OK: \(passed) checks")
+    }
+
+    /// The Snap & Talk page hosted as the window hosts it, in a window kept off every display.
+    @MainActor private final class HostedPage {
+        private let window: NSWindow
+        private static var launched = false
+        init(_ model: ReadbackModel) throws {
+            if !Self.launched {
+                // As the surface gallery does, which renders windows reliably on the CI runners.
+                _ = NSApplication.shared
+                NSApp.setActivationPolicy(.prohibited); NSApp.finishLaunching()
+                Self.launched = true
+            }
+            window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 900, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.alphaValue = 0; window.ignoresMouseEvents = true
+            window.contentViewController = NSHostingController(rootView: ReadbackView(model: model))
+            settle()
+            guard captureArea != nil else { throw ReadbackError.message("READBACK_CAPTURE_CHOICE_CHECK_FAILED: the hosted page has no Capture area") }
+        }
+        /// Its labels are hidden, so the control is the one offering exactly the capture areas.
+        var captureArea: NSSegmentedControl? {
+            func find(_ view: NSView) -> NSSegmentedControl? {
+                if let control = view as? NSSegmentedControl,
+                   (0..<control.segmentCount).map({ control.label(forSegment: $0) ?? "" }) == SnapCapture.Mode.allCases.map(\.title) { return control }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return window.contentView.flatMap(find)
+        }
+        /// Clicks a segment as the person would, through the control's own action.
+        func choose(_ title: String) {
+            guard let control = captureArea,
+                  let index = (0..<control.segmentCount).first(where: { control.label(forSegment: $0) == title }) else { return }
+            control.selectedSegment = index
+            _ = control.sendAction(control.action, to: control.target)
+            settle()
+        }
+        func close() { window.contentViewController = nil; window.close() }
+        private func settle() {
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
     }
 }

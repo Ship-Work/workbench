@@ -10,6 +10,9 @@ struct SnapEditorView: View {
     let close: () -> Void
     let discard: () -> Void
     @FocusState private var textFocused: Bool
+    /// While Title, Tags or Notes has focus, ⌘Z and ⇧⌘Z belong to that field, not to the image.
+    private enum DetailsField: Hashable { case title, tags, notes }
+    @FocusState private var detailsField: DetailsField?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +34,7 @@ struct SnapEditorView: View {
                 ForEach(ImageWorkspaceTool.allCases) { tool in
                     Button {
                         editing.showingOriginal = false
-                        if tool == .text { editing.addText(); textFocused = true }
+                        if tool == .text { editing.addTextForTyping(); textFocused = true }
                         else { editing.tool = tool; editing.selected = nil }
                     } label: { Label(tool.title, systemImage: tool.symbol).font(.callout) }
                     .buttonStyle(.bordered)
@@ -44,9 +47,11 @@ struct SnapEditorView: View {
                 Button { editing.rotate() } label: { Image(systemName: "rotate.right") }
                     .help("Rotate clockwise").accessibilityLabel("Rotate clockwise")
                 Button { editing.undo() } label: { Image(systemName: "arrow.uturn.backward") }
-                    .disabled(editing.undoStack.isEmpty).help("Undo (⌘Z)").accessibilityLabel("Undo").keyboardShortcut("z", modifiers: .command)
+                    .disabled(editing.undoStack.isEmpty).help("Undo (⌘Z)").accessibilityLabel("Undo")
+                    .keyboardShortcut(detailsField == nil ? KeyboardShortcut("z", modifiers: .command) : nil)
                 Button { editing.redo() } label: { Image(systemName: "arrow.uturn.forward") }
-                    .disabled(editing.redoStack.isEmpty).help("Redo (⇧⌘Z)").accessibilityLabel("Redo").keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(editing.redoStack.isEmpty).help("Redo (⇧⌘Z)").accessibilityLabel("Redo")
+                    .keyboardShortcut(detailsField == nil ? KeyboardShortcut("z", modifiers: [.command, .shift]) : nil)
                 Spacer(minLength: 4)
                 Button { editing.showingDetails.toggle() } label: { Image(systemName: "sidebar.right") }
                     .help("Show or hide details").accessibilityLabel("Show or hide details")
@@ -91,23 +96,24 @@ struct SnapEditorView: View {
             if let mark = editing.selectedMark {
                 Text(mark.kind == .text ? "Text on image" : "Selected mark").font(.headline)
                 if mark.kind == .text {
-                    TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected { $0.text = String(value.prefix(10_000)) } }))
+                    TextEditor(text: Binding(get: { editing.selectedMark?.text ?? "" }, set: { value in editing.updateSelected("text") { $0.text = String(value.prefix(10_000)) } }))
                         .font(.body).frame(height: 120).focused($textFocused)
+                        .onChange(of: textFocused) { _, focused in if !focused { editing.endEditRun() } }
+                        .background(CaptionFocus(request: editing.captionFocusRequest) { editing.captionFocusRequest = nil })
                         .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Text on image")
-                    Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected { $0.background = value } })) {
+                    Picker("Background", selection: Binding(get: { editing.selectedMark?.background ?? "none" }, set: { value in editing.background = value; editing.updateSelected("background") { $0.background = value } })) {
                         ForEach(["none", "white", "black", "yellow"], id: \.self) { Text($0.capitalized).tag($0) }
                     }.id(appearance.colorScheme)
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Text size · \(Int((mark.fontSize ?? 0.035) * min(editing.imageSize.width, editing.imageSize.height))) px").font(.caption)
-                        Slider(value: Binding(get: { editing.selectedMark?.fontSize ?? 0.035 }, set: { value in editing.fontSize = value; editing.updateSelected { $0.fontSize = value } }), in: 0.008...0.15)
+                        Slider(value: Binding(get: { editing.selectedMark?.fontSize ?? 0.035 }, set: { value in editing.fontSize = value; editing.updateSelected("fontSize") { $0.fontSize = value } }), in: 0.008...0.15)
                             .accessibilityLabel("Text size")
                     }
                 }
                 colourPicker(selected: true)
                 if mark.kind != .text {
-                    Slider(value: Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected { $0.width = value } }), in: 0.001...0.02)
-                        .accessibilityLabel("Line width")
+                    lineWidth(Binding(get: { editing.selectedMark?.width ?? 0.004 }, set: { value in editing.updateSelected("width") { $0.width = value } }))
                 }
                 Text("Drag to move. Drag a corner to resize. Arrow keys nudge; Shift moves ten pixels.").font(.caption).foregroundStyle(.secondary)
                 Button("Delete mark", role: .destructive) { editing.removeSelected() }
@@ -115,7 +121,7 @@ struct SnapEditorView: View {
             } else if [.pen, .arrow, .rectangle].contains(editing.tool) {
                 Text("Mark style").font(.headline)
                 colourPicker(selected: false)
-                Slider(value: $editing.lineWidth, in: 0.001...0.02).accessibilityLabel("Line width")
+                lineWidth($editing.lineWidth)
                 Divider()
             } else {
                 Text("Make it clear").font(.headline)
@@ -124,22 +130,91 @@ struct SnapEditorView: View {
                 Divider()
             }
             Text("Details").font(.headline)
-            TextField("Title", text: $editing.draft.title).textFieldStyle(.roundedBorder).accessibilityLabel("Snap title")
+            TextField("Title", text: $editing.draft.title).textFieldStyle(.roundedBorder).focused($detailsField, equals: .title)
+                .accessibilityLabel("Snap title")
             TextField("Tags, separated by commas", text: Binding(get: { editing.draft.tags.joined(separator: ", ") }, set: { value in
                 editing.draft.tags = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            })).textFieldStyle(.roundedBorder).accessibilityLabel("Snap tags")
+            })).textFieldStyle(.roundedBorder).focused($detailsField, equals: .tags).accessibilityLabel("Snap tags")
             Text("Image notes").font(.caption.weight(.semibold))
-            TextEditor(text: $editing.draft.notes).frame(height: 85).font(.callout)
+            TextEditor(text: $editing.draft.notes).frame(height: 85).font(.callout).focused($detailsField, equals: .notes)
                 .scrollContentBackground(.hidden).padding(6).background(.quaternary, in: RoundedRectangle(cornerRadius: 6)).accessibilityLabel("Image notes")
             Text("Notes stay with this Snap. Text boxes appear in the copied or exported image.").font(.caption).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
+    /// Captioned like Text size, in the pixels the saved image draws (SnapRendering.draw).
+    private func lineWidth(_ width: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Line width · \(Int(max(1, width.wrappedValue * min(editing.imageSize.width, editing.imageSize.height)))) px").font(.caption)
+            Slider(value: width, in: 0.001...0.02).accessibilityLabel("Line width")
+        }
+    }
     private func colourPicker(selected: Bool) -> some View {
         Picker("Colour", selection: Binding(get: { editing.colour }, set: { value in
-            editing.colour = value; if selected { editing.updateSelected { $0.colour = value } }
+            editing.colour = value; if selected { editing.updateSelected("colour") { $0.colour = value } }
         })) { ForEach(["red", "yellow", "blue", "white", "black"], id: \.self) { Text($0.capitalized).tag($0) } }
             // Native popup labels can retain their previous colour when appearance changes.
             .id(appearance.colorScheme)
+    }
+}
+
+/// Puts the caption field first with its whole caption selected when the toolbar's Text asks.
+/// FocusState alone cannot select text, and may not reach a field mounted by the same update,
+/// so this finds the AppKit text view of the TextEditor it sits behind.
+///
+/// It also turns off that text view's own typing undo. A caption's typing is a step on the
+/// image's Undo (#331); the text view's undo would go onto the panel's shared stack, where
+/// Edit › Undo from Title, Tags or Notes could rewind the caption box apart from its mark.
+private struct CaptionFocus: NSViewRepresentable {
+    let request: UUID?
+    let done: () -> Void
+    final class Coordinator { var handled: UUID?; weak var caption: NSTextView?; var finding = false }
+    /// Sits behind the field and never takes its clicks.
+    final class Hook: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { Hook() }
+    func updateNSView(_ view: NSView, context: Context) {
+        let coordinator = context.coordinator
+        if coordinator.caption == nil, !coordinator.finding {
+            coordinator.finding = true
+            find(behind: view, attempts: 20) { textView in
+                coordinator.finding = false
+                textView?.allowsUndo = false; coordinator.caption = textView
+            }
+        }
+        guard let request, request != coordinator.handled else { return }
+        coordinator.handled = request
+        find(behind: view, attempts: 20) { textView in
+            if let textView, let window = textView.window {
+                textView.allowsUndo = false
+                window.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
+            }
+            done()
+        }
+    }
+    /// Runs after this update, once the text view shows the new caption. A field still mounting
+    /// gets a few more tries; `found` runs either way, with nil when none appeared, so a focus
+    /// request is cleared and never fires later.
+    private func find(behind view: NSView, attempts: Int, after delay: TimeInterval = 0, found: @escaping (NSTextView?) -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard let window = view.window, let textView = Self.textView(behind: view, in: window) else {
+                if attempts > 0 { find(behind: view, attempts: attempts - 1, after: 0.02, found: found) } else { found(nil) }
+                return
+            }
+            found(textView)
+        }
+    }
+    private static func textView(behind view: NSView, in window: NSWindow) -> NSTextView? {
+        let centre = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        func search(_ candidate: NSView) -> NSTextView? {
+            if let text = candidate as? NSTextView, text.isEditable {
+                let frame = text.enclosingScrollView ?? text
+                if frame.convert(frame.bounds, to: nil).contains(centre) { return text }
+            }
+            for subview in candidate.subviews { if let found = search(subview) { return found } }
+            return nil
+        }
+        return window.contentView.flatMap(search)
     }
 }
 

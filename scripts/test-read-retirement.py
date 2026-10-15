@@ -62,6 +62,15 @@ class RetirementAdmission(unittest.TestCase):
         info = plistlib.loads((ROOT / "scripts/Info.plist").read_bytes())
         self.assertFalse(any(service.get("NSMessage") == "readSelection" for service in info.get("NSServices", [])))
 
+    def test_blocker_lines_name_retained_work_only(self):
+        # Read's process runner and the lines that waited for "reading" outlived it.
+        for path in (ROOT / "Sources/LocalVoice").glob("*.swift"):
+            source = path.read_text()
+            for retired in ("CancellableProcess", "capture or reading", "current input operation", "Read admission"):
+                self.assertFalse(retired in source, f"{path.name}: {retired}")
+        review = (ROOT / "Sources/LocalVoice/MeetingRecordingReview.swift").read_text()
+        self.assertIn('"Finish Dictate, the meeting or Snap & Talk to play this recording."', review)
+
     def test_retained_audio_and_update_insertion_owners(self):
         main = (ROOT / "Sources/LocalVoice/main.swift").read_text()
         self.assertIn("insertion: self.model.promptInsertion.running", main)
@@ -72,6 +81,13 @@ class RetirementAdmission(unittest.TestCase):
         self.assertIn("speak: false", persona_check)
         self.assertTrue((ROOT / "Sources/LocalVoice/RecognitionProviders.swift").exists())
         self.assertTrue((ROOT / "Sources/LocalVoice/MeetingAudio.swift").exists())
+
+    def test_readme_credits_describe_no_reading_voice_download(self):
+        # The README keeps Pocket TTS's credit but must not offer its retired download.
+        credits = (ROOT / "README.md").read_text().split("## Credits and license", 1)[1]
+        self.assertIn("Pocket TTS", credits)
+        for retired in ("Neural voices", "installed macOS voices"):
+            self.assertNotIn(retired, credits)
 
 
 if __name__ == "__main__":

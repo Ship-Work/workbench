@@ -31,7 +31,7 @@ These surfaces share the same underlying jobs and saved resources. Starting or a
 2. Open **Settings → Models** to prepare the default local Parakeet recognizer, then try Dictate with a disposable sentence. The first model download can take several minutes.
 3. Use the menu bar for quick actions and the floating toolbar while working. Open the desktop app for preparation and review.
 4. Open **Settings → Keyboard** to see, change or practise shortcuts. Recording a shortcut temporarily suspends Workbench's global shortcuts.
-5. Use **Settings → Workbench updates** for updates and **Copy build details** when reporting a problem.
+5. Choose **Update to [version]** in the sidebar when an update is ready; **Settings › General › Updates** checks and holds the automatic options. Use **Copy build details** when reporting a problem.
 
 Closing the desktop window leaves Workbench available. Quit Workbench stops the app. Open at login is optional. Older releases without the updater need one manual upgrade; see [installation and updates](docs/updating.md).
 
@@ -77,8 +77,8 @@ Use [GitHub issues](https://github.com/Ship-Work/workbench/issues) as the work q
 - Voice and [StageMark](https://github.com/EthDawg/StageMark) are the sources of this consolidation; [source provenance](docs/consolidation-source.md) records the import.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio), pinned to 0.15.6: Apache 2.0.
 - [Parakeet TDT v2 CoreML](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml): see its upstream model card and license.
-- [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) by Kyutai, in [FluidInference's Core ML conversion](https://huggingface.co/FluidInference/pocket-tts-coreml): CC BY 4.0. Downloaded only when someone chooses Neural voices.
-- Apple AppKit, SwiftUI, AVFoundation and installed macOS voices.
+- [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) by Kyutai, in [FluidInference's Core ML conversion](https://huggingface.co/FluidInference/pocket-tts-coreml): CC BY 4.0. It powered the retired Read voices; current builds neither include nor download it.
+- Apple AppKit, SwiftUI and AVFoundation.
 - Workflow inspiration: [Pat Simmons's local Wispr Flow replacement](https://www.youtube.com/watch?v=IMQw3aHjf2Q&t=437s).
 - Matt ([@mattywhitenz](https://github.com/mattywhitenz)) proposed Apple Shortcuts dictation and optional Speko reading in [#10](https://github.com/Ship-Work/workbench/issues/10) and [#11](https://github.com/Ship-Work/workbench/issues/11).
 - Matt's [Snap & Talk crash fix](https://github.com/Ship-Work/workbench/pull/103) ships in Workbench. His original [ServiceNow deck skill, artwork and generation helpers](https://github.com/Ship-Work/workbench/pull/104) are preserved in the private company pack, alongside their public contribution history. Existing sessions retain their chosen complete version.

@@ -85,8 +85,14 @@ final class ImageWorkspaceEditing: ObservableObject {
     @Published var showingOriginal = false
     @Published var showingDetails = true
     @Published var percent = 100
+    /// Raised only by the toolbar's Text. The inspector puts the new caption's field first with
+    /// its whole caption selected, so the first keystroke replaces "Your text", then clears it.
+    @Published var captionFocusRequest: UUID?
     @Published private(set) var undoStack: [SnapEdit] = []
     @Published private(set) var redoStack: [SnapEdit] = []
+    /// The mark and property an inspector run is changing. Typing a caption or dragging a
+    /// slider enters Undo once; another edit, a selection, Undo or Redo starts a new step.
+    private var coalescingKey: String?
     let image: CGImage
     let initial: SnapDraft
     weak var canvas: ImageWorkspaceScrollView?
@@ -100,22 +106,31 @@ final class ImageWorkspaceEditing: ObservableObject {
         return edit
     }
     init(draft: SnapDraft) throws { self.draft = draft; initial = draft; image = try SnapRendering.image(draft.originalPNG) }
-    func change(_ edit: SnapEdit) {
+    func change(_ edit: SnapEdit, coalescing key: String? = nil) {
         guard edit != draft.edit, edit.isValid else { return }
-        undoStack.append(draft.edit)
-        if undoStack.count > 100 { undoStack.removeFirst() }
+        if key == nil || key != coalescingKey || undoStack.isEmpty {
+            undoStack.append(draft.edit)
+            if undoStack.count > 100 { undoStack.removeFirst() }
+        }
+        coalescingKey = key
         redoStack = []; draft.edit = edit
     }
-    func mutate(_ body: (inout SnapEdit) -> Void) { var edit = draft.edit; body(&edit); change(edit) }
-    func undo() { guard let edit = undoStack.popLast() else { return }; redoStack.append(draft.edit); draft.edit = edit; selected = nil }
-    func redo() { guard let edit = redoStack.popLast() else { return }; undoStack.append(draft.edit); draft.edit = edit; selected = nil }
+    func mutate(coalescing key: String? = nil, _ body: (inout SnapEdit) -> Void) { var edit = draft.edit; body(&edit); change(edit, coalescing: key) }
+    /// Undo and Redo keep the mark selected while it still exists, so its inspector stays open.
+    func undo() { guard let edit = undoStack.popLast() else { return }; redoStack.append(draft.edit); draft.edit = edit; reselect() }
+    func redo() { guard let edit = redoStack.popLast() else { return }; undoStack.append(draft.edit); draft.edit = edit; reselect() }
+    private func reselect() { select(draft.edit.marks.contains { $0.id == selected } ? selected : nil) }
     func select(_ id: UUID?) {
+        coalescingKey = nil
         selected = id
         if let mark = selectedMark { colour = mark.colour; lineWidth = mark.width; fontSize = mark.fontSize ?? fontSize; background = mark.background ?? "none" }
     }
-    func updateSelected(_ body: (inout SnapMark) -> Void) {
-        guard let index = draft.edit.marks.firstIndex(where: { $0.id == selected }) else { return }
-        mutate { body(&$0.marks[index]) }
+    /// Ends an inspector run, for example when the text box loses focus.
+    func endEditRun() { coalescingKey = nil }
+    /// `property` names what an inspector control changes; repeated changes to it on the same mark are one Undo step.
+    func updateSelected(_ property: String? = nil, _ body: (inout SnapMark) -> Void) {
+        guard let selected, let index = draft.edit.marks.firstIndex(where: { $0.id == selected }) else { return }
+        mutate(coalescing: property.map { "\(selected.uuidString).\($0)" }) { body(&$0.marks[index]) }
     }
     func removeSelected() { guard let selected else { return }; mutate { $0.marks.removeAll { $0.id == selected } }; self.selected = nil }
     func setAspect(_ value: ImageCropAspect) {
@@ -127,17 +142,21 @@ final class ImageWorkspaceEditing: ObservableObject {
         mutate { $0.rotation = ($0.quarterTurns + 1) % 4 }
         aspect = .free
     }
-    func addText(at point: SnapPoint? = nil) {
+    func addText() {
         let crop = draft.edit.crop
         let sideways = draft.edit.quarterTurns % 2 != 0
         let w = crop.width * (sideways ? 0.25 : 0.6), h = crop.height * (sideways ? 0.6 : 0.25)
-        let x = min(1 - w, max(0, point?.x ?? (crop.x + (crop.width - w) / 2)))
-        let y = min(1 - h, max(0, point?.y ?? (crop.y + (crop.height - h) / 2)))
+        let x = min(1 - w, max(0, crop.x + (crop.width - w) / 2))
+        let y = min(1 - h, max(0, crop.y + (crop.height - h) / 2))
         let mark = SnapMark(kind: .text, points: [.init(x: x, y: y), .init(x: x + w, y: y + h)],
                             colour: background == "black" ? "white" : "black", text: "Your text", fontSize: fontSize,
                             background: background, textRotation: (4 - draft.edit.quarterTurns) % 4)
         mutate { $0.marks.append(mark) }; select(mark.id); tool = .select; showingDetails = true
     }
+    /// The toolbar's Text: a new box ready to type into. The gallery and checks call addText()
+    /// on its own, so their renders keep an unfocused field. A box the mark limit refuses raises
+    /// no request, since no field would appear to clear it.
+    func addTextForTyping() { addText(); if selectedMark?.kind == .text { captionFocusRequest = UUID() } }
     func zoom(_ command: CaptureImagePreviewModel.Command) {
         switch command { case .fit: canvas?.fit(); case .actualSize: canvas?.zoom(to: 1)
         case .zoomIn: canvas?.zoom(to: (canvas?.magnification ?? 1) * 1.25)

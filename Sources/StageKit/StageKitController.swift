@@ -30,8 +30,11 @@ public final class StageKitController: ObservableObject {
     public var onOpenScenes: (() -> Void)? {
         didSet { coordinator.onOpenScenes = onOpenScenes; coordinator.demoScenes.onOpen = onOpenScenes }
     }
-    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet.
-    public var onOpenPersonas: (() -> Void)?
+    /// Opens the host’s independent Persona workspace. Scene selection keeps its own sheet, whose
+    /// Open Persona… comes here too.
+    public var onOpenPersonas: (() -> Void)? {
+        didSet { coordinator.demoScenes.onOpenPersonas = onOpenPersonas }
+    }
     /// Opens the host's My Profile editor: Persona's live menus offer My Profile… there while no
     /// profile photo is saved, so My Profile is always their first row.
     public var onEditProfile: (() -> Void)? {
@@ -256,40 +259,13 @@ public final class StageKitController: ObservableObject {
     public var personaPicker: PersonaPicker? { coordinator.demoScenes.personas.toolbarPicker }
     /// My Profile and Live Camera, then the cards Persona can show now; a prepared set's sets.
     public func makePersonaPickerMenu() -> NSMenu { coordinator.demoScenes.personas.makeToolbarPickerMenu() }
-    /// One live persona copy, named exactly: the one floating card, or one copy of
-    /// a prepared set. Capture it when a control is drawn, so a later choice
-    /// changes that copy and never another (#169, #134).
+    /// The selected live persona copy as an opaque identity: the one floating card,
+    /// or one copy of a prepared set. The chooser's Persona commands fold it into
+    /// their identity, so a stale row cannot act on a different copy (#169, #134).
     public struct PersonaCopy: Equatable { fileprivate let copy: PersonaLiveCopy }
-    /// Circle, Card or Original: Persona's one appearance choice.
-    public enum PersonaShape: String, CaseIterable, Sendable {
-        case circle, card, original
-        public var title: String { PersonaAppearance.Shape(rawValue: rawValue)?.title ?? rawValue }
-    }
     /// The live copy Persona's Options act on now: the selected copy of a prepared
     /// set, or else the one floating card. nil when no persona is live.
     public var selectedPersonaCopy: PersonaCopy? { coordinator.demoScenes.personas.selectedLiveCopy.map { PersonaCopy(copy: $0) } }
-    /// The look that copy shows now; nil once it is no longer live.
-    public func personaShape(of copy: PersonaCopy) -> PersonaShape? {
-        coordinator.demoScenes.personas.liveShape(of: copy.copy).flatMap { PersonaShape(rawValue: $0.rawValue) }
-    }
-    /// Whether that copy is hidden now: the one floating card kept for Show again,
-    /// or a set's copy while the set or the copy is hidden. False once it is gone.
-    public func isPersonaCopyHidden(_ copy: PersonaCopy) -> Bool {
-        coordinator.demoScenes.personas.liveCopyHidden(copy.copy) == true
-    }
-    /// Whether this menu holds a live copy's Appearance: an item with that title and a submenu, as
-    /// the Persona menu names it for a shown card and for a set's selected copy, never for a hidden
-    /// card. Found by its title, so choices added under it or reordered never make the floating
-    /// toolbar's More add a second Appearance beside it (#134 part B, #216).
-    public static func personaMenuHoldsAppearance(_ menu: NSMenu) -> Bool {
-        menu.items.contains { $0.title == "Appearance" && $0.hasSubmenu }
-    }
-    /// Changes exactly that live copy's look, as its Appearance menu does. The
-    /// saved persona, other copies and the layout's saved state are unchanged.
-    public func setPersonaShape(_ shape: PersonaShape, for copy: PersonaCopy) {
-        guard let look = PersonaAppearance.Shape(rawValue: shape.rawValue) else { return }
-        coordinator.demoScenes.personas.setLiveShape(look, for: copy.copy)
-    }
     /// The panel row starts and stops the timer; its Options, Home, the chooser and the
     /// timer's own window carry the next step and Show or Hide timer.
     public func startTimer() { coordinator.startTimer() }
@@ -345,16 +321,28 @@ public final class StageKitController: ObservableObject {
             if !optionsOnly { menu.addItem(StageMenuAction("Stop Timer") { [weak app] in app?.resetTimer(); app?.hideTimer() }) }
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
-        menu.addSubmenu("Duration", items: [1, 5, 10, 15, 30, 60].map { minutes in
-            StageMenuAction("\(minutes) min", checked: app.settings.value.timerMinutes == Double(minutes)) { [weak app] in
+        // A preset is checked when the chosen duration reads as that preset, so a duration a hair
+        // off one never shows a second item with the preset's name.
+        let chosen = app.settings.value.timerMinutes
+        var durations: [NSMenuItem] = [1, 5, 10, 15, 30, 60].map { minutes in
+            StageMenuAction("\(minutes) min", checked: chosen.formatted(.number) == Double(minutes).formatted(.number)) { [weak app] in
                 app?.settings.value.timerMinutes = Double(minutes)
                 // A duration change applies on the next Start or Reset.
             }
-        })
+        }
+        // A duration none of these name, a Timer page preset or one typed there, still shows as the
+        // one chosen, in order and worded as the page's field shows it (#174).
+        if !durations.contains(where: { $0.state == .on }) {
+            let later = durations.firstIndex { ($0.title.split(separator: " ").first.flatMap { Double($0) } ?? 0) > chosen } ?? durations.count
+            durations.insert(StageMenuAction("\(chosen.formatted(.number)) min", checked: true) { [weak app] in
+                app?.settings.value.timerMinutes = chosen
+            }, at: later)
+        }
+        menu.addSubmenu("Duration", items: durations)
         // Position…: the floating toolbar's compact eight-dock control, not a submenu of
         // anchors (#134 Fit rule 1). It applies before the window first opens.
         menu.addItem(StageMenuAction("Position…") { [weak app] in app?.showTimerPositionControl() })
-        menu.addItem(StageMenuAction("Chime When Finished", checked: app.settings.value.timerChime) { [weak app] in
+        menu.addItem(StageMenuAction("Chime When Time Is Up", checked: app.settings.value.timerChime) { [weak app] in
             guard let app else { return }; app.settings.value.timerChime.toggle()
         })
         return menu
@@ -381,6 +369,9 @@ public final class StageKitController: ObservableObject {
         library.setVoiceRing(true)
         return { _ = library.replaceVoiceAccess(previous) }
     }
+    /// For the gallery's check that React to my voice reads this controller's own store: the voice
+    /// colour Persona started with, as red, green and blue.
+    public var personaVoiceColor: [Double] { let colour = coordinator.demoScenes.personas.voiceColor; return [colour.r, colour.g, colour.b] }
     public var scenesView: AnyView { AnyView(DemoScenesView(model: coordinator.demoScenes)) }
     public func personasView(editProfile: @escaping () -> Void) -> AnyView {
         AnyView(PersonaLibraryView(library: coordinator.demoScenes.personas, mode: .workspace, editProfile: editProfile))
@@ -404,14 +395,13 @@ public final class StageKitController: ObservableObject {
         let record = try library.importPackage(SceneFile.read(url))
         coordinator.demoScenes.query = ""
         coordinator.demoScenes.selectedID = record.id
-        coordinator.demoScenes.notice = "Added a personal scene copy. Pack updates will not change it."
+        coordinator.demoScenes.confirm("Added a personal scene copy. Pack updates will not change it.")
     }
 
     public func importPackPersona(at url: URL, name: String) throws {
         _ = try coordinator.demoScenes.personas.addImage(url, name: name,
                                                         card: PersonaCardStyle(label: name))
     }
-    public var quickControlsView: AnyView { AnyView(QuickControlsView(app: coordinator, settings: coordinator.settings)) }
     /// One native menu for the application menu bar or the shell's status menu.
     /// It refreshes tool state and shortcut labels whenever it opens; StageKit
     /// continues to own all drawing actions and their existing global keys.
@@ -472,9 +462,6 @@ public final class StageKitController: ObservableObject {
         guard let starter = SceneStarters.all.first(where: { $0.id == id }) else { throw SceneError.noScene }
         try coordinator.demoScenes.useStarter(starter)
     }
-    public var hasOverlaySession: Bool { coordinator.demoScenes.personas.sessionState.phase != .idle }
-    public var areOverlaysPaused: Bool { coordinator.demoScenes.personas.sessionState.phase == .paused }
-    public var canStepOverlays: Bool { coordinator.demoScenes.personas.sessionState.groups.count > 1 }
     public var timerText: String { coordinator.timerText }
     public var isTimerRunning: Bool { coordinator.timerRunning }
     public var hasTimerSession: Bool { coordinator.timerSessionStarted }
@@ -489,21 +476,23 @@ public final class StageKitController: ObservableObject {
     /// Pause and Resume keep the timer's window as it is. A shown Pause or Resume never becomes a
     /// Start or a Restart (#174).
     public func performTimerTransport(expected: TimerStep) { coordinator.performTimerTransport(expected: expected) }
-    /// Every current notice with its page, most urgent first. The drawing and settings stores
-    /// record their notice's page where it is raised; a persona or scene notice belongs to its own
-    /// page. A card that could not show is live, so it comes before an older scene notice.
+    /// Every current notice with its page and tone, most urgent first. The drawing and settings
+    /// stores record their notice's page where it is raised; a persona or scene notice belongs to
+    /// its own page. A card that could not show is live, so it comes before an older scene notice,
+    /// and it is always a problem.
     private var notices: [StageNotice] {
-        let personas = coordinator.demoScenes.personas
+        let scenes = coordinator.demoScenes, personas = scenes.personas
         return [coordinator.postedNotice, coordinator.settings.postedNotice,
                 personas.cardFeedback.map { StageNotice(text: $0, page: .persona) },
-                coordinator.demoScenes.notice.map { StageNotice(text: $0, page: .present) },
-                personas.notice.map { StageNotice(text: $0, page: .persona) }].compactMap { $0 }
+                scenes.notice.map { StageNotice(text: $0, page: .present, tone: scenes.noticeIsDone ? .done : .problem) },
+                personas.notice.map { StageNotice(text: $0, page: .persona, tone: personas.noticeIsDone ? .done : .problem) }].compactMap { $0 }
     }
-    /// The notice to show now.
-    public var notice: String? { notices.first?.text }
+    /// The current problem, for a surface outside its page to show. Something that worked is
+    /// confirmed on its own page only, so it never stands in for, or hides, a problem (#134).
+    public var notice: String? { notices.first { $0.tone == .problem }?.text }
     /// The page that shows `notice` in full, from the same record: a surface with room for one
     /// sentence opens it for the rest (#134).
-    public var noticePage: StageNoticePage? { notices.first?.page }
+    public var noticePage: StageNoticePage? { notices.first { $0.tone == .problem }?.page }
     /// The first notice a page owns, for that page to show in full.
     public func notice(on page: StageNoticePage) -> String? { notices.first { $0.page == page }?.text }
 
@@ -527,7 +516,6 @@ public final class StageKitController: ObservableObject {
     /// taking clicks; its ink stays with the board for the next time it opens.
     public func finishDrawing() { coordinator.finishDrawing() }
     public func clear() { coordinator.perform(.clear) }
-    public func showBoard() { coordinator.toggleBoard(.white) }
     public func showTimer() { coordinator.toggleTimer() }
     public func showScenes() { coordinator.showDemoScenes() }
     public func showPersonas() {
@@ -535,15 +523,8 @@ public final class StageKitController: ObservableObject {
         else { coordinator.demoScenes.showPersonas() }
     }
     public func focusOverlayControls() { coordinator.demoScenes.personas.focusOverlayControls() }
-    public func stepOverlaySet(_ offset: Int) { coordinator.demoScenes.personas.performOverlayAction(.stepGroup(offset)) }
-    public func toggleOverlayVisibility() { coordinator.demoScenes.personas.performOverlayAction(.pauseResume) }
     public func escape() { coordinator.escape() }
-    public func performShortcut(id: String) {
-        guard let action = Action(rawValue: id) else { return }
-        coordinator.perform(action)
-    }
     public func setShortcutsSuspended(_ suspended: Bool) { coordinator.setShortcutsSuspended(suspended) }
-    public func resetShortcuts() { coordinator.restoreShortcuts() }
     public func refreshShortcutRegistration() { if started { coordinator.refreshShortcutRegistration() } }
 
     public var shortcutDescriptors: [StageShortcutDescriptor] {
@@ -633,7 +614,7 @@ struct PhotoBackdropChooser: View {
                         }.accessibilityLabel("Choose a saved scene")
                             .accessibilityIdentifier("handoff.backdrop-scenes")
                     }
-                    if let notice { Text(notice).font(.caption).foregroundStyle(.orange).textSelection(.enabled) }
+                    if let notice { PersonaNote(notice).textSelection(.enabled) }
                     Spacer(minLength: 0)
                     Divider()
                     HStack {
@@ -681,6 +662,10 @@ public enum StageNoticePage: Sendable, CaseIterable { case draw, present, person
 
 /// A notice and its page, recorded together where the notice is raised (#134).
 struct StageNotice: Equatable {
+    /// Whether the notice is a problem to recover from or confirms something that worked, decided
+    /// where it is raised and never from its words. Only a problem reaches beyond its page.
+    enum Tone: Equatable { case problem, done }
     let text: String
     let page: StageNoticePage
+    var tone: Tone = .problem
 }

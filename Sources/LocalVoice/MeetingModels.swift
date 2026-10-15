@@ -20,9 +20,6 @@ struct MeetingKnownApp {
     let bundleID: String
     let name: String
     let kind: MeetingAppKind
-    /// False until remote-stream capture from this app has been checked on real
-    /// hardware. Nothing in this module may claim a verified two-sided recording.
-    let remoteAudioVerified: Bool
     /// The app's own audio processes that are not named `<bundle>.helper`, such
     /// as new Teams' module host.
     var audioProcesses: [String] = []
@@ -39,29 +36,31 @@ struct MeetingKnownApp {
 }
 
 enum MeetingAppCatalogue {
+    /// Remote-stream capture from these apps has not been verified on real hardware;
+    /// nothing here may claim a verified two-sided recording.
     static let supported: [MeetingKnownApp] = [
-        MeetingKnownApp(bundleID: "us.zoom.xos", name: "Zoom", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.teams", name: "Microsoft Teams", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", kind: .communication, remoteAudioVerified: false,
+        MeetingKnownApp(bundleID: "us.zoom.xos", name: "Zoom", kind: .communication),
+        MeetingKnownApp(bundleID: "com.microsoft.teams", name: "Microsoft Teams", kind: .communication),
+        MeetingKnownApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", kind: .communication,
                         audioProcesses: ["com.microsoft.teams2.modulehost"]),
-        MeetingKnownApp(bundleID: "com.cisco.webexmeetingsapp", name: "Webex", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.webex.meetingmanager", name: "Webex Meetings", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.hnc.Discord", name: "Discord", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.brave.Browser", name: "Brave", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.vivaldi.Vivaldi", name: "Vivaldi", kind: .browser, remoteAudioVerified: false),
-        MeetingKnownApp(bundleID: "com.operasoftware.Opera", name: "Opera", kind: .browser, remoteAudioVerified: false)
+        MeetingKnownApp(bundleID: "com.cisco.webexmeetingsapp", name: "Webex", kind: .communication),
+        MeetingKnownApp(bundleID: "com.webex.meetingmanager", name: "Webex Meetings", kind: .communication),
+        MeetingKnownApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", kind: .communication),
+        MeetingKnownApp(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", kind: .communication),
+        MeetingKnownApp(bundleID: "com.hnc.Discord", name: "Discord", kind: .communication),
+        MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication),
+        MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication),
+        MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication),
+        MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser),
+        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser),
+        MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser),
+        MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser),
+        MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser),
+        MeetingKnownApp(bundleID: "com.brave.Browser", name: "Brave", kind: .browser),
+        MeetingKnownApp(bundleID: "com.vivaldi.Vivaldi", name: "Vivaldi", kind: .browser),
+        MeetingKnownApp(bundleID: "com.operasoftware.Opera", name: "Opera", kind: .browser)
     ]
 
     /// Never list, tap or detect Workbench itself, in any edition.
@@ -91,19 +90,6 @@ enum MeetingAppCatalogue {
     static func isExcluded(_ bundleID: String) -> Bool {
         if excludedBundleIDs.contains(bundleID) { return true }
         return bundleID == Bundle.main.bundleIdentifier || excludedBundleIDs.contains(where: { bundleID.hasPrefix($0 + ".") })
-    }
-
-    /// The single sentence the surface shows next to a chosen source. It names
-    /// the limits instead of implying a proven two-sided recording.
-    static func sourceCaution(for app: MeetingAudioApp) -> String? {
-        guard let known = known(app.bundleID) else { return nil }
-        if known.kind == .browser {
-            return "\(known.name) records everything that browser plays, including other tabs."
-        }
-        if !known.remoteAudioVerified {
-            return "Recording other people from \(known.name) has not been checked on this Mac yet. Play back the result before relying on it."
-        }
-        return nil
     }
 }
 
@@ -553,5 +539,70 @@ enum MeetingSummary {
             notes.append(String(format: "About %.1f seconds from %@ could not be written and are missing.", track.droppedSeconds, side))
         }
         return notes
+    }
+
+    /// History keeps at most 32 notes of 500 characters, but a long call can pause or reconnect
+    /// hundreds of times, and every retry rebuilt the same refused list. The manifest keeps every
+    /// gap; History gets one line per source with the count and total length, and drops the
+    /// person's own Stop & keep note, which is a choice rather than a limitation.
+    static func historyNotes(_ notes: [String], appName: String?) -> [String] {
+        var lines: [String] = [], gapLines = Set<String>()
+        var gaps: [MeetingTrackSource: (count: Int, seconds: Double, line: Int)] = [:]
+        for note in notes {
+            if let gap = MeetingGapNote.parse(note) {
+                guard gapLines.insert(note).inserted else { continue }
+                if let total = gaps[gap.source] { gaps[gap.source] = (total.count + 1, total.seconds + gap.seconds, total.line) }
+                else { gaps[gap.source] = (1, gap.seconds, lines.count); lines.append("") }
+            } else if note != MeetingModel.keptForLater {
+                lines.append(note)
+            }
+        }
+        for (source, total) in gaps {
+            let name = source == .local ? "Your microphone" : appName.flatMap { $0.isEmpty ? nil : $0 } ?? "The app"
+            let length = MeetingGapNote.length(total.seconds)
+            lines[total.line] = total.count == 1
+                ? "\(name) had one gap (a pause or reconnection) of \(length); the recording keeps it as silence."
+                : "\(name) had \(total.count) gaps (pauses or reconnections), \(length) in all; the recording keeps them as silence."
+        }
+        var kept: [String] = [], seen = Set<String>()
+        for line in lines {
+            let plain = String(String.UnicodeScalarView(line.unicodeScalars.map {
+                CharacterSet.controlCharacters.contains($0) ? " " : $0
+            })).trimmingCharacters(in: .whitespaces)
+            let note = plain.count > 500 ? plain.prefix(499).trimmingCharacters(in: .whitespaces) + "…" : plain
+            guard !note.isEmpty, seen.insert(note).inserted else { continue }
+            kept.append(note)
+        }
+        // The fold replaces middle notes: the processor appends limitations of the saved result
+        // (such as missing originals) last, and those must survive the cap.
+        guard kept.count > 32, let last = kept.last else { return kept }
+        return Array(kept.prefix(30)) + ["\(kept.count - 31) more notes about this recording were left out here.", last]
+    }
+}
+
+/// The manifest's sentence for one gap in a source's saved audio, and its reverse, so History
+/// can summarise gaps without guessing at their wording. Earlier builds wrote the same form.
+enum MeetingGapNote {
+    private static let ending = "s; the saved timeline includes silence."
+
+    static func line(source: MeetingTrackSource, reason: String, start: Double, seconds: Double) -> String {
+        "\(source.rawValue): \(reason) Gap at \(String(format: "%.2f", start))s for \(String(format: "%.2f", seconds))" + ending
+    }
+
+    static func parse(_ line: String) -> (source: MeetingTrackSource, seconds: Double)? {
+        guard line.hasSuffix(ending), let colon = line.firstIndex(of: ":"),
+              let source = MeetingTrackSource(rawValue: String(line[..<colon])),
+              let marker = line.range(of: " Gap at ", options: .backwards), marker.lowerBound > colon else { return nil }
+        let timing = line[marker.upperBound..<line.index(line.endIndex, offsetBy: -ending.count)].components(separatedBy: "s for ")
+        guard timing.count == 2, let start = Double(timing[0]), let seconds = Double(timing[1]),
+              start.isFinite, seconds.isFinite, seconds >= 0 else { return nil }
+        return (source, seconds)
+    }
+
+    static func length(_ seconds: Double) -> String {
+        let whole = Int(seconds.rounded())
+        if whole < 1 { return "under a second" }
+        if whole < 60 { return "\(whole) s" }
+        return whole % 60 == 0 ? "\(whole / 60) min" : "\(whole / 60) min \(whole % 60) s"
     }
 }

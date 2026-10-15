@@ -22,7 +22,7 @@ public enum ToolbarGallery {
             return ToolbarViewState(name: "mode-\(mode.slug)-\(tier.rawValue)", tier: tier, mode: mode,
                                     actionTitle: action.title, actionSymbol: action.symbol, actionHint: action.hint(key: exampleKey(mode)),
                                     choices: ToolbarNextAction.choices(for: ToolbarLiveState(mode: mode), key: exampleKey),
-                                    accessory: .offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: false),
+                                    accessory: .offered(for: ToolbarLiveState(mode: mode)),
                                     captureChoices: ToolbarCaptureKind.offered(for: ToolbarLiveState(mode: mode)))
         }
     }
@@ -58,8 +58,7 @@ public enum ToolbarGallery {
     }
 
     private static func live(_ live: ToolbarLiveState, name: String, tier: ToolbarTier = .revealed,
-                             activity: ToolbarActivity? = nil, personaCopy: Bool = false,
-                             accessoryDescription: String? = nil) -> ToolbarViewState {
+                             activity: ToolbarActivity? = nil, accessoryDescription: String? = nil) -> ToolbarViewState {
         let action = ToolbarNextAction.resolve(live)
         return ToolbarViewState(name: name, tier: tier, mode: live.mode, actionTitle: action.title, actionSymbol: action.symbol,
                                 isActionEnabled: action.isEnabled,
@@ -67,7 +66,7 @@ public enum ToolbarGallery {
                                 choices: ToolbarNextAction.choices(for: live, key: exampleKey),
                                 isBusy: live.isLive(live.mode),
                                 status: .resolve(activity ?? Self.activity(live)),
-                                accessory: ToolbarAccessory.offered(for: live, selectedPersonaCopy: personaCopy),
+                                accessory: ToolbarAccessory.offered(for: live),
                                 accessoryDescription: accessoryDescription,
                                 captureChoices: ToolbarCaptureKind.offered(for: live))
     }
@@ -99,7 +98,7 @@ public enum ToolbarGallery {
         live(ToolbarLiveState(mode: .draw, drawing: true), name: "activity-drawing-resting", tier: .resting),
         live(ToolbarLiveState(mode: .present, presenting: true), name: "activity-presenting"),
         live(ToolbarLiveState(mode: .present, presenting: true), name: "activity-presenting-resting", tier: .resting),
-        live(ToolbarLiveState(mode: .persona, persona: .session), name: "activity-personas"),
+        live(ToolbarLiveState(mode: .persona, persona: .session), name: "activity-personas", accessoryDescription: "Choose set · Set 1"),
         live(ToolbarLiveState(mode: .present, presenting: true, insertingPrompt: true), name: "activity-inserting"),
         live(ToolbarLiveState(mode: .snapAndTalk, pendingNarration: true, captureCount: 3), name: "activity-transcribing"),
         // Drawing started from its key while Dictate is the mode: the label

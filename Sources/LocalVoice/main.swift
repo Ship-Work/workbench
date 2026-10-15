@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var statusItem: NSStatusItem!
     let hotkeys = VoiceHotkeys()
     var popover: NSPopover!
-    var recorderMonitor: Any?
     /// The field the menu-bar panel was opened over, for actions started from that visit only.
     var menuTarget = PanelDestination<TextDelivery.Target>()
     var stage: StageKitController!
@@ -160,7 +159,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             self.updateRecordingUI()
         }
-        stage.onEditShortcuts = { [weak self] in self?.navigate("shortcuts") }
+        stage.onEditShortcuts = { [weak self] in
+            guard let self else { return }
+            self.navigate("shortcuts", select: Self.keyboardSelection(failingStage: self.stage.shortcutDescriptors.map { ($0.id, $0.error) }))
+        }
         stage.onBeginActivity = { [weak self] in self?.beginStageActivity() }
         stage.onPresentationWillBegin = { [weak self] in
             // Present is about to hide the window; End brings it back only if it was showing.
@@ -200,13 +202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return self.model.phase == .idle && !self.model.meetings.isBusy
                 ? nil : "Finish the current dictation or meeting before starting Snap & Talk narration."
         }
-        readback.onEditShortcut = { [weak self] in self?.navigate("shortcuts") }
+        readback.onEditShortcut = { [weak self] in self?.navigate("shortcuts", select: Self.keyboardSelection(voice: 5)) }
         readback.onNarrationNotHeard = { [weak self] in self?.model.showNarrationCue() }
         keyboard = KeyboardCoachModel(entries: shortcutEntries(), update: { [weak self] id, shortcut in guard let self else { return "Workbench is unavailable." }; return self.saveShortcut(id, shortcut) }, suspend: { [weak self] suspended in
             guard let self else { return }
             self.shortcutsSuspended = suspended
             if suspended { self.model.promptInsertion.cancel(); self.hotkeys.unregister(); self.stage.escape(); self.stage.setShortcutsSuspended(true) }
-            else { self.stage.setShortcutsSuspended(false); self.registerShortcuts(); self.keyboard.replaceEntries(self.shortcutEntries()) }
+            else { self.stage.setShortcutsSuspended(false); self.registerShortcuts() }
         })
         keyboard.restorePractised(UserDefaults.standard.stringArray(forKey: KeyboardCoachModel.practisedKey) ?? []) {
             UserDefaults.standard.set($0.sorted(), forKey: KeyboardCoachModel.practisedKey)
@@ -309,20 +311,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // An unrelated Stage edit must not discard the key-up of held dictation.
             if conflicts != self.registeredVoiceShortcutConflicts { self.registerShortcuts() }
         }
-        model.onEditShortcut = { [weak self] id in self?.navigate("shortcuts") }
+        model.onEditShortcut = { [weak self] id in self?.navigate("shortcuts", select: Self.keyboardSelection(voice: id)) }
         model.onShowEditor = { [weak self] page in self?.model.page = page; self?.showWindow() }
         model.onShowAnnotationMenu = { [weak self] in self?.showAnnotationMenu() }
         model.onMenuRecording = { [weak self] in self?.menuRecording() }
         model.onCloseMenu = { [weak self] in self?.closeControls() }
-        model.onCancelShortcut = { [weak self] in self?.finishEditing() }
-        model.onResetShortcuts = { [weak self] in
-            guard let self else { return }
-            self.finishEditing()
-            var preferences = self.model.preferences
-            for id in VoicePreferences.shortcutIDs { preferences.setShortcut(VoicePreferences().shortcut(id), for: id) }
-            self.model.preferences = preferences
-            self.stage.resetShortcuts()
-        }
         model.onResetPanel = { [weak self] in self?.capturePanel.position(reset: true) }
         hotkeys.onKey = { [weak self] id, down, time in
             guard let self, VoicePreferences.shortcutIDs.contains(id) else { return }
@@ -413,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }.store(in: &receiptObservations)
     }
     func registerShortcuts() {
-        guard model.editingShortcut == nil, !shortcutsSuspended else { return }
+        guard !shortcutsSuspended else { return }
         let conflicts = ShortcutConflict.duplicateFailures(in: shortcutEntries()).filter { $0.key.hasPrefix("voice.") }
         hotkeys.register(ShortcutConflict.voiceRegistrationPreferences(model.preferences, failures: conflicts))
         registeredVoiceShortcutConflicts = conflicts
@@ -421,39 +414,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         for id in VoicePreferences.shortcutIDs { if let message = conflicts["voice.\(id)"] { model.shortcutFailures[id] = message } }
         stage.refreshShortcutRegistration()
         readback?.setShortcutFailure(model.shortcutFailures[5])
+        // Home and Keyboard read the coach's catalogue, so it carries what macOS refused, at launch too.
+        keyboard?.replaceEntries(shortcutEntries())
     }
-    func editShortcut(_ id: UInt32) {
-        guard model.phase == .idle else { return }
-        finishEditing(); hotkeys.unregister(); model.editingShortcut = id
-        NSApp.activate(ignoringOtherApps: true)
-        if popover.isShown { popover.contentViewController?.view.window?.makeKey() }
-        else { window.makeKey() }
-        recorderMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            guard !event.isARepeat else { return nil }
-            if event.keyCode == 53 { self.finishEditing(); return nil }
-            var shortcut = VoiceShortcut(event: event)
-            if event.keyCode == 51 && shortcut.modifiers == 0 { shortcut.enabled = false }
-            else if shortcut.modifiers & UInt32(controlKey | optionKey) == 0 {
-                self.model.shortcutRecordingMessage = "Include Control or Option."; return nil
-            }
-            if shortcut.enabled && VoicePreferences.shortcutIDs.contains(where: { $0 != id && self.model.preferences.shortcut($0) == shortcut }) { self.model.shortcutRecordingMessage = "That shortcut is already assigned in Workbench."; return nil }
-            var candidate = self.model.preferences
-            candidate.setShortcut(shortcut, for: id)
-            self.hotkeys.register(candidate)
-            let failure = self.hotkeys.failures[id]
-            self.hotkeys.unregister()
-            if let failure { self.model.shortcutRecordingMessage = failure; return nil }
-            self.model.preferences = candidate
-            self.model.status = "Shortcut saved: \(shortcut.label)."
-            self.finishEditing(); return nil
+    /// The coach's catalogue as the panel, a page or Workbench coming forward finds it. A key
+    /// macOS refused is tried again first, so one another app has let go clears without a
+    /// relaunch (#76). Never while a key may be held: registering again drops its key-up.
+    func refreshShortcutEntries() {
+        if model.phase == .idle, !shortcutsSuspended {
+            if !hotkeys.failures.isEmpty { registerShortcuts(); return }
+            stage.refreshShortcutRegistration()
         }
-    }
-    func finishEditing() {
-        if let recorderMonitor { NSEvent.removeMonitor(recorderMonitor); self.recorderMonitor = nil }
-        // Closing ordinary controls must not clear the key-down state of a held dictation shortcut.
-        guard model != nil, model.editingShortcut != nil else { return }
-        model.editingShortcut = nil; model.shortcutRecordingMessage = nil; registerShortcuts()
+        keyboard?.replaceEntries(shortcutEntries())
     }
     private func setupMenus() {
         let menus = makeMainMenu()
@@ -590,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         menuTarget.opened(capturing: TextDelivery.capture())
         // Each visit starts in the normal state, whatever the last one left.
-        model.refreshPermissions(); panelEditor.end(); keyboard.replaceEntries(shortcutEntries()); NSApp.activate(ignoringOtherApps: true)
+        model.refreshPermissions(); panelEditor.end(); refreshShortcutEntries(); NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         panelLeave.watch { [weak self] in self?.closeControls() }
@@ -605,10 +577,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     /// The window was showing when stage work hid it, so the end of a presentation brings it back.
     var windowHiddenForStage = false
-    func closeControls() { popover.performClose(nil); finishEditing() }
+    func closeControls() { popover.performClose(nil) }
     /// Every way the panel closes ends here: the editor and its recorder end
     /// and global actions resume.
-    func popoverDidClose(_ notification: Notification) { menuTarget.closed(); panelLeave.stop(); panelEditor?.end(); finishEditing(); keyboard?.stopInteraction() }
+    func popoverDidClose(_ notification: Notification) { menuTarget.closed(); panelLeave.stop(); panelEditor?.end(); keyboard?.stopInteraction() }
     func resumeTarget(_ action: @escaping (TextDelivery.Target?) -> Void) {
         let target = menuTarget.current
         closeControls()
@@ -724,6 +696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     func applicationDidBecomeActive(_ notification: Notification) {
         readback?.refreshPermissionState()
+        if stage != nil { refreshShortcutEntries() }
         PackLibraryModel.shared.checkAutomatically()
     }
 
@@ -741,6 +714,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard WorkbenchUpdates.shared.canTerminate(saveSession: { model?.saveBeforeUpdate() == true }) else { return .terminateCancel }
         if terminationPending { return .terminateLater }
         guard CaptureImagePreview.shared.canTerminate() else { return .terminateCancel }
+        if let model, model.library.hasUnsavedDraft {
+            model.page = "library"; showWindow(countsAsVisit: false)
+            guard model.library.canTerminate() else { return .terminateCancel }
+        }
         guard let model, model.meetings.isBusy || model.handoffJobs.isBusy || model.hasActiveVoiceCapture else { return .terminateNow }
         terminationPending = true
         terminating = true
@@ -765,8 +742,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let navigationObserver { NotificationCenter.default.removeObserver(navigationObserver) }
         if let bugReportObserver { NotificationCenter.default.removeObserver(bugReportObserver) }
     }
-    func navigate(_ page: String) {
-        keyboard?.stopInteraction(); keyboard?.replaceEntries(shortcutEntries()); model.page = page; showWindow()
+    /// `select` names the shortcut a door is about, so Keyboard opens on it rather than on the last selection (#76).
+    func navigate(_ page: String, select id: String? = nil) {
+        keyboard?.stopInteraction(); refreshShortcutEntries()
+        if let id { keyboard?.reveal(id) }
+        model.page = page; showWindow()
+    }
+    /// The Keyboard row a door names: a Voice keycap or Snap & Talk's Change shortcut… its own.
+    static func keyboardSelection(voice id: UInt32) -> String { "voice.\(id)" }
+    /// Draw's failure banner names its first failing action. With none it names nothing, and
+    /// Keyboard keeps its last selection.
+    static func keyboardSelection(failingStage actions: [(id: String, error: String?)]) -> String? {
+        actions.first { $0.error != nil }.map { "stage." + $0.id }
     }
     /// The voice catalogue's titles, one per id in `VoicePreferences.shortcutIDs`.
     static let voiceShortcutCatalogue: [(UInt32, String)] = [(1, "Dictate"), (2, "Quick controls"), (3, "Library"), (4, "Switch to"), (5, "Snap & Talk"), (7, "Present"), (8, "Snap")]

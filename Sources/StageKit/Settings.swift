@@ -18,9 +18,14 @@ enum Action: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
     var tool: DrawingTool? { DrawingTool(rawValue: rawValue) }
     var title: String {
-        if let tool { return tool.title }
         switch self {
-        case .clear: return "Clear & return to demo"
+        // The presenter keys go by the names Home teaches, here and wherever a key is listed or
+        // reported; the tools they hold keep their own names in Draw's tool list (#76).
+        case .pen: return "Draw"
+        case .rectangle: return "Shape"
+        case .clear: return "Clear"
+        case .undo: return "Undo"
+        case .redo: return "Redo"
         case .whiteboard: return "Whiteboard"
         case .blackboard: return "Blackboard"
         case .pointer: return "Pointer"
@@ -38,7 +43,7 @@ enum Action: String, CaseIterable, Codable, Identifiable {
         case .overlayEnd: return "End presentation overlays"
         case .color1, .color2, .color3, .color4, .color5, .color6:
             return InkColor.presetName(at: Int(String(rawValue.last!))! - 1) + " colour"
-        default: return rawValue.capitalized
+        default: return tool?.title ?? rawValue.capitalized
         }
     }
     /// On by default: the killer presenter keys, Option plus one key under the left hand while the
@@ -249,7 +254,8 @@ final class SettingsStore: ObservableObject {
     func clearNotice() { postedNotice = nil }
     var onChange: (() -> Void)?
     private var loading = true
-    private let defaults: UserDefaults
+    /// The store these settings live in; React to my voice keeps its choice beside them.
+    let defaults: UserDefaults
     init(defaults: UserDefaults = .standard, reserving combinations: Set<GlobalShortcutCombination> = []) {
         self.defaults = defaults
         let savedData = defaults.data(forKey: "preferences.v1")

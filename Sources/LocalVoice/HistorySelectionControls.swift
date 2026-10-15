@@ -231,22 +231,24 @@ struct HandoffJobCard<MadeFrom: View>: View {
     var applySuggestedMetadata: ((HandoffJob, String) -> Void)?
     var query = ""
     var copyResult: (HandoffJob, String) -> Void = { _, _ in }
+    /// What a task's Copy result shows of History's one copy confirmation, asked by task id.
+    var copyShown: (UUID) -> (confirmation: String?, problem: String?) = { _ in (nil, nil) }
     @ViewBuilder var madeFrom: MadeFrom
     @State private var showingOthers = false
 
     var body: some View {
         let files = jobs.files(job)
         let resultReady = job.status == .completed && files?.resultReadable == true
-        let context = Self.context(job)
+        let context = self.context(job)
         let others = jobs.otherReviewJobs(job)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "arrow.up.forward.app").foregroundStyle(Workbench.accent)
-                Text(job.title).font(.headline)
+                Text(jobs.title(job)).font(.headline)
                 Spacer()
                 Text(job.status.title).font(.caption.weight(.medium))
             }.accessibilityElement(children: .ignore)
-                .accessibilityLabel("Result, \(job.title), \(job.status.title)")
+                .accessibilityLabel("Result, \(jobs.title(job)), \(job.status.title)")
                 .focusable(revealed == job.id).focused(focus, equals: job.id)
                 .accessibilityFocused(voiceOverFocus, equals: job.id)
             Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.text(job.createdAt))
@@ -297,11 +299,11 @@ struct HandoffJobCard<MadeFrom: View>: View {
             if !others.isEmpty {
                 DisclosureGroup("Other tasks for this review (\(others.count))", isExpanded: $showingOthers) {
                     ForEach(others) { previous in
-                        let previousContext = Self.context(previous)
+                        let previousContext = self.context(previous)
                         let readable = previous.status == .completed && jobs.files(previous)?.resultReadable == true
                         VStack(alignment: .leading, spacing: 6) {
                             Text(HistoryDate.text(previous.createdAt) + " · " + previous.status.title)
-                                .accessibilityLabel("Earlier task, \(previous.title), \(previous.status.title), "
+                                .accessibilityLabel("Earlier task, \(jobs.title(previous)), \(previous.status.title), "
                                                     + HistoryDate.text(previous.createdAt))
                                 .focusable(revealed == previous.id).focused(focus, equals: previous.id)
                                 .accessibilityFocused(voiceOverFocus, equals: previous.id)
@@ -361,7 +363,9 @@ struct HandoffJobCard<MadeFrom: View>: View {
         // value. No file read can replace the words between review and reuse.
         if let files = jobs.files(task) {
             if let result = files.resultText {
-                HandoffResultPreview(text: result, context: Self.context(task),
+                let shown = copyShown(task.id)
+                HandoffResultPreview(text: result, context: context(task),
+                    confirmation: shown.confirmation, problem: shown.problem,
                     copyText: { copyResult(task, result) })
                 if let applySuggestedMetadata, jobs.isMetadataSuggestion(task) {
                     Button("Review suggested details…") { applySuggestedMetadata(task, result) }
@@ -371,8 +375,8 @@ struct HandoffJobCard<MadeFrom: View>: View {
     }
 
     /// Names the task an action belongs to, since every card repeats its buttons.
-    static func context(_ job: HandoffJob) -> String {
-        job.title + ", " + HistoryDate.text(job.createdAt)
+    private func context(_ job: HandoffJob) -> String {
+        jobs.title(job) + ", " + HistoryDate.text(job.createdAt)
     }
 
     @ViewBuilder private func startAction(_ job: HandoffJob) -> some View {
@@ -386,7 +390,7 @@ struct HandoffJobCard<MadeFrom: View>: View {
             } label: {
                 // A menu's own title ignores the row's font, so it is set here to match the links beside it.
                 Text(job.status == .ready ? "Start task…" : "Retry…").font(.callout)
-            }.fixedSize().accessibilityLabel((job.status == .ready ? "Start task, " : "Retry, ") + Self.context(job))
+            }.fixedSize().accessibilityLabel((job.status == .ready ? "Start task, " : "Retry, ") + context(job))
         }
     }
 }
@@ -395,6 +399,9 @@ struct HandoffJobCard<MadeFrom: View>: View {
 struct HandoffResultPreview: View {
     let text: String
     let context: String
+    /// Copy result's confirmation, or why it could not copy.
+    var confirmation: String? = nil
+    var problem: String? = nil
     var copyText: () -> Void
 
     var body: some View {
@@ -405,8 +412,12 @@ struct HandoffResultPreview: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(12)
                 .background(Workbench.background, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Workbench.border))
-            Button("Copy result", action: copyText).accessibilityLabel("Copy result, " + context)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            HStack(spacing: 12) {
+                Button("Copy result", action: copyText).accessibilityLabel("Copy result, " + context)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                ConfirmationLabel(text: confirmation, reserving: ["Copied"])
+            }
+            if let problem { WorkbenchNote(problem, font: .caption) }
         }
     }
 }
@@ -441,9 +452,10 @@ struct HandoffReviewView: View {
     @State private var showingPreviousReview = false
     @State private var initialized = false
     @State private var selectedProvider: SubscriptionProvider = .codex
+    /// Set once the person picks Run with themselves; until then it follows the set-up runner.
+    @State private var providerChosen = false
     @State private var loadedSkill: ReadbackSkillPackSnapshot?
     @State private var skillProblem: String?
-    @StateObject private var evidencePicker = TranscriptHandoffRunner()
     private var skill: TranscriptHandoffSkill { skills.first(where: { $0.id == skillID }) ?? .followUp }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -477,7 +489,7 @@ struct HandoffReviewView: View {
                                     Button("Use the open session") { useEvidence(selectedSnapTalkSession) }
                                 }
                                 Button("Choose a session…") {
-                                    if let url = evidencePicker.chooseEvidence() { useEvidence(url) }
+                                    if let url = HandoffSessionEvidence.chooseSessionFolder() { useEvidence(url) }
                                 }
                             }.fixedSize().font(.caption)
                         }
@@ -522,7 +534,8 @@ struct HandoffReviewView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
                     HStack {
-                        Picker("Run with", selection: $selectedProvider) {
+                        Picker("Run with", selection: Binding(get: { selectedProvider },
+                                                              set: { selectedProvider = $0; providerChosen = true })) {
                             ForEach(SubscriptionProvider.allCases) { Text($0.title).tag($0) }
                         }
                         Button("Check again") { Task { await jobs.refresh() } }.disabled(jobs.refreshing)
@@ -556,6 +569,7 @@ struct HandoffReviewView: View {
                 task = initialTask ?? TranscriptHandoffSkill.followUp.defaultTask ?? ""
                 if let preferredSkillID, skills.contains(where: { $0.id == preferredSkillID }) { skillID = preferredSkillID }
                 evidenceURL = initialEvidenceURL
+                selectedProvider = HandoffRunReadiness.defaultProvider(enabled: { jobs.enabled($0) }, jobs: jobs.jobs)
                 loadSkill()
                 refreshSources()
                 Task { await jobs.refresh() }
@@ -564,7 +578,12 @@ struct HandoffReviewView: View {
                 HandoffConnectionsSheet(jobs: jobs, backTitle: "Back to handoff") { showingConnections = false }
             }
             .onChange(of: showingConnections) { _, shown in
-                if !shown { Task { await jobs.refresh() } }
+                guard !shown else { return }
+                // A runner switched on in Connections becomes the one shown, unless the person chose.
+                if !providerChosen {
+                    selectedProvider = HandoffRunReadiness.defaultProvider(enabled: { jobs.enabled($0) }, jobs: jobs.jobs)
+                }
+                Task { await jobs.refresh() }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task { await jobs.refresh() }

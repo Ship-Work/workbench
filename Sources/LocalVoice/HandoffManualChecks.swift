@@ -119,6 +119,34 @@ enum HandoffManualChecks {
         let runCount = calls
         try check(model.start(completed, provider: .codex) && calls == runCount, "a completed selection reuses its saved result without another run")
         try HandoffJobStore.verify(completed, root: model.folder(completed)); passed += 1
+        // The review opens on the runner that is set up: an enabled one, the newest task's
+        // when several are, else Codex; with none enabled, the newest task's runner.
+        func ran(_ provider: SubscriptionProvider?) -> HandoffJob {
+            HandoffJob(id: UUID(), createdAt: .distantPast, updatedAt: .distantPast, title: "Synthetic", fingerprint: "", provider: provider,
+                       providerSessionID: nil, status: provider == nil ? .ready : .completed, detail: "", attempts: provider == nil ? 0 : 1,
+                       itemCount: 1, inputFiles: [], inputDigest: "", supportsConnectedText: true)
+        }
+        let claudeNewest = [ran(nil), ran(.claude), ran(.codex)], noneRan = [ran(nil)]
+        let defaults: [(on: Set<SubscriptionProvider>, jobs: [HandoffJob], runner: SubscriptionProvider, case: String)] = [
+            ([.claude], noneRan, .claude, "only Claude Code is enabled"),
+            ([.codex, .claude], claudeNewest, .claude, "both are enabled and Claude Code ran the newest task"),
+            ([.codex, .claude], noneRan, .codex, "both are enabled and no task has run"),
+            ([.codex], claudeNewest, .codex, "only Codex is enabled, though Claude Code ran the newest task"),
+            ([], claudeNewest, .claude, "none is enabled and Claude Code ran the newest task"),
+            ([], noneRan, .codex, "none is enabled and no task has run")]
+        for expected in defaults {
+            try check(HandoffRunReadiness.defaultProvider(enabled: expected.on.contains, jobs: expected.jobs) == expected.runner,
+                      "the review opens on " + expected.runner.title + " when " + expected.case)
+        }
+        let kept = switches
+        switches = [.claude]
+        await model.refresh()
+        let opening = HandoffRunReadiness.defaultProvider(enabled: { model.enabled($0) }, jobs: model.jobs)
+        let claudeOnly = HandoffRunReadiness.evaluate(provider: opening, enabled: model.enabled(opening), checking: model.refreshing,
+            connection: model.connections[opening], busy: model.isBusy, compatible: true, inputProblem: nil)
+        try check(opening == .claude && claudeOnly.state == .ready && claudeOnly.detail.hasPrefix("Claude Code is ready"),
+                  "with only Claude Code set up, a review opens ready to start on it")
+        switches = kept
         // An old discovery completion cannot revive a connection after off/on.
         var probeEnabled = true
         var probes: [CheckedContinuation<SubscriptionConnection, Never>] = []

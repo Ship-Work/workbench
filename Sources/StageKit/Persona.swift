@@ -63,6 +63,7 @@ enum PersonaGeometry {
 
 enum PersonaError: LocalizedError {
     case invalidSettings, changedOnDisk, unreadableImage, outsidePreparedGroup, alreadyAdded, libraryUnavailable
+    case noSavedPersona, emptyGroup
     var errorDescription: String? {
         switch self {
         case .invalidSettings: return "The saved personas contain unsupported or invalid settings. The original files are unchanged."
@@ -71,8 +72,18 @@ enum PersonaError: LocalizedError {
         case .outsidePreparedGroup: return "Choose a persona in the prepared group."
         case .alreadyAdded: return "This persona is already in your library."
         case .libraryUnavailable: return "The saved personas are missing, unreadable or from a newer Workbench. Reopen Workbench before adding a persona."
+        case .noSavedPersona: return "Nothing to show yet. Add a persona first."
+        // The panel line can be seen by others, so it never names the private group.
+        case .emptyGroup: return "This group has no personas yet. Choose its members first."
         }
     }
+}
+
+/// A library that could not be read keeps its own reason on every show door: it may hold
+/// personas, and Add stays off until it can be read, so "nothing to show" would mislead.
+struct PersonaLibraryUnreadable: LocalizedError {
+    let reason: String
+    var errorDescription: String? { reason }
 }
 
 /// A new editable portrait between choosing its picture and Add persona. It
@@ -115,6 +126,17 @@ struct PersonaGroup: Codable, Identifiable, Equatable {
     var suggestedLogoID: UUID? = nil
     var overlays: [PersonaOverlayItem]? = nil
     var publicLabel: String? = nil
+}
+
+/// Arrange overlays' unsaved layout for one group, kept while the person visits another
+/// page (#340). It lives only in memory, so quitting discards it, and Save still compares
+/// `original` with the group as it is now.
+struct PersonaPresentationDraft: Equatable {
+    let groupID: UUID
+    let original: PersonaGroup
+    var overlays: [PersonaOverlayItem]
+    var publicLabel: String
+    var selectedID: UUID?
 }
 
 /// Only these deliberately prepared candidates can appear in live controls.
@@ -303,7 +325,11 @@ final class PersonaLibrary: NSObject, ObservableObject {
         }
     }
     @Published var selectedID: UUID? { didSet { if !applyingArchive { select(previous: oldValue) } } }
-    @Published var notice: String?
+    /// Every assignment is a problem; `confirm` reports something that worked.
+    @Published var notice: String? { didSet { if noticeIsDone { noticeIsDone = false } } }
+    /// Whether `notice` confirms something that worked, which stays on its own page (#134).
+    @Published private(set) var noticeIsDone = false
+    func confirm(_ text: String) { notice = text; noticeIsDone = true }
     /// Live persona keys for help text, set by the shortcut owner.
     @Published var shortcutHint: String?
     /// Saved artwork on screen: the one floating card, or a prepared set's
@@ -377,6 +403,29 @@ final class PersonaLibrary: NSObject, ObservableObject {
     private var sessionFeedback: String?
     var selected: SavedPersona? { items.first { $0.id == selectedID } }
     var activeGroup: PersonaGroup? { groups.first { $0.id == activeGroupID } }
+    /// Arrange overlays' layout while it differs from its group, so changing page keeps it until
+    /// Save layout, Revert or Discard. Not published, so an edit never republishes the library,
+    /// and never written to disk.
+    var presentationDraft: PersonaPresentationDraft?
+    /// The unsaved layout while it still fits its group; a removed group's draft is dropped. When
+    /// the group's members changed meanwhile, as adding or removing a persona on another page does,
+    /// a draft whose overlays are all still members over an unchanged saved layout follows the
+    /// members; any other is dropped with a notice, so Save is never offered one it must refuse.
+    func restorablePresentationDraft() -> PersonaPresentationDraft? {
+        guard let draft = presentationDraft else { return nil }
+        guard let group = groups.first(where: { $0.id == draft.groupID }) else { presentationDraft = nil; return nil }
+        if group.personaIDs == draft.original.personaIDs { return draft }
+        let members = Set(group.personaIDs)
+        guard group.overlays == draft.original.overlays, group.publicLabel == draft.original.publicLabel,
+              draft.overlays.allSatisfy({ members.contains($0.personaID) }) else {
+            presentationDraft = nil
+            notice = "The unsaved overlay layout was discarded because its group's members changed."
+            return nil
+        }
+        presentationDraft = PersonaPresentationDraft(groupID: draft.groupID, original: group, overlays: draft.overlays,
+                                                     publicLabel: draft.publicLabel, selectedID: draft.selectedID)
+        return presentationDraft
+    }
     var visibleItems: [SavedPersona] {
         guard let group = activeGroup else { return items }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
@@ -704,7 +753,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
             try commit(next)
             // Scenes may still reference this file. Removing a library entry is
             // never permission to delete its image from the shared scene folder.
-            notice = "Removed from saved personas. Scenes using the image are unchanged."
+            confirm("Removed from saved personas. Scenes using the image are unchanged.")
         } catch { notice = error.localizedDescription }
     }
 
@@ -744,12 +793,29 @@ final class PersonaLibrary: NSObject, ObservableObject {
         var next = archive; next.groups[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         do { try commit(next); notice = nil } catch { notice = error.localizedDescription }
     }
+    /// What Remove group… takes, for its confirmation: the member list always, a saved
+    /// layout or public label only when the group has one, and what is shown from it or
+    /// kept for Show again. The personas stay. It reads state and changes nothing.
+    func groupRemovalMessage(_ group: PersonaGroup?) -> String {
+        let group = group.flatMap { asked in groups.first { $0.id == asked.id } } ?? group
+        var parts = ["member list"]
+        if group?.overlays?.isEmpty == false { parts.append("saved layout") }
+        if group?.publicLabel?.isEmpty == false { parts.append("public label") }
+        let named = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts[parts.count - 1]
+        var message = "Its \(named) will be removed. Its personas, images and scenes stay in your library."
+        // A hidden card, one the camera took the slot from, or a paused set is off the
+        // screen but kept for Show again, so it is named as kept, not shown.
+        if let id = group?.id, liveSelection?.groupID == id || (sessionState.phase != .idle && sessionState.currentGroupID == id) {
+            message += artworkVisible ? " What is shown from this group ends." : " What is kept from this group for Show again ends."
+        }
+        return message
+    }
     func removeGroup(_ id: UUID) {
         guard writable() else { return }
         var next = archive; next.groups.removeAll { $0.id == id }
         next.preparedGroupIDs.removeAll { $0 == id }
         if activeGroupID == id { next.activeGroupID = nil; next.selectedID = nil }
-        do { try commit(next); notice = "Group removed. Its personas, images and scenes are kept." }
+        do { try commit(next); confirm("Group removed. Its personas, images and scenes are kept.") }
         catch { notice = error.localizedDescription }
     }
     func prepareGroup(_ id: UUID?) {
@@ -1003,22 +1069,9 @@ final class PersonaLibrary: NSObject, ObservableObject {
             return sessionState.instances.first { $0.id == id }?.shape
         }
     }
-    /// Whether an explicit live copy is hidden now: the one floating card kept for
-    /// Show Again, or a set's copy while the set is hidden or the copy itself is.
-    /// nil once that copy is no longer live.
-    func liveCopyHidden(_ copy: PersonaLiveCopy) -> Bool? {
-        guard copy.generation == overlayGeneration else { return nil }
-        switch copy {
-        case .card(let id, _):
-            return session == nil && shownCard?.copyID == id ? !artworkVisible : nil
-        case .overlay(let id, let group, _):
-            guard sessionState.currentGroupID == group, let instance = sessionState.instances.first(where: { $0.id == id }) else { return nil }
-            return sessionState.phase == .paused || !instance.visible
-        }
-    }
     /// Circle, Card or Original for exactly one live copy, from its Options or the
-    /// toolbar. A copy that is no longer live is left alone; no other copy and no
-    /// saved persona changes.
+    /// Persona workspace. A copy that is no longer live is left alone; no other copy
+    /// and no saved persona changes.
     func setLiveShape(_ shape: PersonaAppearance.Shape, for copy: PersonaLiveCopy) {
         guard copy.generation == overlayGeneration else { return }
         switch copy {
@@ -1148,7 +1201,10 @@ final class PersonaLibrary: NSObject, ObservableObject {
         let guest = requested.flatMap { id in group.map { $0.personaIDs.contains(id) } == false ? id : nil }
         let candidateIDs = group.map { (guest.map { [$0] } ?? []) + $0.personaIDs } ?? items.map(\.id)
         guard let initialID = (requested ?? selectedID).flatMap({ candidateIDs.contains($0) ? $0 : nil }) ?? candidateIDs.first
-        else { throw PersonaError.unreadableImage }
+        else {
+            if items.isEmpty, let readOnlyReason { throw PersonaLibraryUnreadable(reason: readOnlyReason) }
+            throw items.isEmpty ? PersonaError.noSavedPersona : PersonaError.emptyGroup
+        }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         let deck = PersonaCardDeck(candidates: candidateIDs.compactMap { byID[$0] }, root: root,
                                    budget: cardImageBudget, label: publicLabel(for:))
@@ -1334,7 +1390,7 @@ final class PersonaLibrary: NSObject, ObservableObject {
         camera.end(handingOff: handingOff && camera.isLive)
         liveSource = .artwork
         publishLiveState()
-        if wasLive { notice = "Live Camera ended. Showing your saved artwork." }
+        if wasLive { confirm("Live Camera ended. Showing your saved artwork.") }
     }
     /// The camera's state changed: the one live slot follows it, the artwork it
     /// replaced is kept for Show again, and every door reads the new source.

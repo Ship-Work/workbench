@@ -225,7 +225,7 @@ public actor PackStore {
             }
         }
         records.sort { $0.1.installedAt > $1.1.installedAt }
-        var keep = Set(records.prefix(3).map { $0.0.lastPathComponent }); keep.insert(active.directory)
+        var keep = Set(records.prefix(PackLimits.maximumRetainedRevisions).map { $0.0.lastPathComponent }); keep.insert(active.directory)
         var hashes = Set<String>()
         for (url, record) in records {
             if keep.contains(url.lastPathComponent) { hashes.formUnion(record.manifest.files.map(\.sha256)) }

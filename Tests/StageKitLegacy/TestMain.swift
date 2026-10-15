@@ -131,6 +131,10 @@ struct TestRunner {
                 ("persona sheet launch only after dismissal", suite.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
                 ("persona workspace failure preserves active session", suite.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
                 ("Present compact preview policy", suite.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+                ("Present persona chooser lists every card and only selects", suite.testPresentChooserListsEveryCardAndOnlySelects),
+                ("persona workspace keeps an unsaved arrangement across pages", suite.testChangingPageKeepsAnUnsavedArrangement),
+                ("persona sessions: unsaved arrangement kept in memory", PersonaSessionTests().testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
+                ("persona sessions: kept arrangement follows or drops changed members", PersonaSessionTests().testKeptArrangementFollowsItsGroupsMembersOrIsDropped),
                 ("optional offscreen workspace layouts", suite.testOffscreenWorkspaceLayouts)
             ]
             for (name, test) in tests {
@@ -149,7 +153,8 @@ struct TestRunner {
             let tests: [(String, () throws -> Void)] = [
                 ("shortcut recording notices belong to Keyboard", suite.testShortcutRecordingNoticesBelongToKeyboard),
                 ("login notices belong to General", suite.testLoginNoticesBelongToGeneral),
-                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral)
+                ("saved settings notices belong to General", suite.testSavedSettingsNoticesBelongToGeneral),
+                ("successes stay on their page and never hide a problem", suite.testSuccessesStayOnTheirPageAndNeverHideAProblem)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -199,6 +204,10 @@ struct TestRunner {
                 ("one card frozen sources and bounded decoding", oneCard.testFrozenSourcesKeepAppearanceAndDecodingStaysBounded),
                 ("one card failed Next in live menu and panel notice", oneCard.testFailedNextIsReportedInTheLiveMenuAndThePanelNotice),
                 ("one card Next with no other card says so", oneCard.testNextWithNoOtherCardSaysSo),
+                ("one card with nothing saved says so", oneCard.testShowingWithNothingSavedSaysSo),
+                ("one card from an unreadable library keeps its reason", oneCard.testShowingFromAnUnreadableLibraryKeepsItsReason),
+                ("one card from an empty group says so without its name", oneCard.testShowingAnEmptyGroupSaysSoWithoutItsName),
+                ("persona Remove group asks first and says what goes", personas.testRemoveGroupAsksFirstAndSaysWhatGoes),
                 ("prepared sessions keep their limits and preflight", oneCard.testPreparedSessionsKeepTheirLimitsAndPreflight),
                 ("persona sessions: bounded replacement preflight", sessions.testBoundedPreflightAlsoProtectsLegacyShowAndCurrentSession),
                 ("persona: visible single-card launch failure", sessions.testSingleCardLaunchFailureReturnsErrorAndPreservesExistingOutput),
@@ -225,6 +234,7 @@ struct TestRunner {
             let suite = PersonaVoiceTests(), latency = PersonaVoiceLatencyTests(), appearance = VoiceAppearanceTests()
             let tests: [(String, () throws -> Void)] = [
                 ("persona voice ring listens only while on and showing", suite.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
+                ("persona voice keeps its choice in the store it is given", suite.testSystemAccessKeepsTheChoiceInTheStoreItIsGiven),
                 ("persona voice ring asks while preparing and stops when unavailable", suite.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
                 ("persona voice ring single floating persona", suite.testSingleFloatingPersonaIsPlacedWithRoomForItsRing),
                 ("persona voice ring placement keeps artwork and ring on screen", suite.testPlacementKeepsArtworkSizeAndTheRingOnScreen),
@@ -307,8 +317,8 @@ struct TestRunner {
                 ("appearance: live shape uses frozen ingredients for that copy only", appearance.testLiveShapeUsesFrozenIngredientsAndChangesOnlyThatCopy),
                 ("appearance: prepared copy changes alone and saves only when asked", appearance.testPreparedCopyChangesShapeAloneAndSavesOnlyWhenAsked),
                 ("appearance: one keyboard-reachable choice", appearance.testAppearanceChoiceIsOneKeyboardReachableSelection),
-                ("appearance: the toolbar changes exactly the captured copy", appearance.testToolbarChangesExactlyTheCapturedCopy),
-                ("appearance: the toolbar targets one prepared copy exactly", appearance.testToolbarTargetsOnePreparedCopyExactly),
+                ("appearance: a captured copy changes exactly", appearance.testAppearanceChangesExactlyTheCapturedCopy),
+                ("appearance: one prepared copy changes exactly", appearance.testAppearanceTargetsOnePreparedCopyExactly),
                 ("appearance: a paused copy reshapes around its centre", appearance.testPausedCopyReshapesAroundItsCentre),
                 ("appearance: tall, wide, small and transparent artwork", appearance.testTallWideSmallAndTransparentArtworkAgreeWithTheirOutline),
                 ("appearance: deck keeps the shown look until the new one is ready", appearance.testDeckKeepsTheShownLookUntilTheNewOneIsReady),
@@ -401,7 +411,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", suite.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", suite.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", suite.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", suite.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", suite.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -435,11 +446,12 @@ struct TestRunner {
             let tests: [(String, () throws -> Void)] = [
                 ("drawing admission preserves independent guards", workbench.testDrawingAdmissionIsSeparateFromGeneralInteraction),
                 ("finish drawing preserves ink and settled input", workbench.testFinishDrawingPreservesBoardInkAndReportsSettledTransitions),
-                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing)
+                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing),
+                ("a refused key is tried again on refresh", workbench.testRefusedShortcutIsTriedAgainOnRefresh)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
-                do { try test() } catch { assertionFailures += 1; print("FAIL \(name): \(error)") }
+                do { try test() } catch let skip as TestSkipped { print("SKIP \(name): \(skip)"); continue } catch { assertionFailures += 1; print("FAIL \(name): \(error)") }
                 if assertionFailures == before { print("PASS \(name)") }
             }
             print("\(tests.count) tests · \(assertionCount) assertions · \(assertionFailures) failures")
@@ -515,9 +527,11 @@ struct TestRunner {
                 ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
                 ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
                 ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+                ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
                 ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
                 ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
-                ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer)
+                ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
+                ("timer keeps the display awake only while on screen", timerTransport.testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen)
             ]
             for (name, test) in tests {
                 let before = assertionFailures
@@ -680,6 +694,8 @@ struct TestRunner {
             ("persona sessions: paused switching and frozen scope", personaSessions.testPausedGroupSwitchKeepsLayoutsAndFrozenAllowedScope),
             ("persona sessions: frozen artwork and failed start", personaSessions.testFrozenArtworkSurvivesLibraryEditsAndFailedReplacementStart),
             ("persona sessions: explicit conflict-aware layout save", personaSessions.testSaveLayoutIsExplicitAtomicAndRejectsChangedPreparation),
+            ("persona sessions: unsaved arrangement kept in memory", personaSessions.testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
+            ("persona sessions: kept arrangement follows or drops changed members", personaSessions.testKeptArrangementFollowsItsGroupsMembersOrIsDropped),
             ("persona sessions: read-only and busy state", personaSessions.testReadOnlySessionsAndInteractionGuardsNeverWriteOrTrapOverlays),
             ("persona sessions: invalid and future archive preservation", personaSessions.testInvalidLayoutsAndFutureArchivePreserveOriginalBytes),
             ("persona sessions: bounded replacement preflight", personaSessions.testBoundedPreflightAlsoProtectsLegacyShowAndCurrentSession),
@@ -692,12 +708,16 @@ struct TestRunner {
             ("one card frozen sources and bounded decoding", personaOneCard.testFrozenSourcesKeepAppearanceAndDecodingStaysBounded),
             ("one card failed Next in live menu and panel notice", personaOneCard.testFailedNextIsReportedInTheLiveMenuAndThePanelNotice),
             ("one card Next with no other card says so", personaOneCard.testNextWithNoOtherCardSaysSo),
+            ("one card with nothing saved says so", personaOneCard.testShowingWithNothingSavedSaysSo),
+            ("one card from an unreadable library keeps its reason", personaOneCard.testShowingFromAnUnreadableLibraryKeepsItsReason),
+            ("one card from an empty group says so without its name", personaOneCard.testShowingAnEmptyGroupSaysSoWithoutItsName),
             ("prepared sessions keep their limits and preflight", personaOneCard.testPreparedSessionsKeepTheirLimitsAndPreflight),
             ("floating: AllTargetsAreDistinctFiniteAndBounded", floating.testAllTargetsAreDistinctFiniteAndBounded),
             ("floating: GuideLayoutPreservesTargetsAndFlipsDisplayCoordinates", floating.testGuideLayoutPreservesTargetsAndFlipsDisplayCoordinates),
             ("floating: GuideStateClearsWhenDragOrDisplayEnds", floating.testGuideStateClearsWhenDragOrDisplayEnds),
             ("personas: LegacyMigrationKeepsFinishedPixelsAndRequiresExplicitGroup", personas.testLegacyMigrationKeepsFinishedPixelsAndRequiresExplicitGroup),
             ("personas: OrderedGroupsAndDeletionNeverSelectAnotherCustomer", personas.testOrderedGroupsAndDeletionNeverSelectAnotherCustomer),
+            ("personas: RemoveGroupAsksFirstAndSaysWhatGoes", personas.testRemoveGroupAsksFirstAndSaysWhatGoes),
             ("personas: LiveCandidatesRemainScopedAndHUDLabelsExcludePrivateNames", personas.testLiveCandidatesRemainScopedAndHUDLabelsExcludePrivateNames),
             ("personas: EditableCardRenderingAndSaveFailurePreserveSources", personas.testEditableCardRenderingAndSaveFailurePreserveSources),
             ("sceneSync: Mac edit keeps original mobile attachments", sceneSync.testMacEditKeepsOriginalMobileAttachmentsInPortablePackage),
@@ -716,9 +736,11 @@ struct TestRunner {
             ("timer finished restarts through the normal start path", timerTransport.testFinishedOffersRestartThroughTheNormalStartPath),
             ("timer paused resume and visibility-only shortcut", timerTransport.testPausedResumeKeepsItsTimeAndTheShortcutOnlyShowsOrHides),
             ("timer transport keeps marks and boards", timerTransport.testTransportLeavesMarksAndBoardsAlone),
+            ("timer publishes once per shown second", timerTransport.testARunningCountdownPublishesOncePerShownSecond),
             ("timer controls perform only the transport they showed", timerTransport.testAShownTransportIsTheOnlyOneItPerforms),
             ("timer one name and word set on every surface", timerTransport.testOneNameAndWordSetFollowTheTimerEverywhere),
             ("timer Position… sits by the window or the pointer", timerTransport.testPositionControlSitsByTheWindowOrThePointer),
+            ("timer keeps the display awake only while on screen", timerTransport.testTheDisplayStaysAwakeOnlyWhileACountdownIsOnScreen),
             ("full-height frame persistence and edges", viewportFit.testFullHeightSurvivesSavingAndReachesBothEdges),
             ("maximum frame size across displays", viewportFit.testMaximumSizeFitsDisplayAndPreservesScreenShape),
             ("full-height export and live geometry", viewportFit.testExportAndLiveScreenUseFullHeightBorder),
@@ -800,8 +822,8 @@ struct TestRunner {
             ("appearance: live shape uses frozen ingredients for that copy only", personaAppearance.testLiveShapeUsesFrozenIngredientsAndChangesOnlyThatCopy),
             ("appearance: prepared copy changes alone and saves only when asked", personaAppearance.testPreparedCopyChangesShapeAloneAndSavesOnlyWhenAsked),
             ("appearance: one keyboard-reachable choice", personaAppearance.testAppearanceChoiceIsOneKeyboardReachableSelection),
-            ("appearance: the toolbar changes exactly the captured copy", personaAppearance.testToolbarChangesExactlyTheCapturedCopy),
-            ("appearance: the toolbar targets one prepared copy exactly", personaAppearance.testToolbarTargetsOnePreparedCopyExactly),
+            ("appearance: a captured copy changes exactly", personaAppearance.testAppearanceChangesExactlyTheCapturedCopy),
+            ("appearance: one prepared copy changes exactly", personaAppearance.testAppearanceTargetsOnePreparedCopyExactly),
             ("appearance: a paused copy reshapes around its centre", personaAppearance.testPausedCopyReshapesAroundItsCentre),
             ("appearance: tall, wide, small and transparent artwork", personaAppearance.testTallWideSmallAndTransparentArtworkAgreeWithTheirOutline),
             ("appearance: deck keeps the shown look until the new one is ready", personaAppearance.testDeckKeepsTheShownLookUntilTheNewOneIsReady),
@@ -881,6 +903,7 @@ struct TestRunner {
             ("shortcut recording notices belong to Keyboard", NoticeOwnerTests().testShortcutRecordingNoticesBelongToKeyboard),
             ("login notices belong to General", NoticeOwnerTests().testLoginNoticesBelongToGeneral),
             ("saved settings notices belong to General", NoticeOwnerTests().testSavedSettingsNoticesBelongToGeneral),
+            ("successes stay on their page and never hide a problem", NoticeOwnerTests().testSuccessesStayOnTheirPageAndNeverHideAProblem),
             ("duplicate shortcut registration plan", suite.testDuplicateShortcutRegistrationPlanPausesBothWithoutChangingSettings),
             ("ink colour accessibility descriptions", suite.testInkColourAccessibilityDescriptions),
             ("actual rendering for every tool", suite.testAllToolsRenderToRealPixels),
@@ -915,7 +938,10 @@ struct TestRunner {
             ("persona sheet launch only after dismissal", personaWorkspace.testSheetLaunchWaitsForDismissalAndIsConsumedOnce),
             ("persona workspace failure preserves active session", personaWorkspace.testWorkspaceFailureIsImmediateAndDoesNotReplaceSession),
             ("Present compact preview policy", personaWorkspace.testPresentPreviewReservesControlsAndFitsNarrowEditors),
+            ("Present persona chooser lists every card and only selects", personaWorkspace.testPresentChooserListsEveryCardAndOnlySelects),
+            ("persona workspace keeps an unsaved arrangement across pages", personaWorkspace.testChangingPageKeepsAnUnsavedArrangement),
             ("persona voice ring listens only while on and showing", personaVoice.testVoiceRingListensOnlyWhileOnAndItsPersonaShows),
+            ("persona voice keeps its choice in the store it is given", personaVoice.testSystemAccessKeepsTheChoiceInTheStoreItIsGiven),
             ("persona voice ring asks while preparing and stops when unavailable", personaVoice.testVoiceRingAsksWhilePreparingAndStopsWhenTheMicrophoneIsUnavailable),
             ("persona voice a fault found by a show keeps its reason", personaVoice.testAFaultFoundByAShowKeepsItsReason),
             ("persona voice refusal offers Microphone Settings in the live menus", personaVoice.testRefusedMicrophoneOffersMicrophoneSettingsInTheLiveMenus),
@@ -970,7 +996,7 @@ struct TestRunner {
         } else if scenesOnly {
             tests = Array(tests.prefix { $0.0 != "line hit testing" })
         } else if hostedCI {
-            print("SKIP live menu-bar popover regression in --ci mode; run scripts/test.zsh on an interactive Mac for full coverage")
+            print("SKIP live menu-bar popover regression in --ci mode; run bash scripts/test-stage.sh (no arguments) on an interactive Mac for full coverage")
         } else {
             tests.append(("menu bar and non-destructive quick adjustments", integration.testMenuBarAccessAndQuickAdjustmentsPreserveBoard))
         }
@@ -979,7 +1005,8 @@ struct TestRunner {
                 ("embedded navigation and recording suspension", workbench.testEmbeddedCallbacksAndSuspendedShortcutSettings),
                 ("drawing admission preserves independent guards", workbench.testDrawingAdmissionIsSeparateFromGeneralInteraction),
                 ("finish drawing preserves ink and settled input", workbench.testFinishDrawingPreservesBoardInkAndReportsSettledTransitions),
-                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing)
+                ("shortcut replacement releases only held drawing", workbench.testShortcutReregistrationReleasesOnlyHeldDrawing),
+                ("a refused key is tried again on refresh", workbench.testRefusedShortcutIsTriedAgainOnRefresh)
             ])
             let annotationMenu = AnnotationMenuTests()
             tests.append(contentsOf: [
@@ -988,7 +1015,8 @@ struct TestRunner {
                 ("annotation menu preserves ink and boards", annotationMenu.testBoardsAndControlsPreserveInkUntilExplicitClear),
                 ("stop drawing closes the board and keeps its ink", annotationMenu.testStopDrawingClosesTheBoardAndKeepsItsInk),
                 ("pen key leaves the board and the hint matches draw", annotationMenu.testPenKeyLeavesTheBoardAndTheHintMatchesDraw),
-                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission)
+                ("annotation menu rechecks admission", annotationMenu.testStaleMenuCannotBypassChangedAdmission),
+                ("open board offers Copy Board and Save Board PNG", annotationMenu.testOpenBoardOffersCopyAndSaveInDrawMenu)
             ])
         }
         var skipped = 0

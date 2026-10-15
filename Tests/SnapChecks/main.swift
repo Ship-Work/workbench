@@ -36,6 +36,14 @@ try check(oriented.width == 80 && oriented.height == 128, "photo import applies 
 let original = try store.snapshot(first.id)
 try check(original.originalPNG == png && original.imagePNG == png, "original and untouched image exact bytes")
 try check(try SnapRendering.dimensions(png).width == 128, "fixture dimensions")
+let retina = SnapRendering.capturePixelSize(points: CGSize(width: 1470, height: 956), scale: 2)
+try check(retina.width == 2940 && retina.height == 1912, "a Retina screen captures at its full pixel size")
+let standard = SnapRendering.capturePixelSize(points: CGSize(width: 1920, height: 1080), scale: 1)
+try check(standard.width == 1920 && standard.height == 1080, "a 1x screen captures at its point size")
+let scaled = SnapRendering.capturePixelSize(points: CGSize(width: 1000, height: 667), scale: 1.5)
+try check(scaled.width == 1500 && scaled.height == 1001, "a fractional scale rounds to the nearest pixel")
+let unknown = SnapRendering.capturePixelSize(points: CGSize(width: 1470, height: 956), scale: 0)
+try check(unknown.width == 1470 && unknown.height == 956, "an unknown scale never shrinks the capture")
 let firstDir = root.appendingPathComponent(first.id.uuidString.lowercased())
 for name in ["original.png", "snap.json"] {
     let mode = try fm.attributesOfItem(atPath: firstDir.appendingPathComponent(name).path)[.posixPermissions] as? NSNumber
@@ -530,6 +538,29 @@ try MainActor.assumeIsolated {
               && model.notice?.hasPrefix("Snap was not saved.") == true && model.items.count == count && heard.count == 5,
               "a write the store refuses keeps the editor and its reason, ends the showing check and claims nothing")
     model.draft = nil
+
+    // Copy is a success like the others: a quiet check, not a notice that stays (#338).
+    model.copyImage = { pasted.append($0); return true }
+    model.copy(model.items[0].id)
+    try check(model.lastOutcome == .copied && model.confirmation?.kind == .copied && model.notice == nil && model.failureCode == nil
+              && pasted.last == (try model.store.snapshot(model.items[0].id)).imagePNG, "a copy is confirmed as Image copied, with no lingering notice")
+    try check(heard.last == "Image copied" && heard.count == 6, "VoiceOver hears the copy once")
+    let copyEvent = model.confirmation!.lifetime.event
+    clock += 3.9; model.expireConfirmation(copyEvent)
+    try check(model.confirmation?.kind == .copied, "the copy's confirmation lasts four seconds")
+    clock += 0.1; model.expireConfirmation(copyEvent)
+    try check(model.confirmation == nil && model.lastOutcome == .copied, "then only the confirmation leaves")
+    model.copy(model.items[0].id)
+    try check(model.confirmation?.kind == .copied && heard.count == 7, "a check is showing before a copy fails")
+    model.copyImage = { _ in false }
+    model.copy(model.items[0].id)
+    try check(model.lastOutcome == .failed && model.confirmation == nil && model.pendingConfirmationExpiry == nil
+              && model.notice == "The image could not be copied. Try again." && model.failureCode == "snap.copy_failed" && heard.count == 7,
+              "a failed copy replaces the check with its notice and Report a problem code, and claims nothing")
+    model.copy(UUID())
+    try check(model.lastOutcome == .failed && model.confirmation == nil && model.notice != nil && model.failureCode == "snap.copy_failed",
+              "a Snap that cannot be read fails cleanly with the same code")
+    model.copyImage = nil
 }
 
 // Editable text and rotation retain originals, render identically after reopening,

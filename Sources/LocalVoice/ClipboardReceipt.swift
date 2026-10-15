@@ -18,6 +18,9 @@ struct ClipboardReceipt: Identifiable, Equatable {
     /// transcript, Library for a prompt.
     var source: Source = .transcript
     enum Source: Equatable { case transcript, prompt, result(UUID) }
+    /// The cue as VoiceOver hears it: the title, then the detail, without saying the title
+    /// twice when the detail already starts with it ("Sent to Notes · still copied.").
+    var spokenText: String { detail.hasPrefix(title) ? detail : title + ". " + detail }
 }
 
 /// A brief delivery cue. Confirmed insertion stays quiet; clipboard fallback gives
@@ -99,7 +102,11 @@ final class ClipboardReceiptModel: ObservableObject {
             symbol = "arrow.up.right"
         } else if outcome.failure == .pasteUnconfirmed {
             title = "Paste unconfirmed"
-            detail = ownsClipboard ? "Check the destination before pasting again. The transcript is still copied." : "Check the destination. The transcript is available in Workbench."
+            switch source {
+            case .prompt: detail = ownsClipboard ? "Check the destination before pasting again. The prompt is still copied." : "Check the destination. Copy the prompt again from Library."
+            case .result: detail = ownsClipboard ? "Check the destination before pasting again. The result is still copied." : "Check the destination. Copy the saved result again from History."
+            case .transcript: detail = ownsClipboard ? "Check the destination before pasting again. The transcript is still copied." : "Check the destination. The transcript is available in Workbench."
+            }
             symbol = "questionmark.circle"
         } else if outcome.failure == .cancelled {
             title = "Delivery stopped"; detail = outcome.message; symbol = "pause.circle"
@@ -134,16 +141,6 @@ final class ClipboardReceiptModel: ObservableObject {
         lifetime = nil
         expiry.cancel()
         if receipt?.isClipboardCurrent != true { clear() }
-    }
-
-    /// Reopen the same owned receipt without writing to or reading from the clipboard.
-    func revealHUD() {
-        refreshClipboardOwnership()
-        guard let receipt, receipt.isClipboardCurrent else { return }
-        isHUDVisible = true
-        lifetime = freshLifetime(for: receipt)
-        scheduleExpiry()
-        startTimerIfNeeded()
     }
 
     /// Called on new recording as well as explicit dismissal of the whole receipt.

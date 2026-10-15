@@ -91,6 +91,12 @@ enum ImageWorkspaceChecks {
                 preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
                 try await settle(preview)
                 try render(preview.panel!, to: output.appendingPathComponent("image-workspace-" + theme + ".png"))
+                // An arrow selected shows the Pen, Arrow and Box inspector. It is added and removed outside
+                // Undo, then the text box is selected again, so the shots after it stay as they were.
+                let arrow = SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+                editor.draft.edit.marks.append(arrow); editor.select(arrow.id); try await settle(preview)
+                try render(preview.panel!, to: output.appendingPathComponent("image-workspace-arrow-" + theme + ".png"))
+                editor.draft.edit.marks.removeAll { $0.id == arrow.id }; editor.select(textID); try await settle(preview)
                 owner.contentView = NSHostingView(rootView: SnapWorkspaceView(model: snap, selectedIDs: .constant([]))
                     .frame(width: 1180, height: 780))
                 owner.setContentSize(NSSize(width: 1180, height: 780))
@@ -110,9 +116,12 @@ enum ImageWorkspaceChecks {
             try render(preview.panel!, to: output.appendingPathComponent("image-workspace-small.png"))
             preview.panel?.setContentSize(NSSize(width: 1180, height: 740))
         }
+        // "pricing," and a Tags field typed in then cleared leave empty pieces; Save keeps only real tags.
+        editor.draft.tags = ["pricing", ""]
         preview.saveEditing(copy: false); try await settle(preview)
         let saved = try store.snapshot(first.id)
         try check(preview.editing == nil && snap.draft == nil && preview.panel === originalPanel, "Save returns to viewing in the same window")
+        try check(saved.item.tags == ["pricing"], "Save drops the empty tag a trailing comma leaves")
         try check(saved.originalPNG == png && saved.item.edit.marks.first?.kind == .text && saved.item.formatVersion == 2, "saved text is reopenable and original remains exact")
         preview.step(1); try await settle(preview); preview.step(-1); try await settle(preview)
         preview.beginEditing(); try await settle(preview)
@@ -121,8 +130,9 @@ enum ImageWorkspaceChecks {
         let source = root.appendingPathComponent("Frozen session image.png"); try png.write(to: source)
         preview.show(.savedCopy(title: "Frozen input", url: source)); try await settle(preview); preview.beginEditing(); try await settle(preview)
         try check(preview.editing?.draft.existing == nil && preview.editing?.draft.originalPNG == (try SnapRendering.png(png)), "frozen source edits become new full-resolution Snaps")
-        preview.editing?.addText(); preview.saveEditing(copy: false); try await settle(preview)
+        preview.editing?.addText(); preview.editing?.draft.tags = [""]; preview.saveEditing(copy: false); try await settle(preview)
         try check(try Data(contentsOf: source) == png && store.load().items.count == 3, "saving a copy leaves frozen input unchanged")
+        try check(try store.load().items.contains { $0.title == "Saved image for Frozen input" && $0.tags.isEmpty }, "Save of a cleared Tags field stores no tags")
         if case .snap(let savedRoot, let savedID) = preview.model?.item.source {
             try check(savedRoot == store.root && (try store.read(savedID)).edit.marks.first?.kind == .text,
                       "Save a copy returns to the newly edited image in the same workspace")
@@ -159,6 +169,85 @@ enum ImageWorkspaceChecks {
             liveCanvas.mouseUp(with: dragEvent(.leftMouseUp, 0.7))
             try check(handled && preview.editing === liveEditor && liveEditor.draft.edit == before,
                       "Escape cancels a transient crop gesture before the window's Close shortcut")
+            // ⌘Z and ⇧⌘Z in Title, Tags or Notes belong to that field. The canvas and a caption keep the image's Undo.
+            // Keys come from CGEvents, which carry the keyboard layout: NSEvent.keyEvent's lack it, and SwiftUI then
+            // matches ⌘Z to Redo as often as to Undo. Key 6 is Z on QWERTY layouts.
+            liveEditor.addText(); liveEditor.undo(); liveEditor.tool = .select; liveEditor.select(nil); try await settle(preview)
+            func undoKey(shift: Bool) -> NSEvent? {
+                guard let key = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 6, keyDown: true) else { return nil }
+                key.flags = shift ? [.maskCommand, .maskShift] : .maskCommand
+                return NSEvent(cgEvent: key)
+            }
+            func press(shift: Bool) async throws -> Bool {
+                guard let key = undoKey(shift: shift) else { return false }
+                let handled = livePanel.performKeyEquivalent(with: key); try await settle(preview)
+                return handled
+            }
+            try check(undoKey(shift: false)?.charactersIgnoringModifiers?.lowercased() == "z", "the synthetic ⌘Z reads as Z on this keyboard layout")
+            func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] { [view as? T].compactMap { $0 } + view.subviews.flatMap { views(type, in: $0) } }
+            let content = livePanel.contentView ?? NSView()
+            func field(_ placeholder: String) -> NSTextField? {
+                views(NSTextField.self, in: content).first { $0.isEditable && ($0.placeholderString ?? $0.placeholderAttributedString?.string) == placeholder }
+            }
+            let editors = views(NSTextView.self, in: content).filter { $0.isEditable && !$0.isFieldEditor }
+            let details: [(name: String, view: NSView?)] = [("Title", field("Title")), ("Tags", field("Tags, separated by commas")),
+                                                             ("Notes", editors.count == 1 ? editors[0] : nil)]
+            try check(!liveEditor.undoStack.isEmpty && !liveEditor.redoStack.isEmpty, "the live editor has image steps to undo and redo")
+            // Each field starts from the canvas, so no field inherits the shortcuts' state from the one before it.
+            func canvasKeys(_ moment: String) async throws {
+                livePanel.makeFirstResponder(liveCanvas); try await settle(preview)
+                let undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
+                let undone = try await press(shift: false)
+                try check(undone && liveEditor.undoStack.count == undos - 1 && liveEditor.redoStack.count == redos + 1,
+                          "⌘Z on the canvas \(moment) takes one image step")
+                let redone = try await press(shift: true)
+                try check(redone && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
+                          "⇧⌘Z on the canvas \(moment) puts that step back")
+            }
+            for (name, view) in details {
+                try await canvasKeys("before \(name) has focus")
+                if let view { livePanel.makeFirstResponder(view) }
+                try await settle(preview)
+                let responder = livePanel.firstResponder
+                try check(view != nil && (responder === view || (responder as? NSTextView)?.delegate === view), "\(name) takes focus in the live editor")
+                let edit = liveEditor.draft.edit, undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
+                for shift in [false, true] {
+                    let handled = try await press(shift: shift)
+                    try check(!handled && liveEditor.draft.edit == edit && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
+                              "\(shift ? "⇧⌘Z" : "⌘Z") in \(name) goes to the field and leaves the image's marks and steps alone")
+                }
+            }
+            try await canvasKeys("after Notes had focus")
+            liveEditor.addTextForTyping(); try await settle(preview)
+            let caption = livePanel.firstResponder as? NSTextView, captionSteps = liveEditor.undoStack.count
+            let captionUndo = try await press(shift: false)
+            try check(caption?.isFieldEditor == false && captionUndo && liveEditor.undoStack.count == captionSteps - 1,
+                      "⌘Z in a caption still undoes the image step")
+            // A caption's typing is a step on the image's Undo only. With its mark still selected, Edit › Undo
+            // from Title, Tags or Notes must not reach the caption's typing through the panel's own undo stack.
+            liveEditor.addTextForTyping(); try await settle(preview)
+            if let typed = livePanel.firstResponder as? NSTextView, !typed.isFieldEditor, let mark = liveEditor.selected {
+                // Two keystrokes with an update between them, so a text view the editor refreshed is typed into too.
+                typed.insertText("Hel", replacementRange: typed.selectedRange()); try await settle(preview)
+                typed.insertText("lo", replacementRange: typed.selectedRange()); try await settle(preview)
+                try check(liveEditor.selectedMark?.text == "Hello", "typing in a caption changes its mark")
+                for (name, view) in details {
+                    if let view { livePanel.makeFirstResponder(view) }
+                    try await settle(preview)
+                    let responder = livePanel.firstResponder
+                    try check(view != nil && (responder === view || (responder as? NSTextView)?.delegate === view), "\(name) takes focus beside a selected caption")
+                    let edit = liveEditor.draft.edit, undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
+                    // As Edit › Undo does: sent up the field's responder chain, which only acts when there is something to undo.
+                    if livePanel.firstResponder?.undoManager?.canUndo == true {
+                        _ = livePanel.firstResponder?.tryToPerform(Selector(("undo:")), with: nil)
+                    }
+                    try await settle(preview)
+                    try check(liveEditor.selected == mark && liveEditor.draft.edit == edit && liveEditor.selectedMark?.text == "Hello" && typed.string == "Hello"
+                              && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
+                              "Undo in \(name) after typing a caption leaves the caption, its mark and the image's steps alone")
+                }
+            } else { try check(false, "Text puts a new caption first for the undo check") }
+            livePanel.makeFirstResponder(liveCanvas)
         } else { try check(false, "the live editor exposes its canvas for gesture cancellation") }
         let preservedEditor = preview.editing, preservedDraft = preview.editing?.draft
         preview.approveDiscard = { false }
@@ -291,6 +380,84 @@ enum ImageWorkspaceChecks {
                 try check(crop.isValid && abs((crop.width * 1600) / (crop.height * 1000) - ratio) < 0.00001, "aspect drag respects bounds and rotation")
             }
         }
+        // The inspector's controls change a mark on every keystroke or slider tick, through the
+        // same keyed calls SnapEditorView makes. Each run is one Undo step, so earlier edits stay reachable.
+        let runs = try ImageWorkspaceEditing(draft: SnapDraft(originalPNG: png, source: .imported, title: "Undo runs", notes: "", tags: [], edit: .init()))
+        runs.setAspect(.widescreen); runs.addText()
+        let runText = runs.selected, typedCrop = runs.draft.edit.crop, base = runs.undoStack.count
+        func typing(_ count: Int, from start: Int = 1) {
+            for length in start..<(start + count) { runs.updateSelected("text") { $0.text = String(repeating: "a", count: length) } }
+        }
+        func sizing(_ count: Int) { for step in 0..<count { runs.updateSelected("fontSize") { $0.fontSize = 0.02 + Double(step) * 0.001 } } }
+        typing(150)
+        let typed = runs.draft.edit
+        try check(runs.undoStack.count == base + 1 && runs.selectedMark?.text?.count == 150, "150 keystrokes in a caption are one Undo step")
+        runs.undo()
+        try check(runs.selectedMark?.text == "Your text" && runs.selected == runText, "Undo restores the caption before typing and keeps its mark selected")
+        runs.undo()
+        try check(runs.draft.edit.marks.isEmpty && runs.selected == nil && runs.draft.edit.crop == typedCrop, "the next Undo removes the text box and keeps the crop")
+        runs.undo()
+        try check(runs.draft.edit.crop == .full && runs.undoStack.isEmpty, "the crop before the caption is still reachable")
+        runs.redo(); runs.redo(); runs.redo()
+        try check(runs.draft.edit == typed && runs.redoStack.isEmpty, "Redo returns through the crop, the text box and the whole caption")
+        runs.select(runText)
+        var steps = runs.undoStack.count
+        sizing(40)
+        try check(runs.undoStack.count == steps + 1, "dragging Text size is one Undo step")
+        steps = runs.undoStack.count
+        typing(5, from: 151); sizing(5)
+        try check(runs.undoStack.count == steps + 2, "typing then sizing are two steps")
+        steps = runs.undoStack.count
+        typing(5, from: 156); runs.select(nil); runs.select(runText); typing(5, from: 161)
+        try check(runs.undoStack.count == steps + 2, "selecting the mark again starts a new step")
+        runs.select(runText); steps = runs.undoStack.count
+        typing(5, from: 166); runs.updateSelected { $0 = ImageWorkspaceGeometry.moved($0, dx: 0.01, dy: 0) }; typing(5, from: 171)
+        try check(runs.undoStack.count == steps + 3, "an unkeyed edit between runs splits them")
+        runs.select(runText); steps = runs.undoStack.count
+        typing(5, from: 176); runs.endEditRun(); typing(5, from: 181)
+        try check(runs.undoStack.count == steps + 2, "leaving the text box ends its run")
+        runs.undo()
+        let restored = runs.draft.edit
+        steps = runs.undoStack.count
+        typing(1, from: 200)
+        try check(runs.undoStack.count == steps + 1 && runs.redoStack.isEmpty, "an edit after Undo starts a new step and clears Redo")
+        runs.undo()
+        try check(runs.draft.edit == restored, "the state Undo restored stays reachable after the next edit")
+        // The toolbar's Text puts the new caption's field first with "Your text" selected, so the
+        // first keystroke replaces it, both when the field is still to appear and when a caption has focus.
+        preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
+        preview.beginEditing(); try await settle(preview)
+        if let typing = preview.editing, let typingPanel = preview.panel {
+            func addCaption() async throws -> NSTextView? {
+                typing.addTextForTyping(); try await settle(preview)
+                return typingPanel.firstResponder as? NSTextView
+            }
+            let whole = NSRange(location: 0, length: 9)
+            let first = try await addCaption(), firstID = typing.selected
+            try check(first?.string == "Your text" && first?.selectedRange() == whole && first?.isFieldEditor == false && typing.captionFocusRequest == nil,
+                      "Text puts the new caption's field first with its whole caption selected")
+            first?.insertText("Login", replacementRange: first?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Login", "the first keystroke replaces Your text")
+            typing.undo()
+            try check(typing.selectedMark?.text == "Your text" && typing.selected == firstID, "one Undo returns Your text with its box selected")
+            let captionHadFocus = first != nil && typingPanel.firstResponder === first
+            let second = try await addCaption()
+            try check(captionHadFocus && second?.string == "Your text" && second?.selectedRange() == whole && typing.selected != firstID,
+                      "Text while a caption has focus selects the new box's whole caption")
+            second?.insertText("Sign up", replacementRange: second?.selectedRange() ?? whole)
+            try check(typing.selectedMark?.text == "Sign up" && typing.draft.edit.marks.first { $0.id == firstID }?.text == "Your text",
+                      "typing replaces only the new caption")
+            // At the mark limit Text adds nothing, so no request is left to seize a caption selected later.
+            let kept = typing.draft.edit.marks
+            typing.draft.edit.marks += (kept.count..<1_000).map { _ in
+                SnapMark(kind: .arrow, points: [.init(x: 0.55, y: 0.6), .init(x: 0.75, y: 0.4)], colour: "red", width: 0.006)
+            }
+            typing.addTextForTyping(); try await settle(preview)
+            try check(typing.draft.edit.marks.count == 1_000 && typing.captionFocusRequest == nil,
+                      "Text refused at the mark limit leaves no caption request behind")
+            typing.draft.edit.marks = kept
+        } else { try check(false, "the editor opens for the caption focus checks") }
+        preview.approveDiscard = { true }; preview.cancelEditing(); try await settle(preview)
         preview.show(.snap(saved.item, store: store), over: owner); try await settle(preview)
         preview.beginEditing(); try await settle(preview); preview.editing?.addText()
         let openEditor = preview.editing, openPanel = preview.panel

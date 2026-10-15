@@ -55,6 +55,80 @@ enum HomeJourneyChecks {
         try check(!landed.offersSkip && !landed.offersGuide, "after the first result neither Skip nor the way back remains")
         try check(HomeJourney(transcripts: 1, guide: .completed).sections == results, "Done returns to the ordinary Home")
 
+        // The guide teaches a key only while it is on and registered (#15).
+        let dictateKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil, capture: .toggle) == "or press ⌥V in any text field",
+                  "the guide names the Dictate shortcut while it works")
+        try check(HomeJourney.shortcutHint(dictateKey, failure: nil, capture: .hold) == "or hold ⌥V in any text field",
+                  "with Activation set to Hold, the guide says hold, as Dictate does")
+        let dictateOff = VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey), enabled: false)
+        try check(CaptureMode.allCases.allSatisfy { let hint = HomeJourney.shortcutHint(dictateOff, failure: nil, capture: $0)
+                      return !hint.contains("Off") && !hint.contains("press") && !hint.contains("hold") },
+                  "a Dictate shortcut that is off is never taught as \"press Off\"")
+        try check(CaptureMode.allCases.allSatisfy { let taken = HomeJourney.shortcutHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.", capture: $0)
+                      return !taken.contains("⌥V") && !taken.contains("press") && !taken.contains("hold") },
+                  "a Dictate shortcut macOS could not register is never taught")
+        // A writing model's download or failure is current work wherever Current work can show it (#335).
+        try check(HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: true, guideShows: true),
+                  "with speech ready, a writing model download shows in Current work above the guide")
+        try check(HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: false),
+                  "with speech not ready and the guide hidden, Current work shows the engine banner that carries it")
+        try check(!HomeJourney.writingModelIsCurrentWork(hasLine: true, speechReady: false, guideShows: true),
+                  "while the guide's own banner carries it, Current work is not an empty card")
+        try check(!HomeJourney.writingModelIsCurrentWork(hasLine: false, speechReady: true, guideShows: false), "no writing model line adds no current work")
+        // Speech setup is current work only while it prepares or carries the writing model's line (#15).
+        try check(!HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: false, guideShows: false, writingModelCounts: false),
+                  "someone who skipped the guide and is drawing gets no download offer beside it")
+        try check(HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: true, guideShows: false, writingModelCounts: false),
+                  "speech preparing with the guide hidden is current work")
+        try check(HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: false, guideShows: false, writingModelCounts: true),
+                  "the engine banner carrying the writing model's line is current work while the guide is hidden")
+        try check([true, false].allSatisfy { preparing in [true, false].allSatisfy { counts in
+                      !HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: preparing, guideShows: true, writingModelCounts: counts)
+                          && !HomeJourney.speechSetupIsCurrentWork(speechReady: true, preparing: preparing, guideShows: false, writingModelCounts: counts) } },
+                  "speech setup is never current work while the guide shows it or once speech is ready")
+        // Not now only where it hides the guide: never beside Skip for now, and never outside the guide.
+        try check(!fresh.offersNotNow && !skipped.offersNotNow && !removed.offersNotNow && !resumed.offersNotNow && landed.offersNotNow,
+                  "Not now shows only in the guide once Skip for now has gone")
+        // A failed download holds Current work only while the saved Text style uses Ollama; a running one always does.
+        let downloadLine = "Downloading gemma3:1b · 42%", failedLine = "gemma3:1b couldn’t be downloaded. Ollama stopped responding."
+        try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: true) == failedLine,
+                  "a failed download shows in Current work while the saved Text style uses Ollama")
+        try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: false) == nil,
+                  "after choosing a Text style that doesn't use Ollama, a failed download no longer holds Current work")
+        try check([true, false].allSatisfy { HomeJourney.writingModelLine(download: downloadLine, failure: nil, savedStyleUsesOllama: $0) == downloadLine },
+                  "a running download shows in Current work whatever the Text style")
+        try check(HomeJourney.writingModelLine(download: nil, failure: nil, savedStyleUsesOllama: true) == nil, "nothing downloading or failed shows nothing")
+        try check(CaptureMode.allCases.allSatisfy { !VoiceOptions.activationHint(dictateOff, failure: nil, capture: $0).contains("Off to") && !VoiceOptions.activationHint(dictateOff, failure: nil, capture: $0).contains("Press") },
+                  "Dictate's Activation hint teaches no key while the shortcut is off")
+        try check(CaptureMode.allCases.allSatisfy { VoiceOptions.activationHint(dictateKey, failure: nil, capture: $0).contains("⌥V") },
+                  "Dictate's Activation hint names the Dictate shortcut while it works")
+        try check(CaptureMode.allCases.allSatisfy {
+                      let hint = VoiceOptions.activationHint(dictateKey, failure: "⌥V is in use. Choose a different shortcut.", capture: $0)
+                      return !hint.contains("⌥V") && !hint.contains("Press") && !hint.contains("Hold") && hint.contains("isn’t available")
+                  }, "Dictate's Activation hint never teaches a Dictate shortcut macOS could not register")
+        // Dictate's hint and placeholder, History's empty state and Library's footer agree with the
+        // toolbar's Shortcut unavailable: none teaches a key that is off or not registered (#76).
+        let inUse = "⌥V is in use. Choose a different shortcut."
+        func keyLines(_ shortcut: VoiceShortcut, failure: String?) -> [String] {
+            CaptureMode.allCases.flatMap { [ContentView.recordingHint(shortcut, failure: failure, capture: $0),
+                                            ContentView.transcriptPlaceholder(shortcut, failure: failure, capture: $0)]
+                    + [HistoryView.emptyDetail(shortcut, failure: failure, capture: $0)] }
+        }
+        try check(keyLines(dictateKey, failure: inUse).allSatisfy { !$0.contains("⌥V") && !$0.contains("Press") && !$0.contains("Hold") }
+                  && ContentView.recordingHint(dictateKey, failure: inUse, capture: .toggle).contains("Click the microphone"),
+                  "Dictate and History never teach a Dictate shortcut macOS could not register")
+        try check(keyLines(dictateOff, failure: nil).allSatisfy { !$0.contains("Off") }, "Dictate and History never teach a Dictate shortcut that is off")
+        try check(keyLines(dictateKey, failure: nil).allSatisfy { $0.contains("⌥V") }, "Dictate and History name the Dictate shortcut while it works")
+        try check(HistoryView.emptyDetail(dictateKey, failure: nil, capture: .hold).contains("Hold ⌥V to dictate")
+                  && HistoryView.emptyDetail(dictateKey, failure: nil, capture: .toggle).contains("Press ⌥V to dictate"),
+                  "History's empty state says Hold or Press as Activation says, as Dictate does")
+        let recallKey = VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey))
+        try check(DemoLibraryView.footerSummary(count: 2, recall: recallKey, failure: "⌃⌥J is in use. Choose a different shortcut.") == "2 resources"
+                  && DemoLibraryView.footerSummary(count: 2, recall: VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey), enabled: false), failure: nil) == "2 resources"
+                  && DemoLibraryView.footerSummary(count: 2, recall: recallKey, failure: nil).hasSuffix("to recall"),
+                  "Library's footer offers its recall key only while it is on and registered")
+
         // Current work comes first in every state; the columns hold every result section once.
         try check(HomeJourney(transcripts: 1, hasCurrentWork: true).sections == [.currentWork] + results,
                   "current work renders above the results")
@@ -321,6 +395,21 @@ enum HomeJourneyChecks {
                   "the follow-up shown is the newest task made from that meeting")
         try check(HomeMeetings.followUp(for: earlierCall.id, in: [unrelated, olderFollowUp, newerFollowUp]) { inputs[$0.id] ?? [] } == nil,
                   "a meeting nothing was made from offers Prepare follow-up…")
+        try check(HomeMeetings.followUp(for: latestMeeting.id, in: [unrelated, olderFollowUp, newerFollowUp],
+                                        inputs: { inputs[$0.id] ?? [] }, excluding: { $0.id == newerFollowUp.id })?.id == olderFollowUp.id
+                  && HomeMeetings.followUp(for: latestMeeting.id, in: [newerFollowUp], inputs: { inputs[$0.id] ?? [] },
+                                           excluding: { $0.id == newerFollowUp.id }) == nil,
+                  "an excluded newer task is passed over, and with only that task Prepare follow-up… stays")
+        try check(HomeMeetings.followUpState(.ready) == "Follow-up prepared, no result yet"
+                  && !HomeMeetings.followUpState(.ready).localizedCaseInsensitiveContains("ready")
+                  && HomeMeetings.followUpState(.completed) == "Follow-up completed" && HomeMeetings.followUpState(.failed) == "Follow-up failed"
+                  && HomeMeetings.followUpState(.cancelled) == "Follow-up cancelled",
+                  "a prepared follow-up never reads as ready; the others read as History's badges")
+        var finished = newerFollowUp
+        finished.updatedAt = newerFollowUp.updatedAt.addingTimeInterval(30); finished.status = .completed
+        try check(HomeMeetings.taskStamps([unrelated, newerFollowUp]) != HomeMeetings.taskStamps([unrelated, finished])
+                  && HomeMeetings.taskStamps([unrelated, newerFollowUp]) == HomeMeetings.taskStamps([unrelated, newerFollowUp]),
+                  "a follow-up that finishes, keeping its id, reloads the tile's task files")
 
         // Your decks: the newest presentable file in outputs/, never a note or an image.
         let now = Date(timeIntervalSince1970: 1_000)

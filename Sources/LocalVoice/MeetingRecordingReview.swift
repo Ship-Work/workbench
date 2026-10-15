@@ -229,7 +229,7 @@ struct MeetingRecordingReviewView: View {
                 Spacer()
             }
             if !meetings.canPlayRecording {
-                Text("Finish the current capture or reading to play this recording.")
+                Text("Finish Dictate, the meeting or Snap & Talk to play this recording.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Text("Playback uses the saved audio. Closing this review stops playback and keeps the recording and transcript.")

@@ -1,4 +1,6 @@
+import AppKit
 import AVFoundation
+import Combine
 import CoreAudio
 import Foundation
 
@@ -140,8 +142,7 @@ enum MeetingChecks {
                    "both directions must remain present for a fresh full streak")
         let call = calls.evaluate(now: now)
         try expect(call?.id == 950 && call?.bundleID == "com.apple.avconferenced"
-                   && MeetingDetector.offerTitle(for: call!) == "Possible call on this Mac"
-                   && MeetingDetector.offerText(for: call!).contains("FaceTime or phone call"),
+                   && MeetingDetector.offerTitle(for: call!) == "Possible call on this Mac",
                    "a two-way call on this Mac is offered as a call from its own source")
         calls.dismiss(call!, now: now)
         for _ in 0..<4 { _ = calls.evaluate(now: now) }
@@ -353,10 +354,16 @@ enum MeetingChecks {
 
         try await recordingReviewChecks(root: root, expect: expect)
         try await phaseRecoveryChecks(root: root.appendingPathComponent("phase-recovery"), expect: expect)
+        try await captureNoteChecks(root: root.appendingPathComponent("capture-notes"), expect: expect)
+        try await selfEndChecks(root: root.appendingPathComponent("self-end"), expect: expect)
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
+        try idlePollChecks(root: root, expect: expect)
+        try detectionSnapshotChecks(expect: expect)
+        try await speechReadinessChecks(root: root, expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
+        try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
         checks += try MeetingCompletionChecks.run()
         print("Meeting checks passed (\(checks)): synthetic detection, source timing, >30-minute segmentation, recovery, cancellation and stable history commits. No live devices were used.")
@@ -414,6 +421,36 @@ enum MeetingChecks {
         try expect(recognitionCalls == 1 && saved.last?.text == "Batch words", "incomplete live checkpoint falls back to original audio")
     }
 
+    /// A call offer's Call holds for that call's recording, including its microphone-only fallback,
+    /// and ends when that recording finishes, so a later microphone-only meeting is a Meeting.
+    private static func callOfferEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = root.appendingPathComponent("Workbench-CallOfferEnd-\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 950, bundleID: "com.apple.avconferenced", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        var captures = 0, saved: [String] = []
+        let model = MeetingModel(directory: root.appendingPathComponent("call-offer-end"), defaults: defaults, processSource: source,
+            transcribe: { _ in "Synthetic words" }, microphonePermission: { true },
+            captureFactory: {
+                captures += 1
+                let capture = CaptureFixture()
+                if captures == 3 { capture.startError = MeetingProblem.appAudioPermission(-1) }
+                return capture
+            })
+        model.saveTranscript = { _, purpose in saved.append(purpose) }
+        let call = MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced")
+        model.refreshApps(); model.useOffer(call)
+        await model.start(); await model.stop()
+        model.useMicrophoneOnly(); await model.start(); await model.stop()
+        try expect(saved == ["call", "meeting"], "after a call offer's recording finishes, a later microphone-only meeting saves as a Meeting")
+        model.useOffer(call); await model.start()
+        try expect(!model.isBusy && model.problem?.opensAudioSettings == true, "a refused call-audio start records nothing")
+        model.useMicrophoneOnly(); await model.start(); await model.stop()
+        try expect(saved == ["call", "meeting", "call"], "that same call falling back to the microphone still saves as a Call")
+        await model.prepareForShutdown()
+    }
+
     private static func recordingReviewChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
         var original = manifest(state: .stopped)
         let session = try MeetingStore.create(root: root.appendingPathComponent("recording-review"), manifest: original)
@@ -460,11 +497,28 @@ enum MeetingChecks {
         review.toggle()
         await waitUntil { review.playing }
         try expect(review.playing, "explicit Play starts the reviewed recording")
+        _ = NSApplication.shared
+        let home = WorkbenchHomeWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled], backing: .buffered, defer: true)
+        home.isReleasedWhenClosed = false
+        var hides = 0
+        home.onHide = { hides += 1; review.pause() }
+        // The window observes on the main operation queue, which delivers after this task yields;
+        // a busy CI runner needs more than one turn, so wait for the hide, bounded at 5 s.
+        NotificationCenter.default.post(name: NSApplication.willHideNotification, object: NSApplication.shared)
+        await waitUntil { hides > 0 }
+        try expect(hides == 1 && !review.playing, "hiding Workbench (⌘H) pauses recording review once")
+        NotificationCenter.default.post(name: NSApplication.didUnhideNotification, object: NSApplication.shared)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        try expect(hides == 1 && !review.playing, "unhiding Workbench never resumes recording review")
+        home.onHide = nil; home.close()
+        review.toggle()
+        await waitUntil { review.playing }
+        try expect(review.playing, "Play resumes the reviewed recording only when asked")
         var admitted = false
         model.mayPlayRecording = { admitted }
         model.updateRecordingPlaybackAdmission()
         await Task.yield()
-        try expect(!model.canPlayRecording && !review.playing, "competing capture or Read admission pauses recording playback")
+        try expect(!model.canPlayRecording && !review.playing, "competing Dictate, meeting or Snap & Talk work pauses recording playback")
         admitted = true; model.updateRecordingPlaybackAdmission()
         await Task.yield()
         try expect(model.canPlayRecording && !review.playing, "ending competing work never resumes the recording automatically")
@@ -608,6 +662,153 @@ enum MeetingChecks {
                    "all offer paths preserve the timeout and never request microphone or capture access")
     }
 
+    /// Detection polls every three seconds. A poll that finds nothing new must not publish,
+    /// because Home, both toolbar views and the toolbar host redraw on every publish.
+    private static func idlePollChecks(root: URL, expect: (Bool, String) throws -> Void) throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingIdle-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 92_001, bundleID: "example.music", isRunningInput: false, isRunningOutput: true, name: "Synthetic player")]
+        let model = MeetingModel(directory: root.appendingPathComponent("idle-polls"), defaults: defaults,
+            processSource: source, transcribe: { _ in "unused" }, microphonePermission: { true },
+            captureFactory: { CaptureFixture() })
+        model.detectionEnabled = true
+        model.refreshDetection()
+        var publishes = 0
+        let counter = model.objectWillChange.sink { _ in publishes += 1 }
+        defer { counter.cancel() }
+        for _ in 0..<5 { model.refreshDetection() }
+        try expect(publishes == 0 && source.calls == 6, "five idle detection polls read metadata and publish nothing")
+        source.values.append(.init(pid: 92_002, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true))
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == 0 && model.offer == nil, "an unconfirmed call publishes nothing")
+        model.refreshDetection()
+        try expect(publishes == 1 && model.offer?.id == 92_002, "the confirmed offer publishes exactly once")
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == 1 && model.offer?.id == 92_002, "the same offer on later polls publishes nothing")
+        source.values.removeLast(); model.refreshDetection()
+        try expect(publishes == 2 && model.offer == nil, "the call ending publishes once to clear the offer")
+        source.failure = true
+        for _ in 0..<5 { model.refreshDetection() }
+        try expect(publishes == 3 && model.problem == .unknown("Audio activity could not be checked. Synthetic metadata failure"),
+                   "a metadata failure that persists publishes its problem once, not once per poll")
+        source.failure = false
+        model.detectionEnabled = false
+        let afterOff = publishes
+        model.refreshDetection(); model.refreshDetection()
+        try expect(publishes == afterOff, "polls with detection off publish nothing")
+    }
+
+    /// Meetings says speech readiness as Dictate does: one title, the speech line once as the
+    /// caption, and no attention card while speech is only unready or preparing.
+    private static func speechReadinessChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingSpeech-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = MeetingModel(directory: root.appendingPathComponent("speech-readiness"), defaults: defaults,
+            processSource: ProcessFixture(), transcribe: { _ in "unused" }, microphonePermission: { true },
+            captureFactory: { CaptureFixture() })
+        let progress = "Downloading Parakeet · 42%", offer = "Download Parakeet to turn speech into text on this Mac."
+        model.updateHostAdmission(.init(recognition: .init(operationID: UUID(), phase: .downloading, detail: progress)))
+        let preparing = model.admission
+        try expect(preparing.title == "Preparing speech…" && !preparing.canStart && MeetingWorkspaceView.speechCaption(preparing) == progress
+                   && preparing.captureProblem?.message == progress && preparing.recognitionProblem?.message == progress,
+                   "a running download reads Preparing speech… with its progress as the caption, and asks for no setup")
+        model.updateHostAdmission(.init())
+        let unready = model.admission
+        try expect(unready.title == "Speech setup needed" && !unready.canStart && MeetingWorkspaceView.speechCaption(unready) == offer
+                   && unready.captureProblem?.message == offer,
+                   "speech that is not downloaded reads Speech setup needed with the download offer as the caption")
+        try expect(!MeetingWorkspaceView.drawsProblemCard(.speech(progress)) && MeetingWorkspaceView.drawsProblemCard(.microphoneDenied)
+                   && MeetingWorkspaceView.drawsProblemCard(.sourceDisappeared),
+                   "speech readiness is never an attention card; other problems still are")
+        await model.start()
+        try expect(model.problem == .speech(offer) && !model.isBusy, "a start before speech is ready is refused for speech")
+        model.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
+        try expect(model.problem == nil && model.admission.title == "Ready to record" && MeetingWorkspaceView.speechCaption(model.admission) == nil,
+                   "speech becoming ready settles the refused start, so no stale card outlives the download")
+        await model.prepareForShutdown()
+    }
+
+    /// Polls read only catalogue apps and the calling service. Every other process
+    /// cannot become an offer or change a catalogue choice, so offers, their PIDs and
+    /// call activity must match a detector that reads every process.
+    private static func detectionSnapshotChecks(expect: (Bool, String) throws -> Void) throws {
+        let source = ProcessFixture()
+        let everything = UnfilteredProcessFixture(source)
+        let considered: [MeetingProcessSnapshot] = [
+            .init(pid: 810, bundleID: "com.google.Chrome", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 811, bundleID: "com.google.Chrome.helper.audio", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false),
+            .init(pid: 900, bundleID: "com.microsoft.teams2", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 901, bundleID: "com.microsoft.teams2.modulehost", isRunningInput: false, isRunningOutput: false, isUserFacingApp: false),
+            .init(pid: 830, bundleID: "com.apple.avconferenced", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false),
+            .init(pid: 870, bundleID: "com.apple.mobilephone", isRunningInput: false, isRunningOutput: false),
+            .init(pid: 880, bundleID: "com.ethdawg.workbench", isRunningInput: true, isRunningOutput: true),
+            .init(pid: 881, bundleID: "com.ethdawg.workbench.preview", isRunningInput: true, isRunningOutput: true)
+        ]
+        source.values = considered
+        for index in 0..<30 {
+            let pid = Int32(1_000 + index), output = index.isMultiple(of: 2), facing = !index.isMultiple(of: 3)
+            source.values.append(MeetingProcessSnapshot(pid: pid, bundleID: "example.input\(index)", isRunningInput: true,
+                                                        isRunningOutput: output, name: "Synthetic input \(index)", isUserFacingApp: facing))
+        }
+        try expect(source.detectionSnapshot().map(\.pid) == [810, 811, 900, 901, 830, 870] && source.values.count == 38,
+                   "a detection read keeps catalogue apps and the calling service and leaves out every other process")
+        let filtered = MeetingDetector(source: source), reference = MeetingDetector(source: everything)
+        filtered.isEnabled = true; reference.isEnabled = true
+        let watched = [MeetingAudioApp(id: 810, name: "Google Chrome", bundleID: "com.google.Chrome"),
+                       MeetingAudioApp(id: 900, name: "Microsoft Teams", bundleID: "com.microsoft.teams2"),
+                       MeetingAudioApp(id: 870, name: "Phone", bundleID: "com.apple.mobilephone"),
+                       MeetingAudioApp(id: 830, name: "Mac calling service", bundleID: "com.apple.avconferenced"),
+                       MeetingAudioApp(id: 1_002, name: "Synthetic input 2", bundleID: "example.input2")]
+        var offered: [MeetingAudioApp] = []
+        var now = Date(timeIntervalSince1970: 50_000)
+        func poll(_ step: String, polls: Int = 1) throws {
+            for _ in 0..<polls {
+                let left = filtered.evaluate(now: now), right = reference.evaluate(now: now)
+                try expect(left == right && (filtered.lastError == nil) == (reference.lastError == nil),
+                           "\(step): the detection read offers what a full read offers")
+                if let left { offered.append(left) }
+            }
+            try expect(watched.allSatisfy { filtered.activity(for: $0) == reference.activity(for: $0) },
+                       "\(step): call activity matches a full read")
+        }
+        try poll("browser helper streak", polls: 3)
+        try expect(offered.last?.id == 810, "a browser helper's call is offered as the browser's main process")
+        filtered.dismiss(offered.last!, now: now); reference.dismiss(offered.last!, now: now)
+        try poll("Not now on the browser")
+        try expect(offered.last?.bundleID == "com.apple.avconferenced", "the calling service is offered once the browser is dismissed")
+        source.values[3].isRunningInput = true
+        try poll("Teams module host streak", polls: 3)
+        try expect(offered.last?.id == 900, "a Teams call in its module host is offered as Teams")
+        source.values[5].isRunningInput = true
+        try poll("Phone streak", polls: 3)
+        try expect(offered.last?.id == 870, "Phone's lowercase identifier is offered")
+        source.values[5].pid = 871
+        try poll("Phone process changed")
+        try expect(offered.last?.id == 871, "a changed process is offered by its new PID")
+        filtered.disable(offered.last!); reference.disable(offered.last!)
+        try poll("Phone turned off")
+        filtered.snooze(now: now); reference.snooze(now: now)
+        now = now.addingTimeInterval(60)
+        try poll("snoozed", polls: 2)
+        filtered.snoozedUntil = nil; reference.snoozedUntil = nil
+        now = now.addingTimeInterval(1_300)
+        source.values[3].isRunningInput = false
+        try poll("after the cooldown", polls: 3)
+        try expect(offered.last?.id == 810, "the browser returns after its cooldown by its main process")
+        source.values.remove(at: 0)
+        try poll("browser main process gone", polls: 2)
+        try expect(offered.last?.id == 811, "a browser without its main process is offered by its audio helper")
+        source.failure = true
+        try poll("metadata failure")
+        source.failure = false
+        try poll("recovered", polls: 3)
+        try expect(Set(offered.map(\.bundleID)) == ["com.google.Chrome", "com.apple.avconferenced", "com.microsoft.teams2", "com.apple.mobilephone"],
+                   "the sequence offered every kind of source")
+    }
+
     private static func lifecycleChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
         let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingChecks-" + UUID().uuidString).path
         let defaults = UserDefaults(suiteName: suite)!
@@ -621,9 +822,19 @@ enum MeetingChecks {
                                  microphonePermission: { permissions += 1; return true },
                                  captureFactory: { factories += 1; return factories == 1 ? capture : CaptureFixture() })
         await Task.yield()
-        model.useOffer(MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced"))
+        let call = MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced")
+        let otherApp = MeetingAudioApp(id: 951, name: "Synthetic app", bundleID: "example.synthetic")
+        model.useOffer(call); model.useOffer(otherApp)
+        try expect(model.selectedAppID == 951 && model.purpose == "meeting", "another app's offer after a call offer is saved as a Meeting")
+        model.useOffer(call); model.selectAudioSource(789)
+        try expect(model.selectedAppID == 789 && model.purpose == "meeting", "choosing another app's audio after a call offer is saved as a Meeting")
+        model.useOffer(call); model.selectAudioSource(nil); model.useMicrophoneOnly(); model.selectAudioSource(950)
+        try expect(model.purpose == "call", "a call that falls back to the microphone, or returns to its own audio, stays a Call")
+        model.purpose = "call"; model.useOffer(otherApp)
+        try expect(model.purpose == "call", "Call chosen in Save as stays a Call when another app is offered")
+        model.useOffer(call)
         try expect(model.selectedAppID == 950 && model.purpose == "call", "reviewing a call on this Mac records it as a Call")
-        model.purpose = "meeting"; model.selectedAppID = nil
+        model.selectedAppID = nil
         try expect(!model.detectionEnabled && source.calls == 0 && factories == 0 && permissions == 0,
                    "controller initialization does not detect, ask permission or capture")
         model.mayStart = { "Another Workbench recording is active." }
@@ -1129,6 +1340,29 @@ enum MeetingChecks {
         admissionModel.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
         try expect(admissionModel.admission.canStart && admissionModel.selectedAppID == 432 && admissionModel.includeMicrophone && captureCalls == 0,
                    "Models readiness return retains source and microphone choices without starting")
+        // Returning to Workbench rereads the apps: a call app opened meanwhile appears, a quit one is not Ready to record.
+        let zoom = source.values[0], teams = MeetingProcessSnapshot(pid: 433, bundleID: "com.microsoft.teams2", isRunningInput: true, isRunningOutput: true)
+        source.values = [zoom, teams]; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.apps.map(\.id).contains(433) && admissionModel.selectedAppID == 432 && admissionModel.admission.canStart
+                   && captureCalls == 0 && permissionCalls == 0, "returning shows a newly opened call app and keeps the chosen one, without capture or permission")
+        source.values = []; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.admission.captureProblem == .sourceDisappeared && !admissionModel.admission.canStart,
+                   "returning after the chosen app quit says so before Start")
+        source.values = [zoom, teams]; admissionModel.refreshSourcesOnReturn(); source.failure = true; admissionModel.refreshSourcesOnReturn()
+        if case .sourceProbe = admissionModel.admission.captureProblem {} else { throw MeetingError.message("A failed read on return became disappearance") }
+        try expect(Set(admissionModel.apps.map(\.id)) == [432, 433], "a failed read on return keeps the previous apps with typed uncertainty")
+        source.failure = false; admissionModel.refreshSourcesOnReturn()
+        let parked = Task { await admissionModel.start() }
+        await waitUntil { permission.isWaiting }
+        let parkedCalls = source.calls
+        source.values = [zoom]; admissionModel.refreshSourcesOnReturn()
+        try expect(admissionModel.isStarting && source.calls == parkedCalls && Set(admissionModel.apps.map(\.id)) == [432, 433],
+                   "returning during a start parked on the microphone prompt rereads nothing")
+        admissionModel.updateHostAdmission(.init()); permission.resume(true); await parked.value
+        microphone = .notDetermined; admissionModel.updateHostAdmission(.init(recognition: .init(admission: .localReady)))
+        admissionModel.refreshApps()
+        try expect(captureCalls == 0 && MeetingStore.sessions(in: admissionRoot).isEmpty && !admissionModel.isBusy,
+                   "the parked start ends without capture")
         source.failure = true; admissionModel.refreshApps()
         if case .sourceProbe = admissionModel.admission.captureProblem {} else { throw MeetingError.message("Failed enumeration became disappearance") }
         try expect(admissionModel.apps.contains { $0.id == 432 }, "failed enumeration retains the selected source while showing typed uncertainty")
@@ -1168,6 +1402,156 @@ enum MeetingChecks {
                    "only the documented Core Audio permission constant offers permission settings; arbitrary codes stay unknown")
         }
         await model.prepareForShutdown(); await audioModel.prepareForShutdown(); await admissionModel.prepareForShutdown()
+    }
+
+    /// Pauses and reconnections can outnumber History's 32 notes. Every outcome still saves
+    /// through the real History stores, and the manifest keeps every gap. Synthetic audio and words.
+    private static func captureNoteChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        try MeetingStore.createPrivateDirectory(root)
+        let gapLines = (0..<20).flatMap { index in
+            [MeetingTrackSource.local, .remote].map {
+                MeetingGapNote.line(source: $0, reason: "Resuming the selected audio sources.", start: Double(index * 30 + 2), seconds: 3)
+            }
+        }
+        let crash = "Workbench stopped before this recording finished. Saved audio was recovered; the final in-memory audio buffer may be missing."
+        let quiet = "Your microphone stayed quiet for the whole recording."
+        let long = String(repeating: "A synthetic limitation. ", count: 28) + "\nAfter a line break."
+        let raw = gapLines + [MeetingModel.keptForLater, crash, quiet, long]
+        do {
+            _ = try TranscriptMetadata(purpose: .meeting, captureNotes: raw).validated()
+            throw MeetingError.message("Raw per-gap notes were accepted")
+        } catch let refusal as WorkbenchHistoryError {
+            try expect(refusal == .invalid("too many capture notes"), "History refuses a long call's raw per-gap notes")
+        }
+        let projected = MeetingSummary.historyNotes(raw, appName: "Synthetic Call")
+        try expect((try? TranscriptMetadata(purpose: .meeting, captureNotes: projected).validated()) != nil && projected.count == 5
+                   && projected[4].count == 500 && projected[4].hasSuffix("…") && !projected[4].contains("\n"),
+                   "projected notes pass History's bounds, with a long note clamped to one line")
+        try expect(projected[0] == "Your microphone had 20 gaps (pauses or reconnections), 1 min in all; the recording keeps them as silence."
+                   && projected[1].hasPrefix("Synthetic Call had 20 gaps") && projected[2] == crash && projected[3] == quiet
+                   && !projected.contains { $0.contains("cancelled") || $0.contains("local:") || $0.contains("remote:") },
+                   "gaps fold into a count and length per named source, keeping real limitations without the Stop & keep note")
+        try expect(MeetingSummary.historyNotes([gapLines[1], gapLines[1]], appName: nil)
+                   == ["The app had one gap (a pause or reconnection) of 3 s; the recording keeps it as silence."]
+                   && MeetingGapNote.parse(crash) == nil && MeetingGapNote.parse(gapLines[0])?.source == .local,
+                   "a repeated gap counts once, and only the shared gap form is read as a gap")
+        let many = (1...40).map { "Synthetic note \($0)." }
+        let missingNote = "Original audio is missing. This saved text remains available; playback and retranscription are unavailable."
+        let capped = MeetingSummary.historyNotes(many + many + [missingNote], appName: nil)
+        try expect(capped.count == 32 && capped[29] == "Synthetic note 30." && capped[30] == "10 more notes about this recording were left out here."
+                   && capped.last == missingNote
+                   && (try? TranscriptMetadata(purpose: .meeting, captureNotes: capped).validated()) != nil
+                   && MeetingSummary.historyNotes(capped, appName: nil) == capped,
+                   "more than 32 distinct notes fold their middle into one line, keeping the trailing limitation, and projecting again changes nothing")
+
+        // The production writer (AppModel.retainMeetingTranscript): details first, and refused details throw.
+        let historyStore = StateStore(directory: root.appendingPathComponent("History"))
+        let details = WorkbenchHistoryModel(directory: root.appendingPathComponent("History"))
+        let sessions = root.appendingPathComponent("Sessions")
+        try MeetingStore.createPrivateDirectory(sessions)
+        var recognized = 0
+        let model = MeetingModel(directory: sessions, defaults: UserDefaults(suiteName: root.appendingPathComponent("Preferences").path)!,
+            processSource: ProcessFixture(), transcribe: { file in
+                recognized += 1
+                return file.lastPathComponent.hasPrefix("you-") ? "Synthetic local words" : "Synthetic call words"
+            }, microphonePermission: { false }, captureFactory: { CaptureFixture() }, microphoneStatus: { .denied })
+        model.saveTranscript = { [unowned model] item, purpose in
+            details.setMetadata(.init(purpose: purpose == "call" ? .call : .meeting, captureNotes: model.pendingTranscriptNotes), for: item.id)
+            if let error = details.error { throw MeetingError.message(error) }
+            var state = try historyStore.load(); state.history.append(item); try historyStore.save(state)
+        }
+        model.loadSavedTranscript = { id in
+            guard let item = try historyStore.load().history.first(where: { $0.id == id }) else { return nil }
+            return (item, try details.store.load().transcripts.first(where: { $0.id == id })?.metadata.captureNotes ?? [])
+        }
+        func savedNotes(_ id: UUID) throws -> [String] {
+            try details.store.load().transcripts.first(where: { $0.id == id })?.metadata.captureNotes ?? []
+        }
+
+        var meeting = manifest(); meeting.appName = "Synthetic Call"
+        let session = try MeetingStore.create(root: sessions, manifest: meeting)
+        let local = try audio(source: .local, seconds: 1, rate: 16_000, value: 0.2, offset: 0, session: session)
+        let remote = try audio(source: .remote, seconds: 1, rate: 16_000, value: 0.3, offset: 0, session: session)
+        var stopped = meeting; stopped.tracks = [local, remote]; stopped.seconds = 1
+        stopped.gaps = gapLines + [MeetingModel.keptForLater]
+        try MeetingStore.save(stopped, at: session, replacing: meeting)
+        await model.retry(try MeetingRecovery.inspect(session: session))
+        let notes = try savedNotes(meeting.id)
+        try expect(model.completedTranscriptID == meeting.id && details.error == nil && recognized > 0
+                   && (try historyStore.load().history.contains { $0.id == meeting.id }),
+                   "a recording with 40 gaps transcribes and saves to History from Kept for later")
+        try expect(notes.count <= 32 && notes == model.pendingTranscriptNotes && notes.contains { $0.hasPrefix("Synthetic Call had 20 gaps") }
+                   && !notes.contains { $0.contains("cancelled") } && (try MeetingStore.load(from: session).gaps.count) == 41,
+                   "History gets the folded notes while the recording keeps all 41 of its own")
+
+        var missing = manifest(state: .recognized); missing.appName = "Synthetic Call"; missing.seconds = 600.1
+        missing.tracks = [.init(source: .remote, file: "tracks/remote.caf", startSeconds: 10, seconds: 590.1,
+                                sampleRate: 16_000, peak: 0.2, droppedSeconds: 0)]
+        missing.segments = MeetingSegmentPlan.plan(totalSeconds: 600.1).map {
+            .init(index: $0.index, file: MeetingSegmentPlan.filename(index: $0.index), startSeconds: $0.start,
+                  seconds: $0.seconds, bytes: $0.bytes, text: $0.index == 0 ? "Complete mixed wording" : "")
+        }
+        missing.gaps = gapLines + [MeetingModel.keptForLater]
+        let missingSession = try MeetingStore.create(root: sessions, manifest: missing)
+        let before = recognized
+        await model.retry(try MeetingRecovery.inspect(session: missingSession))
+        let missingNotes = try savedNotes(missing.id)
+        try expect(model.completedTranscriptID == missing.id && details.error == nil && recognized == before
+                   && missingNotes.count <= 32 && missingNotes.contains { $0.hasPrefix("Original audio is missing") }
+                   && missingNotes.contains { $0.hasPrefix("Synthetic Call had 20 gaps") } && (try MeetingStore.load(from: missingSession).gaps.count) == 41,
+                   "saved words with missing originals also save with bounded notes")
+        await model.prepareForShutdown()
+    }
+
+    /// A meeting that ends itself finishes like Finish meeting, with its reason as a note.
+    /// Stop & keep and a failed transcription still keep the recording for later. Synthetic capture and words.
+    private static func selfEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingChecks-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var capture = CaptureFixture(), failRecognition = false, history: [Transcript] = []
+        let model = MeetingModel(directory: root, defaults: defaults, processSource: ProcessFixture(), transcribe: { _ in
+            if failRecognition { throw MeetingError.message("Synthetic recognition failure") }
+            return "Synthetic words heard before the end"
+        }, microphonePermission: { true }, captureFactory: { capture })
+        model.saveTranscript = { item, _ in history = TranscriptHistory.adding(item, to: history) }
+        let lost = "The selected audio source could not reconnect. The recording was kept with its interruption marked."
+
+        await model.start()
+        try expect(model.isRecording, "a self-ended meeting starts like any other")
+        capture.stopReason = lost
+        await waitUntil { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && history.map(\.id) == [model.completedTranscriptID!]
+                   && model.pendingTranscriptNotes.contains(lost) && model.recoveries.isEmpty && capture.finished == 1,
+                   "a source that could not reconnect ends with a saved transcript noting why")
+
+        capture = CaptureFixture(); capture.elapsedSeconds = MeetingSegmentPlan.maximumMeetingSeconds
+        await model.start()
+        await waitUntil { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && history.count == 2 && model.recoveries.isEmpty
+                   && model.pendingTranscriptNotes.contains("The two-hour recording limit was reached."),
+                   "reaching the two-hour limit ends with a saved transcript noting the limit")
+
+        capture = CaptureFixture()
+        await model.start(); await model.cancel()
+        try expect(model.completedTranscriptID == nil && history.count == 2 && model.recoveries.count == 1
+                   && model.notice == "Kept for later. Transcribe it below when you are ready.",
+                   "Stop & keep for later still keeps the recording for later")
+
+        capture = CaptureFixture(); failRecognition = true
+        await model.start()
+        let failing = MeetingStore.sessions(in: root).first { session in
+            !model.recoveries.contains { $0.session.lastPathComponent == session.lastPathComponent }
+                && (try? MeetingStore.load(from: session).state) == .recording
+        }
+        capture.stopReason = lost
+        await waitUntil { !model.isBusy }
+        let kept = model.recoveries.first { $0.session.lastPathComponent == failing?.lastPathComponent }
+        let track = kept?.manifest?.tracks.first.flatMap { try? MeetingStore.safeURL(session: kept!.session, relative: $0.file) }
+        try expect(model.completedTranscriptID == nil && history.count == 2 && model.recoveries.count == 2 && kept != nil
+                   && track.map { FileManager.default.fileExists(atPath: $0.path) } == true,
+                   "a self-ended meeting whose transcription fails keeps the recording and its track for later")
+        await model.prepareForShutdown()
     }
 
     private static func waitUntil(_ condition: () -> Bool) async {
@@ -1220,6 +1604,16 @@ enum MeetingChecks {
             if failure { throw MeetingError.message("Synthetic metadata failure") }
             return values
         }
+    }
+
+    /// Detection's reads before they were narrowed: every process, as the picker sees them.
+    private final class UnfilteredProcessFixture: MeetingProcessSource {
+        let base: ProcessFixture
+        init(_ base: ProcessFixture) { self.base = base }
+        var isAvailable: Bool { base.isAvailable }
+        var unavailableReason: String { base.unavailableReason }
+        func snapshot() throws -> [MeetingProcessSnapshot] { try base.snapshot() }
+        func detectionSnapshot() throws -> [MeetingProcessSnapshot] { try base.snapshot() }
     }
 
     private final class OnceFlag: @unchecked Sendable {

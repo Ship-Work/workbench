@@ -17,13 +17,13 @@ struct ReadbackView: View {
     var onRetryModel: () -> Void = {}
     @State private var sheet: Sheet?
     @State private var afterSheet: (() -> Void)?
-    @State private var captureMode: SnapCapture.Mode = .screen
+    /// The picker's own copy of the model's Capture area. Binding the segmented picker straight to
+    /// the published value publishes from inside SwiftUI's update; onChange hands it over after.
+    @State private var captureArea: SnapCapture.Mode = .screen
     @State private var confirmEmptyTrash = false
     @State private var discardEdit: UUID?
     @State private var copyResult: String?
     @State private var imageResult: String?
-    /// Cancel discards a narration; past a few seconds it asks first, because Stop keeps it.
-    @State private var confirmCancelNarration = false
     @Environment(\.pageSectionFrames) private var sectionFrames
     /// Only the isolated gallery supplies presentation values; live controls read their owner.
     private var capturePresentation: CapturePresentation?
@@ -125,10 +125,12 @@ struct ReadbackView: View {
             }
             Button("Keep editing", role: .cancel) { discardEdit = nil }
         } message: { Text("Copy the text first if you need it. Saved screenshots, audio and original transcription stay intact.") }
-        .confirmationDialog("Discard this narration?", isPresented: $confirmCancelNarration) {
-            Button("Discard", role: .destructive) { model.cancelNarration() }
+        // The model holds the question, so the toolbar's Cancel narration opens this page with it showing.
+        .confirmationDialog("Discard this narration?", isPresented: Binding(get: { model.pendingCancelNarration != nil }, set: { if !$0 { model.pendingCancelNarration = nil } }),
+                            presenting: model.pendingCancelNarration) { take in
+            Button("Discard", role: .destructive) { model.confirmCancelNarration(take) }
             Button("Keep recording", role: .cancel) {}
-        } message: { Text("Stop narration keeps it. Discarding removes this recording; the screenshot and any earlier narration stay.") }
+        } message: { _ in Text("Stop narration keeps it. Discarding removes this recording; the screenshot and any earlier narration stay.") }
         .sheet(item: $sheet, onDismiss: {
             let action = afterSheet; afterSheet = nil; action?()
         }) { destination in
@@ -254,7 +256,7 @@ struct ReadbackView: View {
                 Spacer(minLength: 8)
                 // Stop keeps; Cancel discards, so a long narration asks first. No Escape: one stray key
                 // would throw away a short take.
-                Button("Cancel") { if elapsed > 10 { confirmCancelNarration = true } else { model.cancelNarration() } }
+                Button("Cancel") { model.requestCancelNarration() }
                     .help("Discard this narration. The screenshot stays.")
                 Button("Stop narration") { model.stopNarration() }.buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("readback.stop")
@@ -264,16 +266,18 @@ struct ReadbackView: View {
                 Spacer()
                 Button("Cancel capture") { model.cancelCapture() }
             } else {
-                Picker("Capture area", selection: $captureMode) {
+                Picker("Capture area", selection: $captureArea) {
                     ForEach(SnapCapture.Mode.allCases) { Text($0.title).tag($0) }
                 // Its natural width, so the control starts on the page's column rather than centred in a frame.
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                    .onAppear { captureArea = model.captureArea }
+                    .onChange(of: captureArea) { _, area in if model.captureArea != area { model.captureArea = area } }
                 Button {
-                    Task { await model.captureNewSection(fromEditor: true, mode: captureMode) }
+                    Task { await model.captureNewSection(fromEditor: true, mode: model.captureArea) }
                 } label: { Label("Capture & narrate", systemImage: "camera.viewfinder") }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.permissionsReady || model.currentSessionProblem != nil)
-                    .help("Capture the chosen area, then start narration. \(model.shortcutLabel) captures the display under your pointer.")
+                    .help("Capture the chosen area, then start narration." + (model.usableShortcutLabel.map { " \($0) captures the display under your pointer." } ?? ""))
                     .accessibilityIdentifier("readback.capture")
                 Spacer(minLength: 0)
                 if let onChooseSnaps {
@@ -415,10 +419,10 @@ struct ReadbackView: View {
                         Button("Save image to Library…") { imageResult = onSaveImageToLibrary(preview(section, number: number)) }
                     }
                     Divider()
-                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id) } }.disabled(changing)
+                    Button("Replace screenshot…") { Task { await model.replaceScreenshot(section.id, mode: model.captureArea) } }.disabled(changing)
                     Button(section.audio == nil ? "Record narration" : "Re-record narration") { model.startNarration(for: section.id) }
                         .disabled(changing || model.microphonePermission != .authorized)
-                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id) } }.disabled(changing)
+                    Button("Redo screenshot and narration…") { Task { await model.redoBoth(section.id, mode: model.captureArea) } }.disabled(changing)
                     Divider()
                     Button("Move to Recently Deleted") { model.deleteSection(section.id) }.disabled(changing)
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -431,7 +435,8 @@ struct ReadbackView: View {
             }
             if let imageResult { Text(imageResult).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             if let failure = section.failure { WorkbenchNote(failure) }
-            if section.status == .ready {
+            // One branch keeps the editor's focus when a typed note finishes a section that needs narration.
+            if section.status == .ready || (section.status == .needsNarration && section.audio == nil) {
                 HStack {
                     WorkbenchSectionTitle(section.audio == nil ? "Notes" : "Narration")
                     Spacer()
@@ -456,7 +461,8 @@ struct ReadbackView: View {
                     }
                     if let copyResult { Text(copyResult).font(.caption).foregroundStyle(.secondary) }
                 } else {
-                    Text(section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
+                    Text(section.status == .needsNarration ? "Type notes or record narration to finish this section."
+                         : section.originalTranscript == nil ? "Optional notes save automatically." : "Edits save automatically. The original narration is kept.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else if section.status == .failed, section.audio != nil {
@@ -577,7 +583,9 @@ struct ReadbackView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     WorkbenchSectionTitle("Keyboard shortcut")
-                    Text("\(model.shortcutLabel) captures the display under your pointer and starts narration. Press again to stop.")
+                    // The key is described only while it works; otherwise why not, and what still does.
+                    Text(model.usableShortcutLabel.map { "\($0) captures the display under your pointer and starts narration. Press again to stop." }
+                         ?? model.shortcutFailure ?? "No shortcut is set. Capture & narrate on the page still works.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

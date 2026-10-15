@@ -44,7 +44,7 @@ extension FloatingToolbar {
         }
         if model.phase == .idle, model.captureFailure != nil {
             if model.canRetry { command(model.retryCaptureLabel, id: "dictate.retry", .dictate, identity: model.retryCaptureLabel) { model.retryTranscription() } }
-            if model.canRecordAgain { command("Record again", id: "dictate.record-again", .dictate) { model.recordAgain() } }
+            if model.canRecordAgain { command("Record again", id: "dictate.record-again", .dictate) { model.recordAgain(target: controls.dictationTarget) } }
             command("Dismiss message", id: "dictate.dismiss", .dictate) { model.dismissCaptureFailure() }
         }
         if model.hasCaptureRecovery { command("Review recordings", id: "dictate.review", .dictate) { model.onShowEditor?("dictate") } }
@@ -60,7 +60,10 @@ extension FloatingToolbar {
         if readback.isRecording {
             let identity = readback.narrationIdentity ?? ""
             command("Stop narration", id: "snap-talk.stop", .snapAndTalk, identity: identity) { readback.stopNarration() }
-            command("Cancel narration", id: "snap-talk.cancel", .snapAndTalk, identity: identity) { readback.cancelNarration() }
+            // The page's rule and question: a long take opens Snap & Talk asking first.
+            command("Cancel narration", id: "snap-talk.cancel", .snapAndTalk, identity: identity) {
+                if readback.requestCancelNarration() { model.onShowEditor?("readback") }
+            }
         }
         if readback.sessionURL != nil { command("Review", id: "snap-talk.review", .snapAndTalk) { model.onShowEditor?("readback") } }
         if stage.isDrawing { command("Stop drawing", id: "draw.stop", .draw, identity: stage.drawingIdentity?.uuidString ?? "") { stage.finishDrawing() } }

@@ -93,7 +93,7 @@ public enum PersonaVoiceNativeCheck {
 
         init(root: URL, output: URL) {
             self.root = root; self.output = output
-            let made = made, system = PersonaVoiceAccess.system
+            let made = made, system = PersonaVoiceAccess.system(defaults: Workbench.stageDefaults)
             let access = PersonaVoiceAccess(permission: system.permission, requestPermission: { $0(false) },
                                             makeSource: { let source = Observed(); made.sources.append(source); return source },
                                             savedChoice: { false }, saveChoice: { _ in })

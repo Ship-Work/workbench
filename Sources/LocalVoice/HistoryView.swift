@@ -263,17 +263,41 @@ struct HistoryView: View {
     @State private var details: Transcript?
     @State private var removal: TranscriptRemoval?
     @State private var recording: Transcript?
+    /// The one confirmation of Copy and Copy result, and the transcript or task it belongs to.
+    /// Rows sit in a lazy list and can leave it, so the page holds it, not a row.
+    @StateObject private var copyFeedback: TranscriptReviewFeedback
+    @State private var copied: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil, applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
+    /// The surface gallery passes a confirmation already showing and a result already open; the
+    /// app starts with neither.
+    init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil,
+         copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil, expandedResult: UUID? = nil,
+         applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
         self.model = model; self.snap = snap
         self.library = model.historyLibrary; self.jobs = model.handoffJobs
         self.applySuggestedMetadata = applySuggestedMetadata
         self.openSnapTalkSessions = openSnapTalkSessions
         _filter = State(initialValue: model.historyDoor?.filter ?? .all)
+        _copyFeedback = StateObject(wrappedValue: copyFeedback ?? TranscriptReviewFeedback())
+        _copied = State(initialValue: copied)
+        _expandedResult = State(initialValue: expandedResult)
+    }
+
+    /// Copy and Copy result, confirmed beside the control pressed by what was written.
+    private func copy(_ id: UUID, _ write: () -> TextDelivery.Outcome?) {
+        if let id = HistoryCopy.confirm(id, in: copyFeedback, copy: write) { copied = id }
     }
 
     private struct JobStamp: Equatable { var id: UUID; var updated: Date }
+
+    /// A new person's History teaches the Dictate shortcut only while it is on and registered (#76),
+    /// with Hold or Press as Activation says, as Dictate's hint does.
+    nonisolated static func emptyDetail(_ dictate: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        "Dictations, Snaps and Hand off results land here, newest first. "
+            + (dictate.usableLabel(failure: failure).map { (capture == .hold ? "Hold " : "Press ") + "\($0) to dictate, or choose Snap in the menu bar." }
+                ?? "Choose Dictate or Snap in the menu bar.")
+    }
 
     var body: some View {
         let stores = rows.stores(revision: storesRevision) {
@@ -294,10 +318,8 @@ struct HistoryView: View {
             runningTask
             notices
             if model.history.isEmpty && snap.items.isEmpty && jobs.jobs.isEmpty {
-                let dictate = model.preferences.dictationShortcut
                 WorkbenchEmptyState(symbol: "clock", title: "Nothing here yet",
-                    detail: "Dictations, Snaps and Hand off results land here, newest first. "
-                        + (dictate.enabled ? "Press \(dictate.label) to dictate, or choose Snap in the menu bar." : "Choose Dictate or Snap in the menu bar.")) { EmptyView() }
+                    detail: Self.emptyDetail(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)) { EmptyView() }
                     .frame(maxWidth: 520, alignment: .leading).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 TextField("Search transcripts, Snaps and results", text: $query).textFieldStyle(.roundedBorder)
@@ -365,7 +387,7 @@ struct HistoryView: View {
                 if CommandLine.arguments.dropFirst().first == "--render-surfaces-pass" {
                     Image(systemName: "hourglass").foregroundStyle(Workbench.accent).accessibilityHidden(true)
                 } else { ProgressView().controlSize(.small) }
-                Text("Running · " + (jobs.jobs.first(where: { $0.id == jobs.activeID })?.title ?? "Hand off task"))
+                Text("Running · " + (jobs.jobs.first(where: { $0.id == jobs.activeID }).map(jobs.title) ?? "Hand off task"))
                     .font(.callout.weight(.medium)).lineLimit(1)
                 Spacer()
                 Button("Stop task", role: .destructive) { jobs.cancel() }
@@ -377,7 +399,15 @@ struct HistoryView: View {
         // Removing or exporting a transcript that went wrong: the menu-bar panel's Open History…
         // leads to these words (#134).
         // Primary words with an orange symbol (docs/desktop.md § Status): red is for recording and removal.
-        if let attention = model.attention, attention.page == .history { WorkbenchNote(attention.message) }
+        // Its × only puts the note away, as Dictate's and Meetings' banners do; nothing is retried.
+        if let attention = model.attention, attention.page == .history {
+            HStack(alignment: .top, spacing: 10) {
+                WorkbenchNote(attention.message)
+                Spacer()
+                Button { model.dismissError() } label: { Image(systemName: "xmark").frame(width: 24, height: 24).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).accessibilityLabel("Dismiss problem")
+            }.workbenchCard()
+        }
         if let notice = jobs.notice { Text(notice).font(.caption).foregroundStyle(.secondary) }
         if let error = jobs.error { WorkbenchNote(error) }
         if let notice = snap.notice { Text(notice).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
@@ -422,9 +452,12 @@ struct HistoryView: View {
                     ForEach(entries) { entry in
                         switch entry {
                         case .transcript(let item):
+                            let shown = HistoryCopy.shown(item.id, copied: copied, in: copyFeedback)
                             TranscriptHistoryRow(model: model, library: library, item: item,
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
+                                copy: { copy(item.id) { model.copyCapture(item) } },
+                                copyConfirmation: shown.confirmation, copyProblem: shown.problem,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):
                             HistorySnapRow(snap: snap, library: library, item: item, images: images,
@@ -437,7 +470,8 @@ struct HistoryView: View {
                             HandoffJobCard(jobs: jobs, job: job, expanded: $expandedResult, revealed: target?.task,
                                            focus: $focusedTask, voiceOverFocus: $voiceOverTask,
                                            applySuggestedMetadata: applySuggestedMetadata, query: appliedQuery,
-                                           copyResult: { model.copySavedResult($1, jobID: $0.id) }) {
+                                           copyResult: { task, text in copy(task.id) { model.copySavedResult(text, jobID: task.id) } },
+                                           copyShown: { HistoryCopy.shown($0, copied: copied, in: copyFeedback) }) {
                                 HistoryMadeFrom(jobs: jobs, job: job) {
                                     HistoryList.availability(of: $0, transcripts: stores.transcripts, snaps: stores.snaps)
                                 }

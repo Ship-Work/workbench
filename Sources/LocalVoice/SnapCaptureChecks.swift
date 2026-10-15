@@ -215,11 +215,12 @@ enum SnapCaptureChecks {
             snap.draft = nil
         }
         watchdog.step("Snap & Talk with Screen Recording off")
-        try await checkSnapTalkWithoutScreenAccess(root: root, snapshots: savedSnapshots, check: check)
+        try await checkSnapTalkWithoutScreenAccess(root: root, snapshots: savedSnapshots,
+                                                   history: snapModel("snap-talk-order", source: SyntheticImageSource(next: .success(image))), check: check)
 
         try await checkEditorExposure(makeSnap: { snapModel($0, source: SyntheticImageSource(next: .success(image))) },
                                       pasteboard: pasteboard, watchdog: watchdog, check: check)
-        print("SNAP_CAPTURE_CHECKS_OK: \(count) checks for every door's editor, Save & Copy, cancelled selectors, problems, hidden drafts and Screen Recording off, in "
+        print("SNAP_CAPTURE_CHECKS_OK: \(count) checks for every door's editor, Save & Copy, cancelled selectors, problems, hidden drafts, Screen Recording off and Snaps added in capture order, in "
               + String(format: "%.1f s", Date().timeIntervalSince(started)) + " at \(priority) priority")
         // Written now, so a slow exit cannot hide the result; the watchdog still covers the exit.
         fflush(stdout)
@@ -228,8 +229,9 @@ enum SnapCaptureChecks {
 
     /// Snap & Talk with Screen Recording off: a new capture stops with a plain
     /// explanation before the screen is touched, and the session's screenshots,
-    /// narration and saved Snaps stay usable.
-    private static func checkSnapTalkWithoutScreenAccess(root: URL, snapshots: [SnapHandoffSnapshot],
+    /// narration and saved Snaps stay usable. Saved Snaps join the session in the
+    /// order they were captured, though History lists them newest first.
+    private static func checkSnapTalkWithoutScreenAccess(root: URL, snapshots: [SnapHandoffSnapshot], history: SnapModel,
                                                          check: (Bool, String) throws -> Void) async throws {
         let suite = root.appendingPathComponent("SnapTalkPreferences").path
         guard let defaults = UserDefaults(suiteName: suite) else { throw VoiceError.message("Could not isolate the check's preferences.") }
@@ -268,6 +270,36 @@ enum SnapCaptureChecks {
         try check(readback.suggestsReopenForScreenAccess, "back from Settings with access still off, Snap & Talk suggests quitting and reopening")
         readback.importSnapSnapshots(snapshots)
         try check(readback.activeSections.count == 2, "saved Snaps can still be added to the session")
+
+        // Three steps captured a minute apart, then added together (#358).
+        let firstCaptured = Date(timeIntervalSince1970: 1_789_550_000)
+        func save(_ title: String, minutes: Double) throws -> SnapItem {
+            try history.store.insert(originalPNG: screenshot, width: 640, height: 400, title: title, source: .region,
+                                     createdAt: firstCaptured.addingTimeInterval(minutes * 60))
+        }
+        let steps = try [("First step", 0.0), ("Second step", 1), ("Third step", 2)].map { try save($0.0, minutes: $0.1) }
+        history.refresh()
+        let batch = try history.handoffSnapshots(ids: Set(steps.map(\.id)))
+        try check(batch.map(\.title) == ["Third step", "Second step", "First step"], "History hands selected Snaps over newest first")
+        readback.importSnapSnapshots(batch)
+        let sections = readback.activeSections
+        try check(sections.count == 5 && sections.first?.id == id && sections.suffix(3).map(\.displayName) == ["First step", "Second step", "Third step"],
+                  "added Snaps join the end of the session in the order they were captured: \(sections.map(\.displayName))")
+        try check(readback.reviewedSectionID == sections[2].id, "the first Snap captured, not the last, opens for narration")
+        try check(readback.notice?.hasPrefix("Added 3 Snaps.") == true, "the notice counts the added Snaps: \(readback.notice ?? "none")")
+        let fourth = try save("Fourth step", minutes: 3)
+        history.refresh()
+        readback.importSnapSnapshots(try history.handoffSnapshots(ids: [fourth.id]))
+        try check(readback.notice?.hasPrefix("Added 1 Snap.") == true && readback.notice?.contains("Snaps") == false,
+                  "one added Snap is counted in the singular: \(readback.notice ?? "none")")
+        let fifth = try save("Fifth step", minutes: 4)
+        history.refresh()
+        readback.importSnapSnapshots(try history.handoffSnapshots(ids: [fourth.id, fifth.id]))
+        try check(readback.activeSections.count == 7 && readback.notice?.hasSuffix(" 1 already present was skipped.") == true,
+                  "one Snap already in the session is skipped in the singular: \(readback.notice ?? "none")")
+        readback.importSnapSnapshots(try history.handoffSnapshots(ids: [fifth.id]))
+        try check(readback.activeSections.count == 7 && readback.notice?.hasPrefix("This Snap is already in this session") == true,
+                  "one Snap added again is named in the singular: \(readback.notice ?? "none")")
     }
 
     /// The production draft host presents one expanded editor regardless of the

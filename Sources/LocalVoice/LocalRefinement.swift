@@ -363,6 +363,12 @@ final class CleanupModelManager: ObservableObject {
         isWorking = true; downloading = model; progress = fraction; failure = nil
         status = downloadLine ?? "Downloading \(model)…"
     }
+    /// Presentation only, for renders of a failed download: no request runs, and clearFailure ends it.
+    func presentFailure(_ reason: String) {
+        guard !isWorking else { return }
+        downloading = nil; progress = nil; failure = reason
+        status = "Light cleanup remains available."
+    }
     private enum Operation { case refresh, load, download }
     private func perform(_ input: CleanupConfiguration, kind: Operation) {
         guard !isWorking else { return }

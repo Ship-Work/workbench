@@ -26,6 +26,9 @@ enum WorkbenchPageChecks {
             try check(Set(sections.map(\.title)).count == sections.count, "\(page)'s sections have one name each")
         }
         for section in WorkbenchHome.sections {
+            // A section without a summary moves the switcher when it is chosen (docs/desktop.md § Section summaries).
+            let summary = WorkbenchHome.sectionSummaries[section.id] ?? ""
+            try check(!summary.isEmpty && !summary.contains("\n"), "\(section.id) has a one-line summary above the switcher")
             let landing = WorkbenchHome.destination(section.id)
             try check(landing.page == section.page && landing.section == section.id, "\(section.id) opens \(section.page) on \(section.title)")
         }
@@ -87,7 +90,7 @@ enum WorkbenchPageChecks {
                   "a subpage or section shows its page's symbol")
         // The panel's door opens the page recorded with the problem where it was raised, never one
         // read from its words (#134 review): each page lands where that problem is shown and fixed.
-        for (page, route, section) in [(Attention.Page.dictate, "dictate", nil), (.home, "home", nil), (.history, "history", nil)] as [(Attention.Page, String, String?)] {
+        for (page, route, section) in [(Attention.Page.dictate, "dictate", nil), (.history, "history", nil)] as [(Attention.Page, String, String?)] {
             let landing = WorkbenchHome.destination(page.route)
             try check(page.route == route && landing.page == route && landing.section == section, "a Voice problem owned by \(page) opens \(route)")
         }
@@ -119,6 +122,16 @@ enum WorkbenchPageChecks {
                   "a recovery row keeps only the first sentence")
         try check(PanelRecoveryRow.headline("Preparing speech · first setup may take a few minutes") == "Preparing speech · first setup may take a few minutes",
                   "a one-sentence message is shown whole")
+        // While speech prepares, Dictate shows the speech model's own line, with the download's progress (#15).
+        try check(ContentView.progressCaption(preparing: true, phase: .idle, modelMessage: "Downloading Parakeet · 42%", processing: "Preparing speech…") == "Downloading Parakeet · 42%",
+                  "Dictate's setup caption shows the speech download's progress")
+        try check(ContentView.progressCaption(preparing: false, phase: .cancelling, modelMessage: "Parakeet", processing: "Transcribing…") == "Waiting for the speech engine to stop"
+                  && ContentView.progressCaption(preparing: false, phase: .delivering, modelMessage: "Parakeet", processing: "Transcribing…") == "Checking the destination"
+                  && ContentView.progressCaption(preparing: false, phase: .transcribing, modelMessage: "Parakeet", processing: "Transcribing…") == "Transcribing…",
+                  "Dictate's cancelling, delivering and processing captions are unchanged")
+        // A Cancel that left live words is a Dictate attention; the row's one sentence says why.
+        try check(PanelRecoveryRow.headline(LiveDictationDelivery.wordsLeftMessage(in: "TextEdit")) == "Cancelled, but words already written in TextEdit remain.",
+                  "a Cancel that left live words says so in the recovery row's sentence")
         try check(WorkbenchControlTool.allCases.compactMap(\.mode) == ToolbarMode.allCases, "the panel's rows follow the toolbar's modes in moment order")
         try check(WorkbenchControlTool.timer.mode == nil && !WorkbenchHome.navItems.contains { $0.title == WorkbenchControlTool.timer.title },
                   "Timer is a panel row, not a page")

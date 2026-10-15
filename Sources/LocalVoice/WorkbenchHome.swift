@@ -233,8 +233,8 @@ struct WorkbenchHome: View {
             }.allowsHitTesting(false).accessibilityHidden(true)
         }
             .frame(minWidth: 1050, minHeight: 730).tint(Workbench.accent).workbenchTheme()
-            .onChange(of: collapsed) { _ in hoveredSidebarItem = nil }
-            .onChange(of: model.page) { _ in hoveredSidebarItem = nil }
+            .onChange(of: collapsed) { hoveredSidebarItem = nil }
+            .onChange(of: model.page) { hoveredSidebarItem = nil }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hoveredSidebarItem = nil }
             .onDisappear { hoveredSidebarItem = nil }
             .onAppear {
@@ -285,7 +285,7 @@ struct WorkbenchHome: View {
         keyboard.stopInteraction(); showingProfile = true
     }
     private var welcome: some View {
-        WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap, introduction: introduction,
+        WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
                           jobs: model.handoffJobs, meetings: model.meetings, keyboard: keyboard,
                           greetingPlayed: $greetingPlayed, openProfile: { keyboard.stopInteraction(); showingProfile = true },
                           prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: MeetingFollowUp.task, transcriptID: id) })
@@ -400,7 +400,7 @@ struct WorkbenchHome: View {
                              + (Workbench.isPreview ? " Workbench and Workbench Preview keep separate libraries; your previous Voice and StageMark data remains in place." : ""))
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
-                    FounderIntroductionCard(model: introduction, canDismiss: false)
+                    FounderIntroductionCard(model: introduction)
                 }
             }
         }
@@ -440,7 +440,8 @@ struct WorkbenchHome: View {
     }
 
     /// A page with sections: its name from the page record, then its switcher, where every
-    /// other page has its title (#134). Each section keeps its own summary below.
+    /// other page has its title (#134). Each section's summary sits in the header above the
+    /// switcher, so the switcher stays in one place across sections.
     private func sectionedHeader(_ page: String, selection: String) -> some View {
         VStack(alignment: .leading, spacing: Workbench.sectionSpacing) {
             WorkbenchPageHeader(page, summary: Self.sectionSummaries[selection])
@@ -460,7 +461,10 @@ struct WorkbenchHome: View {
     /// A section's one-line summary, in the page header above the switcher where every other page
     /// has its own; the section's view does not repeat it.
     static let sectionSummaries: [String: String] = [
+        "settings": "How Workbench looks, starts and updates.",
         "shortcuts": "One set of shortcuts for speaking, drawing and presenting.",
+        "models": "Speech and writing models, all running on this Mac.",
+        "connections": "Assistants that can take work you hand off from History.",
         "library": "Keep useful prompts, links and files together.",
         "packs": "Reusable skills, scenes, personas and resources."]
 
@@ -493,7 +497,6 @@ struct WorkbenchClipboardShelf: View {
     /// gone (#134 T5). Shown only while no current receipt is.
     var unresolved: UnresolvedDelivery? = nil
     let review: () -> Void
-    let showCue: () -> Void
     /// Review for an undelivered result: the Dictate page for the draft's
     /// words, History for a transcript's.
     var reviewUnresolved: (UnresolvedDelivery) -> Void = { _ in }
@@ -509,7 +512,7 @@ struct WorkbenchClipboardShelf: View {
                         Label(receipt.title, systemImage: receipt.symbolName)
                             .font(.callout.weight(.semibold)).lineLimit(1)
                         if receipt.wordCount > 0 {
-                            Text("\(receipt.wordCount) \(receipt.wordCount == 1 ? "word" : "words")").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                            Text(TextRules.wordCountLabel(receipt.wordCount)).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 4)
                         // One ⌘V: the key only when the receipt's words do not already say it.
@@ -534,8 +537,7 @@ struct WorkbenchClipboardShelf: View {
                 HStack {
                     Button("Review text") { if receipt == nil, let unresolved { reviewUnresolved(unresolved) } else { review() } }
                     Spacer()
-                    if receipt != nil { Button("Show cue", action: showCue) }
-                    else if let unresolved {
+                    if receipt == nil, let unresolved {
                         if unresolved.offersCopy { Button("Copy again", action: copyAgain) }
                         Button("Dismiss", action: dismissUnresolved).accessibilityLabel("Dismiss unfinished delivery")
                     }
@@ -551,11 +553,11 @@ struct WorkbenchClipboardShelf: View {
 /// before you have one), what this Mac allows and the keys worth learning. Every action acts on
 /// the item beside it.
 struct WorkbenchHomePage: View {
+    @Environment(\.pageSectionFrames) private var sectionFrames
     @ObservedObject var model: AppModel
     @ObservedObject var stage: StageKitController
     @ObservedObject var readback: ReadbackModel
     @ObservedObject var snap: SnapModel
-    @ObservedObject var introduction: FounderIntroductionModel
     @ObservedObject var jobs: HandoffJobsModel
     @ObservedObject var meetings: MeetingModel
     @ObservedObject var keyboard: KeyboardCoachModel
@@ -626,9 +628,9 @@ struct WorkbenchHomePage: View {
         } }
         .background(Workbench.background)
         .onAppear { if journey.offersSkip { stayInGuide = true }; sample = SampleDeck.load(); readPermissions() }
-        .onChange(of: model.microphoneAuthorization) { _ in readPermissions() }
-        .onChange(of: model.accessibilityGranted) { _ in readPermissions() }
-        .onChange(of: model.lastPasteProblem) { _ in readPermissions() }
+        .onChange(of: model.microphoneAuthorization) { readPermissions() }
+        .onChange(of: model.accessibilityGranted) { readPermissions() }
+        .onChange(of: model.lastPasteProblem) { readPermissions() }
         // Returning from System Settings brings Workbench to the front: read again then.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refreshPermissions(); model.refreshMicrophoneAuthorization(); readPermissions()
@@ -688,13 +690,25 @@ struct WorkbenchHomePage: View {
     /// Active or paused work. Retained dictation audio belongs on Dictate,
     /// where Retry, the saved files and explicit Discard stay together; it is not current work.
     private var hasCurrentWork: Bool {
-        // Preparing speech counts only where the card shows it: the first-dictation guide
-        // shows the download itself, and a card holding only its title would be empty.
+        // Speech setup counts by the same rule that shows its banner, so the card is never empty.
         // The guide reads only History and the saved guide state, never this property: asking
         // `journey` here recursed until the stack overflowed whenever speech was preparing.
-        dictationLive || (model.preparing && !model.ready && !guideShows)
+        dictationLive || speechSetupIsCurrentWork
+            || HomeJourney.writingModelIsCurrentWork(hasLine: writingModelLine != nil, speechReady: model.ready, guideShows: guideShows)
             || readback.isRecording || readback.hasPendingTranscriptions || stage.isDrawing || stage.isPresenting
             || personaControl.isCurrentWork || stage.hasTimerSession || meetings.isBusy || jobs.isBusy
+    }
+    /// Speech setup in Current work, counted and shown by one rule (`HomeJourney.speechSetupIsCurrentWork`).
+    private var speechSetupIsCurrentWork: Bool {
+        HomeJourney.speechSetupIsCurrentWork(speechReady: model.ready, preparing: model.preparing, guideShows: guideShows,
+                                             writingModelCounts: writingModelLine != nil)
+    }
+    /// The writing model's line as Current work counts and shows it: a failure only while the
+    /// saved Text style uses Ollama (`HomeJourney.writingModelLine`).
+    private var writingModelLine: String? {
+        HomeJourney.writingModelLine(download: model.cleanupModels.downloadLine, failure: model.cleanupModels.failure,
+            savedStyleUsesOllama: model.cleanupModels.failure != nil && model.preferences.cleanup == .natural
+                && model.cleanupModels.store.snapshot().naturalProvider == .ollama)
     }
     /// Active input first, then other running or resumable work, each with its
     /// own truthful action. Leaving Home collapses, acknowledges or discards none of it.
@@ -703,14 +717,26 @@ struct WorkbenchHomePage: View {
             WorkbenchSectionTitle("Current work")
             // Active input. Stop only stops: a click that lands after the recording ended starts nothing.
             if model.phase == .recording {
-                liveRow("Dictating · " + time(model.elapsed), "record.circle.fill", recording: true) { Button("Stop") { model.stopRecording() } }
+                liveRow("Dictating · " + time(model.elapsed), "record.circle.fill", recording: true) { Button("Finish dictation") { model.stopRecording() } }
             }
             if readback.isRecording {
                 liveRow("Narrating · " + time(readback.recordingElapsed), "record.circle.fill", recording: true) { Button("Stop narration") { readback.stopNarration() } }
             }
             if meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
-            // The guide shows the speech engine itself while it is offered.
-            if !model.ready && !journey.showsGuide { engineBanner }
+            // Speech setup while it prepares or carries the writing model's line. The guide shows the
+            // speech engine itself while it is offered; otherwise the download offer waits in Models.
+            if speechSetupIsCurrentWork {
+                engineBanner.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.speech", $0) }
+            }
+            // The writing model's download or its failure while speech is ready, when no engine
+            // banner carries it: the same line Dictate and the panel show (#335). Cancel stays in Models.
+            if model.ready, let line = writingModelLine {
+                let failed = model.cleanupModels.downloading == nil
+                liveRow(line, failed ? "exclamationmark.triangle.fill" : "text.badge.checkmark", attention: failed) {
+                    if !failed { ProgressView().controlSize(.small) }
+                    Button("Models…") { model.page = "models" }
+                }.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.writing-model", $0) }
+            }
             // Other running or resumable work.
             if model.waitingForDrawing {
                 liveRow("Text ready", "doc.on.clipboard") { Button("Copy") { model.copyWaitingDelivery() } }
@@ -748,9 +774,9 @@ struct WorkbenchHomePage: View {
                 liveRow("Timer · " + stage.timerStateDetail, "timer") { NativeControlMenu(title: "Timer") { stage.makeTimerMenu() }.frame(width: 64, height: 24) }
             }
             if jobs.isBusy {
-                liveRow("Running · " + (jobs.jobs.first { $0.id == jobs.activeID }?.title ?? "Hand off task"), "arrow.up.forward.app") {
+                liveRow("Running · " + (jobs.jobs.first { $0.id == jobs.activeID }.map(jobs.title) ?? "Hand off task"), "arrow.up.forward.app") {
                     Button("Stop task") { jobs.cancel() }
-                }
+                }.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.task", $0) }
             }
             if meetings.isBusy && !meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
         }.padding(Workbench.tilePadding).background(Workbench.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
@@ -789,17 +815,17 @@ struct WorkbenchHomePage: View {
                 if let line = model.writingModelLine {
                     Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                // A failed preparation belongs here, beside Retry model: the menu-bar panel's
-                // Open Home… leads to these words (#134).
-                if let attention = model.attention, attention.page == .home {
-                    Text(attention.message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
             }
             Spacer()
-            if model.preparing { Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling) }
-            else if !model.ready && model.recognition.configuration.provider == .parakeet {
+            if model.preparing {
+                Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.speech.cancel-setup", $0) }
+            } else if !model.ready && model.recognition.configuration.provider == .parakeet {
                 Button("Download Parakeet") { Task { await model.downloadSpeechModel() } }
-                if !journey.offersSkip { Button("Not now") { skipGuide() } }
+                if journey.offersNotNow {
+                    Button("Not now") { skipGuide() }
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.speech.not-now", $0) }
+                }
             }
             Button("Models…") { model.page = "models" }
         }.padding(16).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
@@ -820,12 +846,13 @@ struct WorkbenchHomePage: View {
             Text("Record a thought, then copy your words into any app.").foregroundStyle(.secondary)
             if !model.ready && ![.requesting, .recording].contains(model.phase) { engineBanner } else {
                 HStack(spacing: 16) {
+                    // Dictate's microphone's names, spoken as shown; Finish dictation is the toolbar's too (#357).
+                    let dictationTitle = model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Finish dictation" : "Start dictating"
                     Button { model.toggleRecording() } label: {
-                        Label(model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Stop" : "Start dictating",
-                              systemImage: model.phase == .requesting ? "xmark" : model.phase == .recording ? "stop.fill" : "mic.fill")
+                        Label(dictationTitle, systemImage: model.phase == .requesting ? "xmark" : model.phase == .recording ? "stop.fill" : "mic.fill")
                     }.buttonStyle(.borderedProminent).controlSize(.large)
                         .disabled(![.idle, .requesting, .recording].contains(model.phase) || readback.blocksDictation)
-                        .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : model.phase == .recording ? "Stop recording" : "Start recording")
+                        .accessibilityLabel(model.phase == .requesting ? "Cancel microphone request" : dictationTitle)
                     if model.phase == .recording {
                         WaveBars(level: model.level).frame(width: 100, height: 22)
                         Text(time(model.elapsed)).monospacedDigit()
@@ -836,10 +863,11 @@ struct WorkbenchHomePage: View {
                         Text(model.captureProcessingLabel).font(.callout).foregroundStyle(.secondary)
                     }
                 }
-                Text("or press \(model.preferences.dictationShortcut.label) in any text field").font(.callout).foregroundStyle(.secondary)
+                Text(HomeJourney.shortcutHint(model.preferences.dictationShortcut, failure: model.shortcutFailures[1], capture: model.preferences.capture)).font(.callout).foregroundStyle(.secondary)
                 if !model.transcript.isEmpty {
                     Text(model.transcript).lineLimit(6).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16).background(Workbench.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(Workbench.tilePadding).background(Workbench.surface, in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
+                        .overlay(RoundedRectangle(cornerRadius: Workbench.tileRadius).strokeBorder(Workbench.border))
                         .accessibilityLabel("Your words")
                     HStack(spacing: 12) {
                         Button { model.copyTranscript() } label: { Label("Copy text", systemImage: "doc.on.doc") }
@@ -863,7 +891,6 @@ struct WorkbenchHomePage: View {
                             default: model.openHistory()
                             }
                         },
-                        showCue: { model.clipboardReceipt.revealHUD() },
                         reviewUnresolved: { _ in model.reviewUnresolvedDelivery() },
                         copyAgain: { model.copyUnresolvedDelivery() }, dismissUnresolved: { model.dismissUnresolvedDelivery() })
                 }
@@ -926,8 +953,36 @@ struct HomeJourney: Equatable {
     var offersSkip: Bool { showsGuide && !hasDictated }
     /// Show me a first dictation, while the guide is skipped and nothing has been dictated.
     var offersGuide: Bool { !showsGuide && !hasDictated }
+    /// Not now beside the guide's speech download, once Skip for now has gone: only there does it
+    /// hide something. Outside the guide it would re-save a state already in effect (#15).
+    var offersNotNow: Bool { showsGuide && !offersSkip }
     /// What to save once History holds a dictation.
     var guideToSave: FirstDictationGuide? { transcripts > 0 && guide != .completed ? .completed : nil }
+    /// The writing model's download or failure is current work while speech is ready, in its own
+    /// row, or while the guide is hidden, in the engine banner. While the guide shows over speech
+    /// that is not ready, the guide's banner carries it, so Current work never holds only its title.
+    static func writingModelIsCurrentWork(hasLine: Bool, speechReady: Bool, guideShows: Bool) -> Bool {
+        hasLine && (speechReady || !guideShows)
+    }
+    /// Speech that is not ready is current work only while it prepares, or while its banner carries
+    /// the writing model's line, and never while the guide shows it. Someone who skipped the guide
+    /// and only draws or presents never gets the download offer beside that work (#15).
+    static func speechSetupIsCurrentWork(speechReady: Bool, preparing: Bool, guideShows: Bool, writingModelCounts: Bool) -> Bool {
+        !speechReady && !guideShows && (preparing || writingModelCounts)
+    }
+    /// The writing model's line in Current work: a running download always, and a failed one
+    /// only while the saved Text style uses Ollama, so a failure the person has moved on from
+    /// never holds Current work open. Models, Dictate and the panel keep the reason until the
+    /// next request, Cancel or Save.
+    static func writingModelLine(download: String?, failure: String?, savedStyleUsesOllama: Bool) -> String? {
+        download ?? (savedStyleUsesOllama ? failure : nil)
+    }
+    /// The guide's second way to start. It teaches a key only while the Dictate shortcut is on
+    /// and registered, never "press Off" or a key another app holds (#15); otherwise the menu
+    /// bar, in History's words. Hold or press follows Activation, as Dictate's hint does.
+    static func shortcutHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
+        shortcut.enabled && failure == nil ? "or \(capture == .hold ? "hold" : "press") \(shortcut.label) in any text field" : "or choose Dictate in the menu bar"
+    }
     /// Current work first, then the guide while offered, then Permissions while it is open, then
     /// your meetings, decks and keys, and a folded Permissions last. Home holds
     /// only what the app shows nowhere else in that form; History keeps everything else

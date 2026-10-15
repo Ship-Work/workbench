@@ -73,12 +73,24 @@ enum AtomicPrivateFile {
     }
 }
 enum TranscriptExportVersion: String {
-    case cleaned = "Cleaned text"
+    /// The transcript as it reads now: cleaned, a meeting's conversation, or as heard with cleanup off.
+    case cleaned = "Current text"
     case original = "Original wording"
+    /// Review transcript's export, in History's More menu words.
+    var exportTitle: String { self == .original ? "Export original wording…" : "Export current text…" }
 }
 
 enum TranscriptExport {
-    static let defaultFilename = "Workbench Transcript.txt"
+    /// A suggested name that says which transcript it holds, from its purpose and capture time and
+    /// never its words or people: "Meeting 2026-10-15 at 10.00.txt". The fixed format keeps '/' and ':' out.
+    static func filename(purpose: TranscriptPurpose, date: Date, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm"
+        return purpose.title + " " + formatter.string(from: date) + ".txt"
+    }
     static func text(for capture: Transcript, version: TranscriptExportVersion) -> String {
         version == .original ? capture.rawText ?? capture.text : capture.text
     }
@@ -87,50 +99,5 @@ enum TranscriptExport {
     }
     static func write(_ capture: Transcript, version: TranscriptExportVersion, to destination: URL) throws {
         try data(for: capture, version: version).write(to: destination, options: .atomic)
-    }
-}
-
-private final class CancellableProcess: @unchecked Sendable {
-    private let process = Process()
-    private let lock = NSLock()
-    private var cancelled = false
-    private var launched = false
-
-    init(executable: String, arguments: [String]) {
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-    }
-
-    func cancel() {
-        lock.lock()
-        cancelled = true
-        let shouldTerminate = launched && process.isRunning
-        lock.unlock()
-        if shouldTerminate, process.isRunning { process.terminate() }
-    }
-
-    func run() throws {
-        let errors = Pipe()
-        process.standardError = errors
-        lock.lock()
-        if cancelled { lock.unlock(); throw CancellationError() }
-        do {
-            try process.run()
-            launched = true
-            lock.unlock()
-        } catch {
-            lock.unlock()
-            throw error
-        }
-        let data = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        lock.lock()
-        launched = false
-        let wasCancelled = cancelled
-        lock.unlock()
-        if wasCancelled { throw CancellationError() }
-        guard process.terminationStatus == 0 else {
-            throw VoiceError.message(String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "The audio operation failed.")
-        }
     }
 }

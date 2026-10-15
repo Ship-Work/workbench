@@ -174,11 +174,14 @@ struct DemoLibraryView: View {
             }.hidden()
         }
     }
-    /// The count, and the recall key only while it is on: “Off to recall” said nothing useful.
+    /// The count, and the recall key only while it is on and registered: “Off to recall” said
+    /// nothing useful, and a key another app holds recalls nothing (#76).
     private var footerSummary: String {
-        let count = "\(library.resources.count) \(library.resources.count == 1 ? "resource" : "resources")"
-        let recall = model.preferences.shortcut(3)
-        return recall.enabled ? count + " · \(recall.label) to recall" : count
+        Self.footerSummary(count: library.resources.count, recall: model.preferences.shortcut(3), failure: model.shortcutFailures[3])
+    }
+    nonisolated static func footerSummary(count: Int, recall: VoiceShortcut, failure: String?) -> String {
+        let resources = "\(count) \(count == 1 ? "resource" : "resources")"
+        return recall.usableLabel(failure: failure).map { resources + " · \($0) to recall" } ?? resources
     }
     private func performReturnAction(fromSearch: Bool) -> KeyPress.Result {
         guard WorkbenchHome.destination(model.page).section == "library", library.draft == nil, removal == nil,
@@ -334,7 +337,12 @@ private struct DemoResourceEditor: View {
     @ObservedObject var library: DemoLibraryModel
     @State var item: DemoResource
     @FocusState private var titleFocused: Bool
-    init(library: DemoLibraryModel, initial: DemoResource) { self.library = library; _item = State(initialValue: initial) }
+    init(library: DemoLibraryModel, initial: DemoResource) {
+        self.library = library
+        // A sheet shown again after Keep editing keeps what was typed.
+        let working = library.draftWorkingCopy.flatMap { $0.id == initial.id ? $0 : nil }
+        _item = State(initialValue: working ?? initial)
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("\(library.resources.contains { $0.id == item.id } ? "Edit" : "Save") \(item.kind.rawValue.lowercased())").font(.title2.weight(.semibold))
@@ -371,5 +379,6 @@ private struct DemoResourceEditor: View {
                     .disabled(item.validationMessage != nil || library.savingDisabled)
             }
         }.padding(24).frame(width: 520).onAppear { titleFocused = true }.workbenchTheme()
+        .onChange(of: item) { _, new in library.noteDraftEdit(new) }
     }
 }
