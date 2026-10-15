@@ -456,7 +456,6 @@ struct HandoffReviewView: View {
     @State private var providerChosen = false
     @State private var loadedSkill: ReadbackSkillPackSnapshot?
     @State private var skillProblem: String?
-    @StateObject private var evidencePicker = TranscriptHandoffRunner()
     private var skill: TranscriptHandoffSkill { skills.first(where: { $0.id == skillID }) ?? .followUp }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -490,7 +489,7 @@ struct HandoffReviewView: View {
                                     Button("Use the open session") { useEvidence(selectedSnapTalkSession) }
                                 }
                                 Button("Choose a session…") {
-                                    if let url = evidencePicker.chooseEvidence() { useEvidence(url) }
+                                    if let url = HandoffSessionEvidence.chooseSessionFolder() { useEvidence(url) }
                                 }
                             }.fixedSize().font(.caption)
                         }
