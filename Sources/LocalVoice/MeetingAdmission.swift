@@ -12,8 +12,7 @@ enum MeetingProblem: Error, LocalizedError, Equatable {
     var errorDescription: String? { message }
     var message: String {
         switch self {
-        case .speech(let detail): return "Open Models before starting speech recognition. " + detail
-        case .busy(let detail), .appAudioUnavailable(let detail), .sourceProbe(let detail), .checkpoint(let detail), .unknown(let detail): return detail
+        case .speech(let detail), .busy(let detail), .appAudioUnavailable(let detail), .sourceProbe(let detail), .checkpoint(let detail), .unknown(let detail): return detail
         case .closing: return "Workbench is closing. Saved work is unchanged."
         case .microphoneDenied: return "Microphone access is off. Open Microphone Settings to include your voice, or explicitly choose app audio only."
         case .microphoneRestricted: return "macOS reports that microphone access is restricted. App audio only can record the selected app, but will not include your microphone."
@@ -55,8 +54,13 @@ struct MeetingAdmission: Equatable {
     var microphone: AVAuthorizationStatus = .notDetermined
     var captureProblem: MeetingProblem?
     var recognitionProblem: MeetingProblem?
+    /// Speech is downloading or loading, so the page says it is preparing, as Dictate does.
+    var speechPreparing = false
     var canStart: Bool { captureProblem == nil }
-    var title: String { captureProblem?.title ?? "Ready to record" }
+    var title: String {
+        if case .speech = captureProblem, speechPreparing { return "Preparing speech…" }
+        return captureProblem?.title ?? "Ready to record"
+    }
 }
 
 enum MeetingAppEnumeration: Equatable {
