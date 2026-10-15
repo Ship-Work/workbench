@@ -360,6 +360,8 @@ enum MeetingChecks {
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
+        try await silenceHintChecks(root: root, expect: expect)
+        try routeRecoveryChecks(expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
         checks += try MeetingCompletionChecks.run()
@@ -432,6 +434,123 @@ enum MeetingChecks {
         try MeetingStore.save(stopped, at: session, replacing: result.manifest)
         _ = try await processor.run()
         try expect(recognitionCalls == 1 && saved.last?.text == "Batch words", "incomplete live checkpoint falls back to original audio")
+    }
+
+    /// A refused System Audio Recording tap delivers silence, not an error. Fifteen seconds into a call
+    /// the chosen app is using audio for, with nothing heard, the app's source line says so and names
+    /// the list; it clears when sound arrives. The saved notes say the same for a silent app track.
+    private static func silenceHintChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let list = "Screen & System Audio Recording"
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: list)
+                   == "No sound has arrived from Zoom yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check Privacy & Security › Screen & System Audio Recording.",
+                   "fifteen silent seconds of an app that is using audio name the system audio list")
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: "Audio Recording")?
+                       .hasSuffix("check Privacy & Security › Audio Recording.") == true,
+                   "the hint carries the list name macOS uses on this version")
+        try expect(MeetingSilenceHint.message(appName: nil, elapsed: 600, heard: false, activity: .active, permission: list) == nil,
+                   "a microphone-only recording has no app to explain")
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 14.9, heard: false, activity: .active, permission: list) == nil,
+                   "nothing is said before fifteen seconds")
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .inactive, permission: list) == nil
+                   && MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .unknown, permission: list) == nil,
+                   "an app that is not using audio, or metadata Workbench cannot read, earns no permission hint")
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 600, heard: true, activity: .active, permission: list) == nil,
+                   "sound heard once clears the hint for the rest of the call")
+
+        // Through the real watcher: a silent known app, active in metadata, fifteen seconds in.
+        let suite = root.appendingPathComponent("Workbench-SilenceHint-\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 1_501, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true)]
+        let capture = CaptureFixture(); capture.level = 0; capture.elapsedSeconds = MeetingSilenceHint.delaySeconds
+        let model = MeetingModel(directory: root.appendingPathComponent("silence-hint"), defaults: defaults, processSource: source,
+            transcribe: { _ in "unused" }, microphonePermission: { true }, captureFactory: { capture })
+        model.refreshApps()
+        model.selectedAppID = 1_501; model.includeMicrophone = false
+        await model.start()
+        func appLine() -> LiveVoiceSourceStatus? { model.voiceSession.sources.first { $0.source == .app } }
+        try expect(model.isRecording && appLine() != nil && appLine()?.message == nil, "the hint is not there when a recording starts")
+        await waitUntil { appLine()?.message != nil }
+        try expect(appLine()?.message?.hasPrefix("No sound has arrived from Zoom yet.") == true && appLine()?.health != .receiving && model.isRecording,
+                   "fifteen silent seconds of an app using audio put the hint on its source line while the recording continues")
+        capture.deliver(level: 0.3)
+        await waitUntil { appLine()?.message == nil }
+        try expect(appLine()?.message == nil && model.isRecording, "the hint clears once sound arrives")
+        await model.cancel(); await model.prepareForShutdown()
+
+        // The saved notes: a silent app track names the possibility; the other notes keep their words.
+        var quietApp = manifest(state: .stopped); quietApp.appName = "Zoom"
+        quietApp.tracks = [MeetingTrack(source: .remote, file: "tracks/remote.caf", startSeconds: 0, seconds: 30, sampleRate: 48_000, peak: 0, droppedSeconds: 0),
+                           MeetingTrack(source: .local, file: "tracks/local.caf", startSeconds: 0, seconds: 30, sampleRate: 16_000, peak: 0.4, droppedSeconds: 0)]
+        try expect(MeetingSummary.gaps(for: quietApp, permission: list)
+                   == ["No sound arrived from Zoom. If the others were audible, Workbench may not have been allowed to record system audio (Privacy & Security › Screen & System Audio Recording)."],
+                   "a silent app track's note names the system audio permission as a possibility")
+        var missingApp = quietApp; missingApp.tracks = [quietApp.tracks[1]]
+        var quietMicrophone = quietApp; quietMicrophone.tracks[0].peak = 0.5; quietMicrophone.tracks[1].peak = 0
+        try expect(MeetingSummary.gaps(for: missingApp, permission: list) == ["No audio was received from Zoom. Other people may be missing from the transcript."]
+                   && MeetingSummary.gaps(for: quietMicrophone, permission: list) == ["Your microphone stayed quiet for the whole recording."],
+                   "the missing-app and quiet-microphone notes keep their words")
+    }
+
+    /// A device change restarts only the source it affects (MeetingRouteRecovery): the other keeps
+    /// recording, and recovery is complete when the restarted sources deliver again, whatever the
+    /// other is doing. The capture class itself needs a tap and a microphone, so these hold the rule.
+    private static func routeRecoveryChecks(expect: (Bool, String) throws -> Void) throws {
+        typealias Routes = Set<MeetingTrackSource>
+        let starvedCases: [Routes] = [[], [.remote], [.local], [.remote, .local]]
+        var combinations = 0, exact = true
+        for output in [false, true] { for input in [false, true] { for gone in [false, true] { for starved in starvedCases {
+            let planned = MeetingRouteRecovery.plan(outputChanged: output, inputChanged: input, appProcessGone: gone, starved: starved)
+            combinations += 1
+            // The microphone restarts only for its own device or its own silence; the app tap only for
+            // the Mac output, its process or its own silence; and every cause does restart its route.
+            if planned.contains(.local) != (input || starved.contains(.local)) { exact = false }
+            if planned.contains(.remote) != (output || gone || starved.contains(.remote)) { exact = false }
+        } } } }
+        try expect(combinations == 32 && exact, "every combination of output, input, app process and starvation restarts only the routes it affects")
+        try expect(MeetingRouteRecovery.plan(outputChanged: true, inputChanged: false, appProcessGone: false, starved: []) == [.remote],
+                   "headphones changing the Mac output restart the app tap and leave the microphone recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: true, appProcessGone: false, starved: []) == [.local],
+                   "a changed microphone device restarts the microphone and leaves the app tap recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: true, starved: []) == [.remote],
+                   "the chosen app quitting restarts its tap and leaves the microphone recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.local]) == [.local]
+                   && MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.remote]) == [.remote],
+                   "a source that stops supplying samples restarts alone")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: []).isEmpty
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: false, starved: []) == nil,
+                   "nothing changed restarts nothing and explains nothing")
+        try expect(MeetingRouteRecovery.plan(outputChanged: true, inputChanged: true, appProcessGone: false, starved: []) == [.remote, .local]
+                   && MeetingRouteRecovery.reason(outputChanged: true, inputChanged: true, appProcessGone: false, starved: []) == "The Mac audio output changed.",
+                   "AirPods changing both devices at once restart both routes in one recovery, explained by the output change")
+        try expect(MeetingRouteRecovery.reason(outputChanged: false, inputChanged: true, appProcessGone: true, starved: [.remote]) == "The microphone device changed."
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: true, starved: [.remote]) == "The selected app's audio process changed."
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.local]) == "An audio source stopped supplying samples.",
+                   "the explanation names the first cause in the order capture checks them")
+        // Which routes the half-second check asks while a recovery runs: the other one, so a change
+        // found there joins the running recovery instead of waiting for it.
+        try expect(MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: [.local]) == [.remote]
+                   && MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: [.remote]) == [.local],
+                   "while one route reconnects the other is still checked, so headphones with a mic join the one recovery")
+        try expect(MeetingRouteRecovery.polled(configured: [.remote, .local], recovering: []) == [.remote, .local]
+                   && MeetingRouteRecovery.polled(configured: [.remote], recovering: [.remote]).isEmpty
+                   && MeetingRouteRecovery.polled(configured: [.local], recovering: []) == [.local],
+                   "outside a recovery every configured route is checked, and a reconnecting route is not asked about its stale device")
+        // Each tick of a running recovery is one decision, held here rather than in the capture class.
+        try expect(MeetingRouteRecovery.step(recovering: [.remote], delivering: [.remote], sinceStart: 1, sinceAttempt: 1) == .complete
+                   && MeetingRouteRecovery.step(recovering: [.remote], delivering: [], sinceStart: 1, sinceAttempt: 1) == .wait,
+                   "a restarted app tap completes its recovery on its own buffers, whatever the microphone is doing")
+        try expect(MeetingRouteRecovery.step(recovering: [.remote, .local], delivering: [.remote], sinceStart: 3, sinceAttempt: 2.5) == .retry([.local]),
+                   "when both restarted, the one still silent is the only one retried")
+        try expect(MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 14.9, sinceAttempt: 2.5) == .retry([.local])
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 15.1, sinceAttempt: 2.5) == .giveUp
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [.local], sinceStart: 15.1, sinceAttempt: 2.5) == .complete,
+                   "a route still silent after fifteen seconds ends the recording with its note; one that delivered in time completes")
+        try expect(MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: 1.9) == .wait
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: 2.1) == .retry([.local])
+                   && MeetingRouteRecovery.step(recovering: [.local], delivering: [], sinceStart: 5, sinceAttempt: nil) == .retry([.local]),
+                   "a silent route is rebuilt every two seconds, and at once when no attempt has been made")
     }
 
     /// A call offer's Call holds for that call's recording, including its microphone-only fallback,
@@ -1500,12 +1619,19 @@ enum MeetingChecks {
         func pause() async throws { isPaused = true }
         func resume() async throws { isPaused = false }
         private var report = MeetingCaptureReport()
+        private var onAudio: (@Sendable (MeetingAudioChunk) -> Void)?
+        private var recordedSource = MeetingTrackSource.local
+        /// Later sound from the recorded source, as a call app that starts speaking would supply.
+        func deliver(level: Float) {
+            onAudio?(MeetingAudioChunk(source: recordedSource, samples: [Float](repeating: level, count: 160), sampleRate: 16_000, startSeconds: 1))
+        }
         func start(_ request: MeetingCaptureRequest) async throws {
             if let startGate { _ = await startGate.wait() }
             if let startError { throw startError }
             guard !stopping else { throw CancellationError() }
             let session = request.tracksDirectory.deletingLastPathComponent()
             let source: MeetingTrackSource = request.includeMicrophone ? .local : .remote
+            onAudio = request.onAudio; recordedSource = source
             if let level { request.onAudio?(MeetingAudioChunk(source: source, samples: [Float](repeating: level, count: 160), sampleRate: 16_000, startSeconds: 0)) }
             let track = try await MeetingChecks.audio(source: source, seconds: 1, rate: 16_000, value: 0.2, offset: 0, session: session)
             report = MeetingCaptureReport(tracks: [track], seconds: 1)

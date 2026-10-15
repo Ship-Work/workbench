@@ -77,6 +77,14 @@ import SwiftUI
         MeetingOfferPanelController.configure(offerPanel)
         try expect(offerPanel.collectionBehavior.contains(.canJoinAllSpaces) && offerPanel.collectionBehavior.contains(.fullScreenAuxiliary)
                    && !offerPanel.hidesOnDeactivate && offerPanel.level == .floating, "the offer panel joins every Space, full-screen calls included, and stays while Workbench is inactive")
+        // A source's explanation is on the page under its line, not only in a tooltip.
+        _ = NSApplication.shared
+        let plain = [LiveVoiceSourceStatus(source: .app, name: "Zoom", health: .quiet)]
+        var explained = plain
+        explained[0].message = MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: "Screen & System Audio Recording")
+        let plainHeight = NSHostingView(rootView: LiveVoiceSourcesView(sources: plain).frame(width: 420)).fittingSize.height
+        let explainedHeight = NSHostingView(rootView: LiveVoiceSourcesView(sources: explained).frame(width: 420)).fittingSize.height
+        try expect(explainedHeight > plainHeight + 8, "a source's explanation takes its own line under the source (\(Int(plainHeight)) → \(Int(explainedHeight)) pt)")
         try checkLongTranscriptLayout(expect)
         print("Live voice experience: \(count) checks passed")
     }
@@ -162,16 +170,23 @@ import SwiftUI
     /// Accessibility inspection. Renders both appearances and recovery states.
     static func render(to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        func state(_ phase: LiveVoicePhase, silentApp: Bool = false) -> LiveVoiceSnapshot {
+            let words = [
+                LiveVoiceSegment(source: .app, start: 12, end: 15, text: "Let's review the checklist before choosing a launch date.", isFinal: true),
+                LiveVoiceSegment(source: .microphone, start: 16, end: 20, text: "I'll update it tomorrow and send it for review.", isFinal: true),
+                LiveVoiceSegment(source: .app, start: 21, end: 25, text: "Great. We can decide on the date after that.", isFinal: phase == .completed)
+            ]
+            var app = LiveVoiceSourceStatus(source: .app, name: "Mac calling service", health: phase == .paused ? .paused : silentApp ? .quiet : .receiving)
+            if silentApp { app.message = MeetingSilenceHint.message(appName: app.name, elapsed: 25, heard: false, activity: .active, permission: "Screen & System Audio Recording") }
+            return LiveVoiceSnapshot(sessionID: UUID(), phase: phase, elapsed: 25,
+                sources: [app, .init(source: .microphone, name: "Your microphone", health: phase == .reconnecting ? .reconnecting : .quiet)],
+                segments: silentApp ? words.filter { $0.source == .microphone } : words)
+        }
+        // The five phases, plus a call whose app has stayed silent long enough to name the permission.
+        let states = [LiveVoicePhase.listening, .paused, .reconnecting, .finishing, .completed].map { ($0.rawValue, state($0)) }
+            + [("silent-app", state(.listening, silentApp: true))]
         for dark in [false, true] {
-            for phase in [LiveVoicePhase.listening, .paused, .reconnecting, .finishing, .completed] {
-                let words = [
-                    LiveVoiceSegment(source: .app, start: 12, end: 15, text: "Let's review the checklist before choosing a launch date.", isFinal: true),
-                    LiveVoiceSegment(source: .microphone, start: 16, end: 20, text: "I'll update it tomorrow and send it for review.", isFinal: true),
-                    LiveVoiceSegment(source: .app, start: 21, end: 25, text: "Great. We can decide on the date after that.", isFinal: phase == .completed)
-                ]
-                let snapshot = LiveVoiceSnapshot(sessionID: UUID(), phase: phase, elapsed: 25,
-                    sources: [.init(source: .app, name: "Mac calling service", health: phase == .paused ? .paused : .receiving),
-                              .init(source: .microphone, name: "Your microphone", health: phase == .reconnecting ? .reconnecting : .quiet)], segments: words)
+            for (name, snapshot) in states {
                 let content = VStack(alignment: .leading, spacing: 18) {
                     HStack { Text("Meetings").font(.title2.weight(.semibold)); Spacer(); Text("0:25").monospacedDigit() }
                     Text(snapshot.recordingTitle).font(.headline)
@@ -188,7 +203,7 @@ import SwiftUI
                 view.layoutSubtreeIfNeeded(); window.displayIfNeeded()
                 let image = try SurfaceGallery.snapshot(view)
                 guard let data = image.representation(using: .png, properties: [:]) else { throw VoiceError.message("Could not render live transcript") }
-                try data.write(to: directory.appendingPathComponent("\(phase.rawValue)-\(dark ? "dark" : "light").png"))
+                try data.write(to: directory.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"))
                 window.close()
             }
         }
