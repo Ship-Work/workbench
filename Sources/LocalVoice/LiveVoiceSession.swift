@@ -36,6 +36,9 @@ struct LiveVoiceSnapshot: Equatable, Sendable {
     var sources: [LiveVoiceSourceStatus] = []
     var segments: [LiveVoiceSegment] = []
     var recognitionDelayed = false
+    /// The live pass has missed or doubled words at a boundary or a backlog (#280): live words
+    /// continue, and the saved transcript comes from the original audio at finish.
+    var liveIncomplete = false
     var message: String?
 
     var text: String { segments.map(\.text).filter { !$0.isEmpty }.joined(separator: " ") }

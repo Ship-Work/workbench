@@ -55,6 +55,10 @@ struct LiveVoiceWindow {
     var committed = 0
     var previewed = 0
     var segmentID = UUID()
+    /// Boundaries this window could not reconcile (#280): the committed anchor was not in the next
+    /// decode, or a pending seam word moved. Live words continue by the plain midpoint rule; the
+    /// service marks the pass incomplete, so the saved transcript comes from the original audio.
+    private(set) var unreconciledBoundaries = 0
     private var seamAnchor: LiveVoiceWord?
     private var seamPending: [LiveVoiceWord] = []
     init(source: LiveVoiceSource, start: Double, rate: Double, samples: [Float] = []) {
@@ -101,13 +105,16 @@ struct LiveVoiceWindow {
             // for the complete pass instead of guessing which occurrence was committed.
             return matches.count == 1 ? matches.first : nil
         }
-        let anchorIndex = seamAnchor.flatMap(match)
-        if seamAnchor != nil && anchorIndex == nil {
-            throw VoiceError.message("Words at a live transcription boundary could not be reconciled. The original audio is kept for a complete transcription.")
-        }
-        let pendingMatches = Set(seamPending.compactMap(match))
-        if seamAnchor == nil && pendingMatches.count != seamPending.count {
-            throw VoiceError.message("The live transcription boundary changed. The original audio is kept for a complete transcription.")
+        var anchorIndex = seamAnchor.flatMap(match)
+        var pendingMatches = Set(seamPending.compactMap(match))
+        let anchorLost = seamAnchor != nil && anchorIndex == nil
+        let pendingMoved = seamAnchor == nil && pendingMatches.count != seamPending.count
+        if anchorLost || pendingMoved {
+            // Degrade, never die (#280): this request's words follow the plain midpoint rule and the
+            // seam starts again. A word may be missed or doubled here, so the pass is no longer the
+            // saved transcript; the original audio is.
+            seamAnchor = nil; seamPending = []; anchorIndex = nil; pendingMatches = []
+            unreconciledBoundaries += 1
         }
         let included = absolute.indices.filter { index in
             let pastBoundary = anchorIndex.map { index > $0 } ?? (midpoint(absolute[index]) >= request.from || pendingMatches.contains(index))
@@ -129,6 +136,19 @@ struct LiveVoiceWindow {
                                     text: word.text, isFinal: request.final)
         }
     }
+    /// Audio a source's queue holds, in seconds.
+    static func queuedSeconds(_ queue: [LiveVoiceWindow]) -> Double {
+        queue.reduce(0) { $0 + Double($1.samples.count) / $1.rate }
+    }
+    /// A backlog past the limit drops the oldest whole window(s) until the rest fits (#280), so live
+    /// words skip ahead instead of stopping. Returns the uncommitted start of the first dropped window,
+    /// where live words go missing, or nil when nothing was dropped.
+    static func trimBacklog(_ queue: inout [LiveVoiceWindow], limit: Double = 60) -> Double? {
+        guard queuedSeconds(queue) > limit, let first = queue.first else { return nil }
+        let from = first.start + Double(first.committed) / first.rate
+        while !queue.isEmpty, queuedSeconds(queue) > limit { queue.removeFirst() }
+        return from
+    }
     mutating func accept(_ request: Request) {
         previewed = samples.count
         guard request.final else { return }
@@ -139,6 +159,21 @@ struct LiveVoiceWindow {
         let discard = max(0, committed - Int(2 * rate))
         samples.removeFirst(discard); start += Double(discard) / rate
         committed -= discard; previewed -= discard
+    }
+}
+
+/// Live words degrade instead of dying (#280). Each kind is noted once per pass; the pass is then
+/// incomplete and the saved transcript comes from the original audio at finish.
+enum LiveVoiceDegradation: Hashable {
+    case unmatchedBoundary, backlog
+    func note(at seconds: Double) -> String {
+        let at = Int(seconds.rounded())
+        switch self {
+        case .unmatchedBoundary:
+            return "Live words continued after a boundary at \(at) s could not be matched; the saved transcript comes from the original audio."
+        case .backlog:
+            return "Live text fell behind at \(at) s; the words from the original audio replace it at finish."
+        }
     }
 }
 
@@ -183,6 +218,12 @@ final class LiveVoiceService: @unchecked Sendable {
             var tails: [LiveVoiceSource: [LiveVoiceSegment]] = [:]
             var snapshot = LiveVoiceSnapshot(sessionID: id, phase: .listening, sources: sources)
             var stopped = false
+            var reconciled = true
+            var noted: Set<LiveVoiceDegradation> = []
+            func degrade(_ kind: LiveVoiceDegradation, at seconds: Double) {
+                reconciled = false
+                if noted.insert(kind).inserted { checkpoint.notes.append(kind.note(at: seconds)) }
+            }
             do {
                 while true {
                     try Task.checkCancellation()
@@ -200,9 +241,12 @@ final class LiveVoiceService: @unchecked Sendable {
                         if queue.isEmpty || !queue[queue.count - 1].append(audio) {
                             queue.append(LiveVoiceWindow(source: audio.source, start: audio.start, rate: audio.sampleRate, samples: audio.samples))
                         }
-                        // Bound both the mailbox and audio retained during inference.
-                        guard queue.reduce(0, { $0 + Double($1.samples.count) / $1.rate }) <= 60 else {
-                            throw VoiceError.message("Live text fell behind. Finish to transcribe the saved original audio.")
+                        // Bound both the mailbox and audio retained during inference. Past 60 s the
+                        // oldest window(s) go and live words continue from the newest audio; the
+                        // original audio gives the saved words (#280).
+                        if let behindFrom = LiveVoiceWindow.trimBacklog(&queue) {
+                            degrade(.backlog, at: behindFrom)
+                            tails[audio.source] = []
                         }
                         runs[audio.source] = queue
                     }
@@ -217,7 +261,9 @@ final class LiveVoiceService: @unchecked Sendable {
                             if samples.count < 4_800 { samples += [Float](repeating: 0, count: 4_800 - samples.count) }
                             let words = samples.allSatisfy({ abs($0) < 0.000001 }) ? [] : try await recognize(samples)
                             try Task.checkCancellation()
+                            let boundaries = queue[0].unreconciledBoundaries
                             let segments = try queue[0].segments(words: words, request: request)
+                            if queue[0].unreconciledBoundaries > boundaries { degrade(.unmatchedBoundary, at: request.from) }
                             tails[source] = request.final ? [] : segments
                             if request.final {
                                 checkpoint.segments += segments
@@ -231,12 +277,13 @@ final class LiveVoiceService: @unchecked Sendable {
                     }
                     snapshot.segments = LiveVoiceTurns.group(checkpoint.segments + tails.values.flatMap { $0 })
                     snapshot.recognitionDelayed = runs.values.flatMap { $0 }.contains { $0.uncommittedSeconds > 12 }
+                    snapshot.liveIncomplete = !reconciled
                     snapshot.phase = stopped ? .finishing : .listening
                     update(snapshot)
                     if stopped && runs.values.allSatisfy(\.isEmpty) { break }
                     if !worked { try await Task.sleep(nanoseconds: 100_000_000) }
                 }
-                checkpoint.complete = sources.allSatisfy { checkpoint.completedThrough[$0.source.rawValue] != nil }
+                checkpoint.complete = reconciled && sources.allSatisfy { checkpoint.completedThrough[$0.source.rawValue] != nil }
                 if let journal { try LiveVoiceJournal.save(checkpoint, to: journal) }
                 snapshot.phase = checkpoint.complete ? .completed : .recoverableFailure
             } catch {

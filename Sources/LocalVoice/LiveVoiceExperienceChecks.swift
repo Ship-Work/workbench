@@ -47,6 +47,15 @@ import SwiftUI
         let snapshot = LiveVoiceSnapshot(phase: .listening, recognitionDelayed: true)
         try expect(snapshot.recordingTitle == "Recording" && snapshot.transcriptStatus.contains("catching up"),
                    "delayed words do not claim capture stopped")
+        // A pass the service marked incomplete still records; its words continue and the saved
+        // transcript comes from the original audio. Only a real backlog says catching up (#280).
+        let continuing = LiveVoiceSnapshot(phase: .listening, liveIncomplete: true)
+        try expect(continuing.recordingTitle == "Recording" && continuing.transcriptStatus.hasPrefix("Live words continue")
+                   && continuing.transcriptStatus.contains("original audio") && !continuing.transcriptStatus.contains("catching up"),
+                   "an incomplete live pass says its words continue and the saved transcript comes from the original audio")
+        let both = LiveVoiceSnapshot(phase: .listening, recognitionDelayed: true, liveIncomplete: true)
+        try expect(both.transcriptStatus.contains("catching up") && both.transcriptStatus.contains("original audio"),
+                   "a delayed and incomplete pass says both")
         // A meeting's own door prefers the bundled meeting skill and still offers the rest; the details
         // door keeps the general skill alone; a History selection keeps the pack's remembered choice.
         let builtIns = TranscriptHandoffSkill.builtIns

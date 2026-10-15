@@ -18,7 +18,13 @@ extension LiveVoiceSnapshot {
     }
 
     var transcriptStatus: String {
-        if recognitionDelayed { return "Words are catching up · audio is still being kept" }
+        // Catching up is a real backlog, now. An incomplete pass still shows its words; the saved
+        // transcript comes from the original audio, and the line says so rather than catching up forever (#280).
+        if recognitionDelayed {
+            return liveIncomplete ? "Words are catching up · the saved transcript will come from the original audio"
+                                  : "Words are catching up · audio is still being kept"
+        }
+        if liveIncomplete && phase == .listening { return "Live words continue · the saved transcript will come from the original audio" }
         if let message, !message.isEmpty { return message }
         switch phase {
         case .preparing: return "Preparing live words…"
