@@ -239,16 +239,16 @@ struct HandoffJobCard<MadeFrom: View>: View {
     var body: some View {
         let files = jobs.files(job)
         let resultReady = job.status == .completed && files?.resultReadable == true
-        let context = Self.context(job)
+        let context = self.context(job)
         let others = jobs.otherReviewJobs(job)
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "arrow.up.forward.app").foregroundStyle(Workbench.accent)
-                Text(job.title).font(.headline)
+                Text(jobs.title(job)).font(.headline)
                 Spacer()
                 Text(job.status.title).font(.caption.weight(.medium))
             }.accessibilityElement(children: .ignore)
-                .accessibilityLabel("Result, \(job.title), \(job.status.title)")
+                .accessibilityLabel("Result, \(jobs.title(job)), \(job.status.title)")
                 .focusable(revealed == job.id).focused(focus, equals: job.id)
                 .accessibilityFocused(voiceOverFocus, equals: job.id)
             Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.text(job.createdAt))
@@ -299,11 +299,11 @@ struct HandoffJobCard<MadeFrom: View>: View {
             if !others.isEmpty {
                 DisclosureGroup("Other tasks for this review (\(others.count))", isExpanded: $showingOthers) {
                     ForEach(others) { previous in
-                        let previousContext = Self.context(previous)
+                        let previousContext = self.context(previous)
                         let readable = previous.status == .completed && jobs.files(previous)?.resultReadable == true
                         VStack(alignment: .leading, spacing: 6) {
                             Text(HistoryDate.text(previous.createdAt) + " · " + previous.status.title)
-                                .accessibilityLabel("Earlier task, \(previous.title), \(previous.status.title), "
+                                .accessibilityLabel("Earlier task, \(jobs.title(previous)), \(previous.status.title), "
                                                     + HistoryDate.text(previous.createdAt))
                                 .focusable(revealed == previous.id).focused(focus, equals: previous.id)
                                 .accessibilityFocused(voiceOverFocus, equals: previous.id)
@@ -364,7 +364,7 @@ struct HandoffJobCard<MadeFrom: View>: View {
         if let files = jobs.files(task) {
             if let result = files.resultText {
                 let shown = copyShown(task.id)
-                HandoffResultPreview(text: result, context: Self.context(task),
+                HandoffResultPreview(text: result, context: context(task),
                     confirmation: shown.confirmation, problem: shown.problem,
                     copyText: { copyResult(task, result) })
                 if let applySuggestedMetadata, jobs.isMetadataSuggestion(task) {
@@ -375,8 +375,8 @@ struct HandoffJobCard<MadeFrom: View>: View {
     }
 
     /// Names the task an action belongs to, since every card repeats its buttons.
-    static func context(_ job: HandoffJob) -> String {
-        job.title + ", " + HistoryDate.text(job.createdAt)
+    private func context(_ job: HandoffJob) -> String {
+        jobs.title(job) + ", " + HistoryDate.text(job.createdAt)
     }
 
     @ViewBuilder private func startAction(_ job: HandoffJob) -> some View {
@@ -390,7 +390,7 @@ struct HandoffJobCard<MadeFrom: View>: View {
             } label: {
                 // A menu's own title ignores the row's font, so it is set here to match the links beside it.
                 Text(job.status == .ready ? "Start task…" : "Retry…").font(.callout)
-            }.fixedSize().accessibilityLabel((job.status == .ready ? "Start task, " : "Retry, ") + Self.context(job))
+            }.fixedSize().accessibilityLabel((job.status == .ready ? "Start task, " : "Retry, ") + context(job))
         }
     }
 }

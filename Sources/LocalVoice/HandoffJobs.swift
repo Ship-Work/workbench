@@ -193,6 +193,13 @@ enum HandoffJobStore {
     static let maximumText = 500_000
     static let maximumImages = 100
     static let maximumImageBytes = 256 * 1_024 * 1_024
+    /// A task that asks an assistant for one transcript's details is named as the door that
+    /// starts it. A follow-up, or a task the person edited, keeps its skill's name.
+    static let detailsTitle = "Suggest details"
+
+    static func suggestsDetails(task: String, items: [HandoffInputRecord]) -> Bool {
+        task == MetadataSuggestionReview.task && items.count == 1 && items.first?.reference.kind == .transcript
+    }
 
     /// The folder itself, not only what is inside it, must be an ordinary
     /// folder: a task folder swapped for a symbolic link would lead every read
@@ -318,7 +325,8 @@ enum HandoffJobStore {
             try privateDirectory(url.deletingLastPathComponent())
             try write(files[path]!, to: url)
         }
-        let job = HandoffJob(id: id, createdAt: now, updatedAt: now, title: review?.title ?? skill.reference.name,
+        let title = review?.title ?? (suggestsDetails(task: task, items: records) ? detailsTitle : skill.reference.name)
+        let job = HandoffJob(id: id, createdAt: now, updatedAt: now, title: title,
             fingerprint: fingerprint, provider: nil, status: .ready,
             detail: "Ready. Nothing has been sent.", attempts: 0, itemCount: records.count,
             inputFiles: files.keys.sorted(), inputDigest: digest(files),
@@ -860,7 +868,9 @@ final class HandoffJobsModel: ObservableObject {
 
     func isMetadataSuggestion(_ job: HandoffJob) -> Bool {
         guard let snapshot = files(job)?.inputs else { return false }
-        return snapshot.problem == nil && snapshot.task == MetadataSuggestionReview.task && snapshot.items.count == 1
-            && snapshot.items.first?.reference.kind == .transcript
+        return snapshot.problem == nil && HandoffJobStore.suggestsDetails(task: snapshot.task, items: snapshot.items)
     }
+    /// What History and the running bars call a task. A details suggestion saved before it
+    /// had its own name is named from its frozen task; the receipt is not rewritten.
+    func title(_ job: HandoffJob) -> String { isMetadataSuggestion(job) ? HandoffJobStore.detailsTitle : job.title }
 }

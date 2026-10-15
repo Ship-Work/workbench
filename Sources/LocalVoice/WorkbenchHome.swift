@@ -768,7 +768,7 @@ struct WorkbenchHomePage: View {
                 liveRow("Timer · " + stage.timerStateDetail, "timer") { NativeControlMenu(title: "Timer") { stage.makeTimerMenu() }.frame(width: 64, height: 24) }
             }
             if jobs.isBusy {
-                liveRow("Running · " + (jobs.jobs.first { $0.id == jobs.activeID }?.title ?? "Hand off task"), "arrow.up.forward.app") {
+                liveRow("Running · " + (jobs.jobs.first { $0.id == jobs.activeID }.map(jobs.title) ?? "Hand off task"), "arrow.up.forward.app") {
                     Button("Stop task") { jobs.cancel() }
                 }
             }
