@@ -359,6 +359,7 @@ enum MeetingChecks {
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
+        try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
         checks += try MeetingCompletionChecks.run()
         print("Meeting checks passed (\(checks)): synthetic detection, source timing, >30-minute segmentation, recovery, cancellation and stable history commits. No live devices were used.")
@@ -414,6 +415,36 @@ enum MeetingChecks {
         try MeetingStore.save(stopped, at: session, replacing: result.manifest)
         _ = try await processor.run()
         try expect(recognitionCalls == 1 && saved.last?.text == "Batch words", "incomplete live checkpoint falls back to original audio")
+    }
+
+    /// A call offer's Call holds for that call's recording, including its microphone-only fallback,
+    /// and ends when that recording finishes, so a later microphone-only meeting is a Meeting.
+    private static func callOfferEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = root.appendingPathComponent("Workbench-CallOfferEnd-\(UUID().uuidString)").path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 950, bundleID: "com.apple.avconferenced", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        var captures = 0, saved: [String] = []
+        let model = MeetingModel(directory: root.appendingPathComponent("call-offer-end"), defaults: defaults, processSource: source,
+            transcribe: { _ in "Synthetic words" }, microphonePermission: { true },
+            captureFactory: {
+                captures += 1
+                let capture = CaptureFixture()
+                if captures == 3 { capture.startError = MeetingProblem.appAudioPermission(-1) }
+                return capture
+            })
+        model.saveTranscript = { _, purpose in saved.append(purpose) }
+        let call = MeetingAudioApp(id: 950, name: "Mac calling service", bundleID: "com.apple.avconferenced")
+        model.refreshApps(); model.useOffer(call)
+        await model.start(); await model.stop()
+        model.useMicrophoneOnly(); await model.start(); await model.stop()
+        try expect(saved == ["call", "meeting"], "after a call offer's recording finishes, a later microphone-only meeting saves as a Meeting")
+        model.useOffer(call); await model.start()
+        try expect(!model.isBusy && model.problem?.opensAudioSettings == true, "a refused call-audio start records nothing")
+        model.useMicrophoneOnly(); await model.start(); await model.stop()
+        try expect(saved == ["call", "meeting", "call"], "that same call falling back to the microphone still saves as a Call")
+        await model.prepareForShutdown()
     }
 
     private static func recordingReviewChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
