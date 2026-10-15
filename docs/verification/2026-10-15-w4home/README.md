@@ -19,15 +19,16 @@ Items already on the train and not changed here: Dictate's progress caption (#15
 | Check | Result | Fails on the train? |
 | --- | --- | --- |
 | `swift build --product LocalVoice` (debug) | Pass | n/a |
-| `LocalVoice --check-core` | Pass (HOME_JOURNEY_CHECKS_OK: 134 checks, WORKBENCH_PAGE_CHECKS_OK: 117) | See the next row |
+| `LocalVoice --check-core` | Pass (HOME_JOURNEY_CHECKS_OK: 135 checks, WORKBENCH_PAGE_CHECKS_OK: 117) | See the next two rows |
 | HomeJourneyChecks on `speechSetupIsCurrentWork`: false for someone who skipped the guide and is drawing (not ready, not preparing, no writing line); true while preparing; true while the writing model counts and the guide is hidden; false whenever the guide shows or speech is ready | Pass | Yes. The helper does not exist on the train; with its body set to the train's banner rule (`!speechReady && !guideShows`), `--check-core` failed with "someone who skipped the guide and is drawing gets no download offer beside it". |
+| HomeJourneyChecks on `offersNotNow`: Not now shows only in the guide once Skip for now has gone (false for a fresh, skipped, completed or resumed Home; true right after the first dictation) | Pass | Yes. With the train's rule (`!offersSkip`) it failed with "Not now shows only in the guide once Skip for now has gone". |
 | Gallery: guide skipped, Parakeet not downloaded, a Hand off task running (its own handoff model and folder, the synthetic provider, stopped afterwards): Current work reports the task row and no speech banner | Pass | Yes. With the train's banner condition (`!model.ready && !journey.showsGuide`) put back, the Home gallery failed with "With speech not downloaded and the guide skipped, Home's Current work showed the speech download beside a running task, or no task". That run's render is `before/page-home-state-task-without-speech-*`. |
 | Gallery: the speech-preparing state reports the speech banner (with Cancel setup and Models…) | Pass | No: the banner shows there on the train too; this guards the rule. |
 | Gallery: in every Home state the cover reports 190 pt (sample) or 140 pt (newest deck, all-allowed) wide, height width/1.6, within 1 pt | Pass | Yes. Without the `fixedSize`, the gallery failed at the first squeezed state: "Home's deck cover in state results is 116.8 × 73.0, not 190.0 points wide at 16:10". The gallery stops at its first failure, so work-mac was not reached; the probe below measures it. |
 | `python3 scripts/check-surfaces.py` | Pass, 688 entries | n/a |
-| `WORKBENCH_HOME_GALLERY_ONLY=1 LocalVoice --render-surfaces`, train head and branch | Train: 60 renders, 0 flags. Branch: 62 renders, 0 flags | See below |
+| `WORKBENCH_HOME_GALLERY_ONLY=1 LocalVoice --render-surfaces`, train head and branch | Train: 60 renders, 0 flags. Branch: 62 renders, 0 flags, before and after Not now's rule moved into HomeJourney, with the changed states pixel-identical between the two | See below |
 | `WORKBENCH_SPEECH_GALLERY_ONLY=1 LocalVoice --render-surfaces`, train head and branch | Train: 16 renders, 0 flags. Branch: 20 renders, 0 flags. The 16 shared renders, including the guide's download offer on Home, are pixel-identical | n/a |
-| Full `LocalVoice --render-surfaces` on the branch | All renders written; it exited 1 at the floating toolbar's "A copied cue appearing under a stationary pointer holds its time" step, light and dark. That step reads the real pointer, other streams tonight hit it on the train, and this branch does not touch the toolbar | n/a |
+| Full `LocalVoice --render-surfaces` on the branch, twice | All renders written both times; each exited 1 at the floating toolbar's "A copied cue appearing under a stationary pointer holds its time" step, light and dark. That step reads the real pointer, other streams tonight hit it on the train, and this branch does not touch the toolbar | n/a |
 
 ### Render probes
 
