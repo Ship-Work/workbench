@@ -199,7 +199,7 @@ struct WorkbenchQuickPanel: View {
         switch tool {
         case .dictate:
             // A native menu like every other row's, so its Options chevron matches theirs.
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Dictate"); menu.autoenablesItems = false
                 let idle = model.phase == .idle
                 // The same two choices, under the same names, as the Dictate page's task region.
@@ -228,7 +228,7 @@ struct WorkbenchQuickPanel: View {
                 return menu
             }
         case .snap:
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Snap"); menu.autoenablesItems = false
                 for mode in SnapCapture.Mode.allCases {
                     menu.addItem(ToolbarMenuAction(mode.title, enabled: context.state.enabled(.snap)) {
@@ -240,21 +240,24 @@ struct WorkbenchQuickPanel: View {
                 return menu
             }
         case .snapAndTalk:
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Snap & Talk"); menu.autoenablesItems = false
                 menu.addItem(ToolbarMenuAction("Open Snap & Talk…") { open("readback") })
                 return menu
             }
         case .annotate:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .present:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .persona:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .timer:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         }
     }
+
+    /// Each row's Options menu, named for its tool so VoiceOver's rotor tells the seven apart.
+    private func optionsName(_ tool: WorkbenchControlTool) -> String { "\(tool.title) options" }
 
     /// Native option menus, built when clicked. The surface gallery lists these same menus.
     func nativeOptions(_ tool: WorkbenchControlTool) -> NSMenu? {
@@ -452,12 +455,15 @@ struct PanelSwitch: NSViewRepresentable {
 
 struct NativeControlMenu: NSViewRepresentable {
     var title: String
+    /// What VoiceOver reads when the visible title alone is ambiguous, such as a row's
+    /// "Snap options" beside six other Options menus (#335).
+    var accessibilityName: String? = nil
     var makeMenu: () -> NSMenu
     func makeNSView(context: Context) -> Button { Button() }
     func updateNSView(_ view: Button, context: Context) {
         view.title = title + " ⌄"; view.font = .systemFont(ofSize: 11)
         view.contentTintColor = NSColor(Workbench.accent); view.isBordered = false
-        view.makeMenu = makeMenu; view.setAccessibilityLabel(title)
+        view.makeMenu = makeMenu; view.setAccessibilityLabel(accessibilityName ?? title)
     }
     final class Button: NSButton {
         var makeMenu: (() -> NSMenu)?
