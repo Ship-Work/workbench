@@ -321,16 +321,28 @@ public final class StageKitController: ObservableObject {
             if !optionsOnly { menu.addItem(StageMenuAction("Stop Timer") { [weak app] in app?.resetTimer(); app?.hideTimer() }) }
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
-        menu.addSubmenu("Duration", items: [1, 5, 10, 15, 30, 60].map { minutes in
-            StageMenuAction("\(minutes) min", checked: app.settings.value.timerMinutes == Double(minutes)) { [weak app] in
+        // A preset is checked when the chosen duration reads as that preset, so a duration a hair
+        // off one never shows a second item with the preset's name.
+        let chosen = app.settings.value.timerMinutes
+        var durations: [NSMenuItem] = [1, 5, 10, 15, 30, 60].map { minutes in
+            StageMenuAction("\(minutes) min", checked: chosen.formatted(.number) == Double(minutes).formatted(.number)) { [weak app] in
                 app?.settings.value.timerMinutes = Double(minutes)
                 // A duration change applies on the next Start or Reset.
             }
-        })
+        }
+        // A duration none of these name, a Timer page preset or one typed there, still shows as the
+        // one chosen, in order and worded as the page's field shows it (#174).
+        if !durations.contains(where: { $0.state == .on }) {
+            let later = durations.firstIndex { ($0.title.split(separator: " ").first.flatMap { Double($0) } ?? 0) > chosen } ?? durations.count
+            durations.insert(StageMenuAction("\(chosen.formatted(.number)) min", checked: true) { [weak app] in
+                app?.settings.value.timerMinutes = chosen
+            }, at: later)
+        }
+        menu.addSubmenu("Duration", items: durations)
         // Position…: the floating toolbar's compact eight-dock control, not a submenu of
         // anchors (#134 Fit rule 1). It applies before the window first opens.
         menu.addItem(StageMenuAction("Position…") { [weak app] in app?.showTimerPositionControl() })
-        menu.addItem(StageMenuAction("Chime When Finished", checked: app.settings.value.timerChime) { [weak app] in
+        menu.addItem(StageMenuAction("Chime When Time Is Up", checked: app.settings.value.timerChime) { [weak app] in
             guard let app else { return }; app.settings.value.timerChime.toggle()
         })
         return menu
@@ -357,6 +369,9 @@ public final class StageKitController: ObservableObject {
         library.setVoiceRing(true)
         return { _ = library.replaceVoiceAccess(previous) }
     }
+    /// For the gallery's check that React to my voice reads this controller's own store: the voice
+    /// colour Persona started with, as red, green and blue.
+    public var personaVoiceColor: [Double] { let colour = coordinator.demoScenes.personas.voiceColor; return [colour.r, colour.g, colour.b] }
     public var scenesView: AnyView { AnyView(DemoScenesView(model: coordinator.demoScenes)) }
     public func personasView(editProfile: @escaping () -> Void) -> AnyView {
         AnyView(PersonaLibraryView(library: coordinator.demoScenes.personas, mode: .workspace, editProfile: editProfile))

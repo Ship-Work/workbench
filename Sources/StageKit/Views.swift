@@ -302,7 +302,7 @@ struct ControlCenter: View {
                 TextField("Message", text: $settings.value.timerMessage).textFieldStyle(.roundedBorder)
                 HStack { ColorPicker("Text", selection: colorBinding(\Preferences.timerColor), supportsOpacity: false); Spacer(); ColorPicker("Background", selection: colorBinding(\Preferences.timerBackground), supportsOpacity: false) }
                 sliderRow("Window opacity", value: Binding(get: { settings.value.timerOpacity * 100 }, set: { settings.value.timerOpacity = $0 / 100 }), range: 20...100, suffix: "%")
-                Toggle("Play a chime when time is up", isOn: $settings.value.timerChime)
+                Toggle("Chime when time is up", isOn: $settings.value.timerChime)
             }.font(.callout).surface()
             HStack {
                 // One transport action for the current state: Start, Pause, Resume or Restart, and

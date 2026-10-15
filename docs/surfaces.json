@@ -3447,9 +3447,18 @@
     "belongsTo": "timer"
   },
   {
-    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.chime-when-finished",
+    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.runtime-be26e978c967",
     "surface": "Timer menu",
-    "label": "Chime When Finished",
+    "label": null,
+    "expression": "\"\\(chosen.formatted(.number)) min\"",
+    "kind": "option",
+    "belongsTo": "timer",
+    "note": "Duration's readback (#174): shown, checked, only while the saved duration matches none of the presets, such as the Timer page's 3 min or a typed 20 or 2.5, so the menu shows what Start will run. Choosing it keeps that duration. Runtime label from \"\\(chosen.formatted(.number)) min\"; no rendered text assumed."
+  },
+  {
+    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.chime-when-time-is-up",
+    "surface": "Timer menu",
+    "label": "Chime When Time Is Up",
     "kind": "action",
     "belongsTo": "timer"
   },

@@ -373,6 +373,32 @@ final class TimerTransportTests {
                 XCTAssertFalse(stage.isTimerPositionControlShown, "Escape, a choice or a click elsewhere closes it")
                 XCTAssertEqual(app.timerPlacementAnchor, .topLeft, "Closing without a choice keeps the saved position")
 
+                // Duration shows the duration that is set, even one the menu has no preset for (#174).
+                // The readback is worded as the page's field shows it, in this Mac's own number format.
+                // A duration a hair off a preset reads as that preset and checks it, with no second item.
+                let durationCases: [(Double, String, String, Bool)] = [
+                    (3, "3 min", "1 min", false), (20, "20 min", "15 min", false), (2.5, "\(2.5.formatted(.number)) min", "1 min", false),
+                    (5, "5 min", "1 min", true), (5.0000001, "5 min", "1 min", true), (4.9999999, "5 min", "1 min", true)]
+                for (minutes, shown, after, presets) in durationCases {
+                    settings.value.timerMinutes = minutes
+                    for menu in [stage.makeTimerMenu(), stage.makeTimerMenu(optionsOnly: true)] {
+                        let durations = try item(menu, "Duration").submenu?.items ?? []
+                        let checked = durations.filter { $0.state == .on }.map(\.title)
+                        XCTAssertEqual(checked, [shown], "Exactly one Duration is checked, the one set: \(titles(menu))")
+                        let index = durations.firstIndex { $0.title == shown } ?? 0
+                        XCTAssertEqual(index > 0 ? durations[index - 1].title : "", after, "and it sits in order")
+                        XCTAssertEqual(durations.count, presets ? 6 : 7, "A preset adds no second item: \(durations.map(\.title))")
+                        XCTAssertEqual(Set(durations.map(\.title)).count, durations.count, "No two Durations share a name")
+                    }
+                }
+                choose(try item(try item(stage.makeTimerMenu(optionsOnly: true), "Duration").submenu ?? NSMenu(), "10 min"))
+                XCTAssertEqual(settings.value.timerMinutes, 10)
+                settings.value.timerMinutes = 1
+                // The chime has one name: the Timer page's switch and this menu say the same.
+                for menu in [stage.makeTimerMenu(), stage.makeTimerMenu(optionsOnly: true)] {
+                    XCTAssertTrue(titles(menu).contains("Chime When Time Is Up") && !titles(menu).contains("Chime When Finished"), "\(titles(menu))")
+                }
+
                 XCTAssertEqual(titles(stage.makeTimerMenu()).prefix(1), ["Start Timer"])
                 XCTAssertFalse(titles(stage.makeTimerMenu(optionsOnly: true)).contains("Start Timer"), "The panel row starts it")
                 XCTAssertEqual(stage.timerStateDetail, "")

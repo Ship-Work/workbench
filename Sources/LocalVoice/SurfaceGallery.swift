@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Carbon
 import ObjectiveC
 import PrivatePackKit
 import SceneSyncKit
@@ -355,6 +356,8 @@ private struct HistoryNativeAcceptanceView: View {
         let stageDefaults = try SurfaceGallery.isolatedDefaults("StageKit", home: home)
         // Never look for a legacy StageMark preferences domain.
         stageDefaults.set(true, forKey: "legacyStagePreferencesSeeded.v1")
+        // A voice colour no preset has, with React to my voice left off, so Persona can show which store it read.
+        stageDefaults.set(Self.isolatedVoiceColor, forKey: "persona.voiceColor")
         let preferences = VoicePreferences.load(reserving: StageShortcutSettings.migrationReservations(defaults: stageDefaults))
         // The bounded Home pass keeps real synthetic recovery pending throughout the visit.
         // This must not become a Home task or be cleared merely by navigating.
@@ -558,6 +561,7 @@ private struct HistoryNativeAcceptanceView: View {
             return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: shots, host: host, pickers: [], pickerHost: [],
                 pages: [], entries: [], menus: [], placement: try checkToolbarPlacement())
         }
+        let refusal = try checkShortcutRefusal() + checkPersonaVoiceStore()
         var panels: [SurfaceGallery.Shot] = []
         final class PanelFrames { var byID: [String: CGRect] = [:] }
         let panelFrames = PanelFrames()
@@ -656,7 +660,7 @@ private struct HistoryNativeAcceptanceView: View {
         let meetingReview = try renderMeetingReview(to: output)
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) { pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
-        let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks
+        let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks + refusal
         // History's states render last, so the pages above show no Hand off task.
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += try renderHistoryStates(to: output) }
         // The read-only image preview that capture thumbnails open (#154), shown with the Snap page.
@@ -1543,6 +1547,70 @@ private struct HistoryNativeAcceptanceView: View {
             throw VoiceError.message("The panel's Options menus read \(names) showing \(titles), not \(expected) showing Options ⌄.")
         }
         return ["The panel's Options menus read \(names.joined(separator: ", ")) for VoiceOver, each still showing Options ⌄."]
+    }
+
+    /// A key macOS refuses, at launch or later, reaches the coach's catalogue that Home and Keyboard
+    /// read, so neither teaches nor offers practice on it (#76). The app's own registration runs on
+    /// ⌃⌥⇧⌘F13 to F20, never the person's keys, and only in the light pass: both passes run at once.
+    /// Another gallery on this Mac can hold the same keys for a moment, so a failure is tried again
+    /// a few times before it counts; a missing refresh fails every time.
+    func checkShortcutRefusal() throws -> [String] {
+        guard theme == "light" else { return [] }
+        for _ in 1..<5 {
+            if let passed = try? shortcutRefusalAttempt() { return passed }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return try shortcutRefusalAttempt()
+    }
+
+    private func shortcutRefusalAttempt() throws -> [String] {
+        let keptPreferences = model.preferences, keptFailures = model.shortcutFailures
+        let keptEntries = keyboard.entries, keptSelection = keyboard.selectedID
+        var preferences = model.preferences
+        let keyCodes = [kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
+        for (index, id) in VoicePreferences.shortcutIDs.enumerated() {
+            preferences.setShortcut(VoiceShortcut(keyCode: UInt32(keyCodes[index % keyCodes.count]),
+                                                  modifiers: UInt32(controlKey | optionKey | shiftKey | cmdKey), enabled: true), for: id)
+        }
+        let competing = VoiceHotkeys()
+        var dictateOnly = VoicePreferences()
+        for id in VoicePreferences.shortcutIDs { dictateOnly.setShortcut(id == 1 ? preferences.shortcut(1) : VoiceShortcut(enabled: false), for: id) }
+        defer {
+            competing.unregister(); shell.hotkeys.unregister(); keyboard.stopInteraction(); shell.keyboard = nil
+            model.preferences = keptPreferences; model.shortcutFailures = keptFailures
+            keyboard.replaceEntries(keptEntries); keyboard.selectedID = keptSelection
+        }
+        model.preferences = preferences
+        competing.register(dictateOnly)
+        guard competing.failures.isEmpty else {
+            throw VoiceError.message("Another process holds the gallery's Dictate key, ⌃⌥⇧⌘F13: \(competing.failures)")
+        }
+        shell.keyboard = keyboard
+        shell.registerShortcuts()
+        guard let refused = keyboard.entries.first(where: { $0.id == "voice.1" }), refused.error?.contains("is in use") == true,
+              !HomeKeys.usable(refused), !HomeKeys.next(keyboard.entries, learned: []).contains(where: { $0.id == "voice.1" }) else {
+            throw VoiceError.message("A Dictate key macOS refused did not reach Keyboard and Home: \(keyboard.entries.first { $0.id == "voice.1" }.map { "\($0.shortcut.label), \($0.error ?? "no error")" } ?? "no entry").")
+        }
+        guard keyboard.reveal("voice.1") else { throw VoiceError.message("Keyboard has no Dictate shortcut to reveal.") }
+        keyboard.beginPractice()
+        guard !keyboard.isInteracting else { throw VoiceError.message("Keyboard offered practice on a Dictate key macOS refused.") }
+        competing.unregister()
+        shell.registerShortcuts()
+        guard let released = keyboard.entries.first(where: { $0.id == "voice.1" }), released.error == nil else {
+            throw VoiceError.message("Keyboard still shows Dictate's key as refused after it was released.")
+        }
+        return ["A Dictate key macOS refused reaches Keyboard and Home through the app's own registration, offers no practice, and clears once released."]
+    }
+
+    static let isolatedVoiceColor = [0.123, 0.456, 0.789]
+
+    /// React to my voice keeps its choice and colour in the stage's own store, so the gallery's
+    /// isolated settings decide them, never the stage domain of the Mac it runs on.
+    func checkPersonaVoiceStore() throws -> [String] {
+        guard stage.personaVoiceColor == Self.isolatedVoiceColor else {
+            throw VoiceError.message("Persona read React to my voice from outside the gallery's own stage settings: colour \(stage.personaVoiceColor).")
+        }
+        return ["React to my voice reads the stage's own settings: Persona starts with the colour seeded in the gallery's isolated store."]
     }
 
     func checkToolbarVisibility() throws -> [String] {

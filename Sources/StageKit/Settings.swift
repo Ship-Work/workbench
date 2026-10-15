@@ -254,7 +254,8 @@ final class SettingsStore: ObservableObject {
     func clearNotice() { postedNotice = nil }
     var onChange: (() -> Void)?
     private var loading = true
-    private let defaults: UserDefaults
+    /// The store these settings live in; React to my voice keeps its choice beside them.
+    let defaults: UserDefaults
     init(defaults: UserDefaults = .standard, reserving combinations: Set<GlobalShortcutCombination> = []) {
         self.defaults = defaults
         let savedData = defaults.data(forKey: "preferences.v1")

@@ -146,11 +146,7 @@ struct DemoScenesView: View {
                             Button("Centre") { position(0.5) }.disabled(!scene.showsPhone)
                             Button("Right") { position(0.88) }.disabled(!scene.showsPhone)
                             Spacer()
-                            Button("Reset layout") {
-                                var reset = scene; reset.backgroundX = 0.5; reset.backgroundY = 0.5; reset.zoom = 1
-                                reset.phoneX = 0.5; reset.phoneY = 0.5; reset.phoneHeight = 0.88; reset.viewport = .phone
-                                model.update(reset)
-                            }.buttonStyle(.workbenchLink)
+                            Button("Reset layout") { model.resetLayout() }.buttonStyle(.workbenchLink)
                         }.font(.caption)
                         handControls(scene)
                         }.padding(.top, 10)
