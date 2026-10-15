@@ -361,6 +361,7 @@ enum MeetingChecks {
         try await offerLifecycleChecks(root: root, expect: expect)
         try await liveLifecycleChecks(root: root, expect: expect)
         try await silenceHintChecks(root: root, expect: expect)
+        try routeRecoveryChecks(expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
         checks += try MeetingCompletionChecks.run()
@@ -474,6 +475,48 @@ enum MeetingChecks {
         try expect(MeetingSummary.gaps(for: missingApp, permission: list) == ["No audio was received from Zoom. Other people may be missing from the transcript."]
                    && MeetingSummary.gaps(for: quietMicrophone, permission: list) == ["Your microphone stayed quiet for the whole recording."],
                    "the missing-app and quiet-microphone notes keep their words")
+    }
+
+    /// A device change restarts only the source it affects (MeetingRouteRecovery): the other keeps
+    /// recording, and recovery is complete when the restarted sources deliver again, whatever the
+    /// other is doing. The capture class itself needs a tap and a microphone, so these hold the rule.
+    private static func routeRecoveryChecks(expect: (Bool, String) throws -> Void) throws {
+        typealias Routes = Set<MeetingTrackSource>
+        let starvedCases: [Routes] = [[], [.remote], [.local], [.remote, .local]]
+        var combinations = 0, exact = true
+        for output in [false, true] { for input in [false, true] { for gone in [false, true] { for starved in starvedCases {
+            let planned = MeetingRouteRecovery.plan(outputChanged: output, inputChanged: input, appProcessGone: gone, starved: starved)
+            combinations += 1
+            // The microphone restarts only for its own device or its own silence; the app tap only for
+            // the Mac output, its process or its own silence; and every cause does restart its route.
+            if planned.contains(.local) != (input || starved.contains(.local)) { exact = false }
+            if planned.contains(.remote) != (output || gone || starved.contains(.remote)) { exact = false }
+        } } } }
+        try expect(combinations == 32 && exact, "every combination of output, input, app process and starvation restarts only the routes it affects")
+        try expect(MeetingRouteRecovery.plan(outputChanged: true, inputChanged: false, appProcessGone: false, starved: []) == [.remote],
+                   "headphones changing the Mac output restart the app tap and leave the microphone recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: true, appProcessGone: false, starved: []) == [.local],
+                   "a changed microphone device restarts the microphone and leaves the app tap recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: true, starved: []) == [.remote],
+                   "the chosen app quitting restarts its tap and leaves the microphone recording")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.local]) == [.local]
+                   && MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.remote]) == [.remote],
+                   "a source that stops supplying samples restarts alone")
+        try expect(MeetingRouteRecovery.plan(outputChanged: false, inputChanged: false, appProcessGone: false, starved: []).isEmpty
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: false, starved: []) == nil,
+                   "nothing changed restarts nothing and explains nothing")
+        try expect(MeetingRouteRecovery.plan(outputChanged: true, inputChanged: true, appProcessGone: false, starved: []) == [.remote, .local]
+                   && MeetingRouteRecovery.reason(outputChanged: true, inputChanged: true, appProcessGone: false, starved: []) == "The Mac audio output changed.",
+                   "AirPods changing both devices at once restart both routes in one recovery, explained by the output change")
+        try expect(MeetingRouteRecovery.reason(outputChanged: false, inputChanged: true, appProcessGone: true, starved: [.remote]) == "The microphone device changed."
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: true, starved: [.remote]) == "The selected app's audio process changed."
+                   && MeetingRouteRecovery.reason(outputChanged: false, inputChanged: false, appProcessGone: false, starved: [.local]) == "An audio source stopped supplying samples.",
+                   "the explanation names the first cause in the order capture checks them")
+        try expect(MeetingRouteRecovery.outstanding(recovering: [.remote], delivering: [.remote]).isEmpty
+                   && MeetingRouteRecovery.outstanding(recovering: [.remote], delivering: []) == [.remote],
+                   "a restarted app tap completes its recovery on its own buffers, whatever the microphone is doing")
+        try expect(MeetingRouteRecovery.outstanding(recovering: [.remote, .local], delivering: [.remote]) == [.local],
+                   "when both restarted, the one still silent is the only one retried")
     }
 
     /// A call offer's Call holds for that call's recording, including its microphone-only fallback,

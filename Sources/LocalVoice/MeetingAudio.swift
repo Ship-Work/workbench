@@ -763,12 +763,49 @@ enum MeetingMono {
     }
 }
 
+// MARK: - Route recovery plan
+
+/// Which captured source a change restarts. A changed Mac output or a vanished app process concerns
+/// only the app tap; a changed microphone device only the microphone; a source that stops supplying
+/// samples only itself. The other source keeps recording, its callbacks valid and its track unbroken,
+/// so headphones never gap the microphone and the app quitting never silences it (docs/live-voice.md
+/// § Live session). Pause, resume and finish stop both on purpose and do not come through here.
+enum MeetingRouteRecovery {
+    static func plan(outputChanged: Bool, inputChanged: Bool, appProcessGone: Bool,
+                     starved: Set<MeetingTrackSource>) -> Set<MeetingTrackSource> {
+        var routes = starved
+        if outputChanged || appProcessGone { routes.insert(.remote) }
+        if inputChanged { routes.insert(.local) }
+        return routes
+    }
+
+    /// The explanation on the page and in the restarted track's gap record: the first cause, in the
+    /// order capture checks them.
+    static func reason(outputChanged: Bool, inputChanged: Bool, appProcessGone: Bool,
+                       starved: Set<MeetingTrackSource>) -> String? {
+        if outputChanged { return "The Mac audio output changed." }
+        if inputChanged { return "The microphone device changed." }
+        if appProcessGone { return "The selected app's audio process changed." }
+        if !starved.isEmpty { return "An audio source stopped supplying samples." }
+        return nil
+    }
+
+    /// The restarted sources still to deliver a buffer. Recovery is complete when none is left; the
+    /// source that was not restarted never holds it open.
+    static func outstanding(recovering: Set<MeetingTrackSource>, delivering: Set<MeetingTrackSource>) -> Set<MeetingTrackSource> {
+        recovering.subtracting(delivering)
+    }
+}
+
 // MARK: - System capture
 
 /// The serial lifecycle queue owns creation and teardown. A cancellation flag
 /// is checked before every acquisition and inside both callbacks, including a
-/// late return from macOS's system-audio permission prompt.
+/// late return from macOS's system-audio permission prompt. Each route (the app
+/// tap, the microphone engine) carries its own token, so rebuilding one leaves
+/// the other's callbacks valid (MeetingRouteRecovery).
 final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
+    private static let everyRoute: Set<MeetingTrackSource> = [.remote, .local]
     private let queue = DispatchQueue(label: "com.ethdawg.workbench.meeting.lifecycle", qos: .userInitiated)
     private let lock = NSLock()
     private let timeline = MeetingCaptureTimeline()
@@ -778,14 +815,14 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
     private var engine: AVAudioEngine?
     private var configurationObserver: NSObjectProtocol?
     private var routeTimer: DispatchSourceTimer?
-    private var startedHost: UInt64?
+    private var routeStarted: [MeetingTrackSource: UInt64] = [:]
     private var reason: String?
     private var recovery: String?
     private var report: MeetingCaptureReport?
     private var stopping = false
     private var paused = false
-    private var recoveryQueued = false
-    private var generation: UInt64 = 0
+    private var recoveryQueued: Set<MeetingTrackSource> = []
+    private var generations: [MeetingTrackSource: UInt64] = [.remote: 0, .local: 0]
     private var request: MeetingCaptureRequest?
     private var chosenApp: MeetingAudioApp?
     private var outputUID: String?
@@ -793,6 +830,8 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
     private var microphoneIncluded = false
     private var recoveryStarted: UInt64?
     private var lastRecoveryAttempt: UInt64?
+    /// The routes being rebuilt while recoveryStarted is set.
+    private var recovering: Set<MeetingTrackSource> = []
 
     var elapsedSeconds: Double { timeline.elapsed }
     private var isStopping: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
@@ -808,11 +847,29 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         lock.lock(); if reason == nil { reason = text }; lock.unlock()
     }
 
-    func requestStop() { lock.lock(); stopping = true; generation &+= 1; lock.unlock() }
+    func requestStop() { lock.lock(); stopping = true; invalidate(Self.everyRoute); lock.unlock() }
 
-    private func accepts(_ token: UInt64) -> Bool {
+    /// Retires the given routes' callbacks. Call with the lock held.
+    private func invalidate(_ routes: Set<MeetingTrackSource>) {
+        for route in routes { generations[route, default: 0] &+= 1 }
+    }
+
+    private func accepts(_ token: UInt64, _ route: MeetingTrackSource) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return !stopping && !paused && generation == token
+        return !stopping && !paused && generations[route] == token
+    }
+
+    /// The routes this recording holds: the app tap and/or the microphone engine.
+    private var configuredRoutes: Set<MeetingTrackSource> {
+        var routes = Set<MeetingTrackSource>()
+        if request?.app != nil { routes.insert(.remote) }
+        if microphoneIncluded { routes.insert(.local) }
+        return routes
+    }
+
+    private func recorder(for route: MeetingTrackSource) -> MeetingTrackRecorder? {
+        lock.lock(); defer { lock.unlock() }
+        return route == .remote ? remote : local
     }
 
     func start(_ request: MeetingCaptureRequest) async throws {
@@ -838,7 +895,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         try MeetingDiskBudget.checkStartSpace(at: request.tracksDirectory)
         self.request = request
         chosenApp = request.app; microphoneIncluded = request.includeMicrophone
-        try startRoutes()
+        try startRoutes(configuredRoutes)
         try checkStart()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(50))
@@ -862,15 +919,15 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         throw MeetingError.message("The selected app is not supplying audio on this Mac.")
     }
 
-    private func startRoutes() throws {
+    /// Starts, or rebuilds, only the given routes; the other's tap or engine and token are untouched.
+    private func startRoutes(_ routes: Set<MeetingTrackSource>) throws {
         try checkStart()
         guard let request else { throw CancellationError() }
-        lock.lock(); generation &+= 1; let token = generation; lock.unlock()
-        outputUID = MeetingCoreAudio.defaultOutputDeviceUID()
-        inputUID = MeetingCoreAudio.defaultInputDeviceUID()
-        startedHost = MeetingClock.now()
-        if let original = request.app {
+        if routes.contains(.remote), let original = request.app {
             guard #available(macOS 14.2, *) else { throw MeetingError.message(MeetingCoreAudio.unavailableReason) }
+            lock.lock(); invalidate([.remote]); let token = generations[.remote, default: 0]; lock.unlock()
+            outputUID = MeetingCoreAudio.defaultOutputDeviceUID()
+            routeStarted[.remote] = MeetingClock.now()
             let app = try currentApp(original)
             let tap = try MeetingProcessTap(app: app)
             tapBox = tap; chosenApp = app
@@ -886,9 +943,9 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
             let rate = tap.format.sampleRate
             var scratch = [Float](repeating: 0, count: 65_536)
             try tap.begin { [weak self, recorder] buffers, time in
-                guard let self, self.accepts(token), !recorder.isClosed else { return }
+                guard let self, self.accepts(token, .remote), !recorder.isClosed else { return }
                 guard buffers.pointee.mNumberBuffers == 1, buffers.pointee.mBuffers.mNumberChannels == 1 else {
-                    self.requestRecovery("The app audio format changed.", token: token); return
+                    self.requestRecovery("The app audio format changed.", token: token, route: .remote); return
                 }
                 let frames = MeetingMono.fill(from: buffers, into: &scratch)
                 guard frames > 0 else { return }
@@ -897,7 +954,12 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
             }
             try checkStart()
         }
-        if microphoneIncluded { try startMicrophone(request, token: token) }
+        if routes.contains(.local), microphoneIncluded {
+            lock.lock(); invalidate([.local]); let token = generations[.local, default: 0]; lock.unlock()
+            inputUID = MeetingCoreAudio.defaultInputDeviceUID()
+            routeStarted[.local] = MeetingClock.now()
+            try startMicrophone(request, token: token)
+        }
     }
 
     private func startMicrophone(_ request: MeetingCaptureRequest, token: UInt64) throws {
@@ -924,7 +986,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         let rate = format.sampleRate
         var scratch = [Float](repeating: 0, count: 65_536)
         input.installTap(onBus: 0, bufferSize: 4_096, format: format) { [weak self, recorder] buffer, time in
-            guard let self, self.accepts(token), !recorder.isClosed else { return }
+            guard let self, self.accepts(token, .local), !recorder.isClosed else { return }
             let frames = MeetingMono.fill(from: buffer, into: &scratch)
             guard frames > 0 else { return }
             let host = time.isHostTimeValid ? time.hostTime : MeetingClock.now()
@@ -932,7 +994,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         }
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: audio, queue: nil) { [weak self] _ in
-                self?.requestRecovery("The microphone device changed.", token: token)
+                self?.requestRecovery("The microphone device changed.", token: token, route: .local)
             }
         engine = audio
         audio.prepare()
@@ -941,38 +1003,50 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         catch { throw MeetingError.message("The microphone could not start. \(error.localizedDescription)") }
     }
 
-    private func requestRecovery(_ message: String, token: UInt64) {
+    private func requestRecovery(_ message: String, token: UInt64, route: MeetingTrackSource) {
         lock.lock()
-        guard !stopping, !paused, generation == token, !recoveryQueued else { lock.unlock(); return }
-        recoveryQueued = true
+        guard !stopping, !paused, generations[route] == token, !recoveryQueued.contains(route) else { lock.unlock(); return }
+        recoveryQueued.insert(route)
         lock.unlock()
         queue.async { [weak self] in
             guard let self else { return }
-            self.lock.lock(); self.recoveryQueued = false; self.lock.unlock()
-            if self.accepts(token) { self.beginRecovery(message) }
+            self.lock.lock(); self.recoveryQueued.remove(route); self.lock.unlock()
+            if self.accepts(token, route) { self.beginRecovery(message, routes: [route]) }
         }
     }
 
-    private func beginRecovery(_ message: String) {
+    /// Rebuilds only the given routes: their tokens retire, their tracks take the interruption mark,
+    /// and the other route keeps recording untouched. A route that fails while another is already
+    /// reconnecting joins that recovery and its fifteen-second cap rather than waiting it out.
+    private func beginRecovery(_ message: String, routes requested: Set<MeetingTrackSource>) {
         guard !isStopping, !isPaused, stopReason == nil else { return }
-        guard recoveryStarted == nil else { return }
-        recoveryStarted = MeetingClock.now()
-        lock.lock(); recovery = "Reconnecting audio. \(message)"; generation &+= 1; lock.unlock()
-        remote?.markDiscontinuity(message); local?.markDiscontinuity(message)
-        restoreRoutes()
+        let routes = requested.intersection(configuredRoutes).subtracting(recovering)
+        guard !routes.isEmpty else { return }
+        if recoveryStarted == nil { recoveryStarted = MeetingClock.now() }
+        recovering.formUnion(routes)
+        lock.lock(); recovery = "Reconnecting audio. \(message)"; invalidate(routes); lock.unlock()
+        if routes.contains(.remote) { remote?.markDiscontinuity(message) }
+        if routes.contains(.local) { local?.markDiscontinuity(message) }
+        restoreRoutes(routes)
     }
 
-    private func restoreRoutes() {
-        disconnectRoutes()
+    private func restoreRoutes(_ routes: Set<MeetingTrackSource>) {
+        disconnectRoutes(routes)
         guard !isStopping, !isPaused else { return }
         lastRecoveryAttempt = MeetingClock.now()
-        do { try startRoutes() }
+        do { try startRoutes(routes) }
         catch {
-            disconnectRoutes()
+            disconnectRoutes(routes)
             if !isStopping {
                 lock.lock(); recovery = "Reconnecting audio. \(error.localizedDescription)"; lock.unlock()
             }
         }
+    }
+
+    /// Whether a route holds its tap or engine and has delivered a buffer within the given seconds.
+    private func isDelivering(_ route: MeetingTrackSource, within seconds: Double) -> Bool {
+        guard let recorder = recorder(for: route), let since = recorder.secondsSinceLastBuffer, since < seconds else { return false }
+        return route == .remote ? tapBox != nil : engine != nil
     }
 
     private func checkRoutes() {
@@ -981,12 +1055,12 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
             note("Microphone access was removed. The audio already recorded was kept."); return
         }
         let now = MeetingClock.now()
-        let recorders = [remote, local].compactMap { $0 }
         if let started = recoveryStarted {
             let sinceAttempt = lastRecoveryAttempt.map { MeetingClock.interval(from: $0, to: now) } ?? 0
-            if !recorders.isEmpty, recorders.allSatisfy({ ($0.secondsSinceLastBuffer ?? .infinity) < min(1.5, sinceAttempt) }),
-               engine != nil || !microphoneIncluded, tapBox != nil || request?.app == nil {
-                recoveryStarted = nil; lastRecoveryAttempt = nil
+            let delivering = recovering.filter { isDelivering($0, within: min(1.5, sinceAttempt)) }
+            let pending = MeetingRouteRecovery.outstanding(recovering: recovering, delivering: delivering)
+            if pending.isEmpty {
+                recoveryStarted = nil; lastRecoveryAttempt = nil; recovering = []
                 lock.lock(); recovery = nil; lock.unlock()
                 return
             }
@@ -994,22 +1068,22 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
                 note("The selected audio source could not reconnect. The recording was kept with its interruption marked.")
                 return
             }
-            if lastRecoveryAttempt.map({ MeetingClock.interval(from: $0, to: now) > 2 }) ?? true { restoreRoutes() }
+            if lastRecoveryAttempt.map({ MeetingClock.interval(from: $0, to: now) > 2 }) ?? true { restoreRoutes(pending) }
             return
         }
-        if request?.app != nil, MeetingCoreAudio.defaultOutputDeviceUID() != outputUID {
-            beginRecovery("The Mac audio output changed."); return
+        let outputChanged = request?.app != nil && MeetingCoreAudio.defaultOutputDeviceUID() != outputUID
+        let inputChanged = microphoneIncluded && MeetingCoreAudio.defaultInputDeviceUID() != inputUID
+        let appProcessGone = chosenApp.map { MeetingCoreAudio.processObject(for: $0.id) == nil } ?? false
+        let starved = configuredRoutes.filter { route in
+            guard let start = routeStarted[route], MeetingClock.interval(from: start, to: now) > 12,
+                  let recorder = recorder(for: route) else { return false }
+            return (recorder.secondsSinceLastBuffer ?? .infinity) > 12
         }
-        if microphoneIncluded, MeetingCoreAudio.defaultInputDeviceUID() != inputUID {
-            beginRecovery("The microphone device changed."); return
-        }
-        if let app = chosenApp, MeetingCoreAudio.processObject(for: app.id) == nil {
-            beginRecovery("The selected app's audio process changed."); return
-        }
-        if let start = startedHost, MeetingClock.interval(from: start, to: now) > 12,
-           recorders.contains(where: { ($0.secondsSinceLastBuffer ?? .infinity) > 12 }) {
-            beginRecovery("An audio source stopped supplying samples.")
-        }
+        let routes = MeetingRouteRecovery.plan(outputChanged: outputChanged, inputChanged: inputChanged,
+                                               appProcessGone: appProcessGone, starved: starved)
+        guard !routes.isEmpty, let reason = MeetingRouteRecovery.reason(outputChanged: outputChanged, inputChanged: inputChanged,
+                                                                        appProcessGone: appProcessGone, starved: starved) else { return }
+        beginRecovery(reason, routes: routes)
     }
 
     func pause() async throws {
@@ -1019,10 +1093,10 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
                     try checkStart()
                     guard request != nil else { throw MeetingError.message("This recording has not started.") }
                     guard !isPaused else { continuation.resume(); return }
-                    lock.lock(); paused = true; generation &+= 1; recovery = nil; lock.unlock()
-                    recoveryStarted = nil; lastRecoveryAttempt = nil
+                    lock.lock(); paused = true; invalidate(Self.everyRoute); recovery = nil; lock.unlock()
+                    recoveryStarted = nil; lastRecoveryAttempt = nil; recovering = []
                     remote?.markDiscontinuity("Recording was paused."); local?.markDiscontinuity("Recording was paused.")
-                    disconnectRoutes()
+                    disconnectRoutes(Self.everyRoute)
                     continuation.resume()
                 } catch { continuation.resume(throwing: error) }
             }
@@ -1037,21 +1111,26 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
                     guard request != nil else { throw MeetingError.message("This recording has not started.") }
                     guard isPaused else { continuation.resume(); return }
                     lock.lock(); paused = false; lock.unlock()
-                    beginRecovery("Resuming the selected audio sources.")
+                    beginRecovery("Resuming the selected audio sources.", routes: configuredRoutes)
                     continuation.resume()
                 } catch { continuation.resume(throwing: error) }
             }
         }
     }
 
-    private func disconnectRoutes() {
-        lock.lock(); generation &+= 1; lock.unlock()
-        if let observer = configurationObserver { NotificationCenter.default.removeObserver(observer) }
-        configurationObserver = nil
-        if let engine { engine.inputNode.removeTap(onBus: 0); engine.stop() }
-        engine = nil
-        if #available(macOS 14.2, *), let tap = tapBox as? MeetingProcessTap { tap.destroy() }
-        tapBox = nil
+    /// Tears down only the given routes' tap or engine, retiring their callbacks first.
+    private func disconnectRoutes(_ routes: Set<MeetingTrackSource>) {
+        lock.lock(); invalidate(routes); lock.unlock()
+        if routes.contains(.local) {
+            if let observer = configurationObserver { NotificationCenter.default.removeObserver(observer) }
+            configurationObserver = nil
+            if let engine { engine.inputNode.removeTap(onBus: 0); engine.stop() }
+            engine = nil
+        }
+        if routes.contains(.remote) {
+            if #available(macOS 14.2, *), let tap = tapBox as? MeetingProcessTap { tap.destroy() }
+            tapBox = nil
+        }
     }
 
     func finish() async -> MeetingCaptureReport {
@@ -1065,7 +1144,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         if let report { return report }
         requestStop()
         routeTimer?.cancel(); routeTimer = nil
-        disconnectRoutes()
+        disconnectRoutes(Self.everyRoute)
         lock.lock(); let recorders = [remote, local].compactMap { $0 }; lock.unlock()
         let tracks = recorders.map { $0.close() }.filter { $0.seconds > 0 }
         lock.lock()
@@ -1074,7 +1153,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
                                           seconds: tracks.map { $0.startSeconds + $0.seconds }.max() ?? 0,
                                           failure: failure, gaps: recorders.flatMap(\.gaps),
                                           liveAudioComplete: recorders.allSatisfy(\.liveAudioComplete))
-        report = result; remote = nil; local = nil; startedHost = nil; recovery = nil
+        report = result; remote = nil; local = nil; routeStarted = [:]; recovering = []; recovery = nil
         lock.unlock()
         return result
     }
