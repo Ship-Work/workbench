@@ -17,6 +17,9 @@ struct ReadbackView: View {
     var onRetryModel: () -> Void = {}
     @State private var sheet: Sheet?
     @State private var afterSheet: (() -> Void)?
+    /// The picker's own copy of the model's Capture area. Binding the segmented picker straight to
+    /// the published value publishes from inside SwiftUI's update; onChange hands it over after.
+    @State private var captureArea: SnapCapture.Mode = .screen
     @State private var confirmEmptyTrash = false
     @State private var discardEdit: UUID?
     @State private var copyResult: String?
@@ -263,10 +266,12 @@ struct ReadbackView: View {
                 Spacer()
                 Button("Cancel capture") { model.cancelCapture() }
             } else {
-                Picker("Capture area", selection: $model.captureArea) {
+                Picker("Capture area", selection: $captureArea) {
                     ForEach(SnapCapture.Mode.allCases) { Text($0.title).tag($0) }
                 // Its natural width, so the control starts on the page's column rather than centred in a frame.
                 }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                    .onAppear { captureArea = model.captureArea }
+                    .onChange(of: captureArea) { _, area in if model.captureArea != area { model.captureArea = area } }
                 Button {
                     Task { await model.captureNewSection(fromEditor: true, mode: model.captureArea) }
                 } label: { Label("Capture & narrate", systemImage: "camera.viewfinder") }
