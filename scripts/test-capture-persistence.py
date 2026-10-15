@@ -44,6 +44,8 @@ methods = model.extract([
     'scheduleCaptureCueExpiry',
     # Two silent captures in a row name System Settings › Sound and open it (#156).
     'repeatedSilenceCode', 'canOpenSoundSettings', 'dismissError',
+    # Where a dictation's words went, for VoiceOver (#165).
+    'announceFeedback',
     'saveNow', 'session', 'shutdown',
     # Preparing the speech model, whose failure is Home's (#134).
     'prepare', 'acceptRecognition', 'dismissCaptureFailure',
@@ -285,6 +287,8 @@ struct CaptureSettings {
     func record(outcome: TextDelivery.Outcome, wordCount: Int) {
         receipts += 1; actual.record(outcome: outcome, wordCount: wordCount)
     }
+    var isHUDVisible: Bool { actual.isHUDVisible }
+    var receipt: ClipboardReceipt? { actual.receipt }
 }
 enum AudioRenderer { static func remove(_ url: URL?) {} }
 @MainActor final class AuxiliaryCaptureWork {
@@ -839,8 +843,11 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         let untouchedOwner = LiveDictationDelivery()
         untouchedOwner.outcome = .init(message: "Copied.", clipboardChangeCount: 1, failure: .focusChanged, pasteWasAttempted: false)
         fieldUntouched.liveCapture = untouchedRecorder; fieldUntouched.liveDictation = untouchedOwner
+        var untouchedHeard: [String] = []; fieldUntouched.announceFeedback = { untouchedHeard.append($0) }
         let untouchedID = fieldUntouched.captureRecovery.pending!.id
         fieldUntouched.stopRecording(); try await waitUntil("untouched live field") { fieldUntouched.phase == .idle }
+        try check(untouchedHeard.count == 1 && untouchedHeard.first == fieldUntouched.clipboardReceipt.receipt.map { $0.title + ". " + $0.detail }
+                  && untouchedHeard.first?.hasPrefix("Copied. ") == true, "VoiceOver hears once that a field never written left the words copied (#165)")
         try check(untouchedOwner.finishCalls == 1 && TextDelivery.calls == pasteCallsBeforeField && fieldUntouched.history.count == 1
                   && fieldUntouched.unresolvedDelivery == nil && fieldUntouched.clipboardReceipt.actual.receipt?.title == "Copied",
                   "A live writer that never wrote ends as a copy, with no ⌘V fallback and no review entry")
@@ -933,12 +940,14 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   "Cancellation during the final window cannot save or deliver late words")
         var announced: [String] = []
         let tap = CaptureHarness(directory: folder("no-speech-tap")); tap.announceForAccessibility = { announced.append($0) }
+        var tapFeedback: [String] = []; tap.announceFeedback = { tapFeedback.append($0) }
         let tapURL = try recording(tap, seconds: 0.2, peak: -20)
         tap.stopRecording()
         try check(tap.captureCue?.reason == .tooShort && tap.captureFailure == nil && tap.error == nil && tap.phase == .idle
                   && !tap.canRetry && tap.engine.calls == 0, "An accidental tap is a routine cue, not a failure")
         try check(announced == ["No speech heard"] && tap.captureCue?.message == "No speech heard", "VoiceOver hears the cue's own words, once")
         try check(!tap.canOpenSoundSettings, "A tap offers no Sound Settings…")
+        try check(tapFeedback.isEmpty, "The no-speech cue is heard through its own announcement only")
         try check(!FileManager.default.fileExists(atPath: tapURL.path) && !tap.captureRecovery.hasRecovery, "A tap keeps nothing, as before")
         let hush = CaptureHarness(directory: folder("no-speech-quiet")); hush.announceForAccessibility = { _ in }
         _ = try recording(hush, seconds: 3, peak: -70)
@@ -1183,6 +1192,37 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   && afterQuit.unresolvedDelivery == nil, "Copy again copies those exact words, and only then is it resolved")
         afterQuit.saveNow()
         try check(afterQuit.store.saved?.undelivered == nil && afterQuit.store.saved?.history.count == 2, "once resolved, the next save carries nothing undelivered")
+
+        // VoiceOver hears where a dictation's words went: the cue's own words, once, at the priority
+        // that waits for current speech. A confirmed paste stays quiet, as its cue does (#165).
+        func heard(_ name: String, _ outcome: TextDelivery.Outcome, shortcut: Bool = false) async throws -> (CaptureHarness, [String], [String]) {
+            let model = CaptureHarness(directory: folder(name))
+            var feedback: [String] = [], cues: [String] = []
+            model.announceFeedback = { feedback.append($0) }; model.announceForAccessibility = { cues.append($0) }
+            if shortcut { try model.shortcutRequest.begin(id: UUID()) { _ in } }
+            TextDelivery.nextOutcome = outcome
+            model.run(try model.makeRecording(wav), owned: true); await finish(model)
+            TextDelivery.nextOutcome = TextDelivery.Outcome()
+            return (model, feedback, cues)
+        }
+        let (copiedModel, copiedHeard, copiedCues) = try await heard("heard-copied", TextDelivery.Outcome())
+        try check(copiedHeard == ["Copied. Synthetic delivery detail"] && copiedCues.isEmpty && copiedModel.clipboardReceipt.isHUDVisible,
+                  "a copied dictation is heard once, in the cue's own words")
+        let (pastedModel, pastedHeard, _) = try await heard("heard-pasted", TextDelivery.Outcome(message: "Pasted.", clipboardChangeCount: nil, wasPasted: true, pasteWasAttempted: true))
+        try check(pastedHeard.isEmpty && !pastedModel.clipboardReceipt.isHUDVisible && pastedModel.history.count == 1,
+                  "a confirmed paste is quiet, and shows no cue")
+        let (_, unsureHeard, _) = try await heard("heard-unconfirmed", TextDelivery.Outcome(message: "Paste sent · insertion could not be confirmed.", failure: .pasteUnconfirmed, pasteWasAttempted: true))
+        try check(unsureHeard.count == 1 && unsureHeard.first?.hasPrefix("Paste unconfirmed. Check the destination") == true,
+                  "an unconfirmed paste is heard once, with where to look")
+        let (_, stoppedHeard, _) = try await heard("heard-stopped", TextDelivery.Outcome(message: "Delivery stopped. The transcript is in History.", clipboardChangeCount: nil, failure: .cancelled))
+        try check(stoppedHeard == ["Delivery stopped. Delivery stopped. The transcript is in History."], "stopped delivery is heard once")
+        let (_, shortcutHeard, _) = try await heard("heard-shortcut", TextDelivery.Outcome(), shortcut: true)
+        try check(shortcutHeard.isEmpty, "a Shortcuts run returns its words to Shortcuts and announces nothing")
+        let windowBoard = NSPasteboard.withUniqueName()
+        defer { windowBoard.releaseGlobally() }
+        var windowHeard: [String] = []; copiedModel.announceFeedback = { windowHeard.append($0) }
+        copiedModel.copyTranscript(); _ = copiedModel.copyCapture(copiedModel.history[0], pasteboard: windowBoard)
+        try check(windowHeard.isEmpty, "window copies keep their own confirmations, so nothing is heard twice")
 
         // The words decide: the same words copied from the draft resolve a transcript's unconfirmed paste.
         let uncertain = CaptureHarness(directory: folder("uncertain"))

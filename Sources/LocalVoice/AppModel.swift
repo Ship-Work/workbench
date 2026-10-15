@@ -711,6 +711,8 @@ final class AppModel: NSObject, ObservableObject {
                     let delivered = noteAutomaticPaste(outcome, viaPaste: pasted)
                     status = delivered.message
                     clipboardReceipt.record(outcome: delivered, wordCount: TextRules.wordCount(result))
+                    // The cue's own words, heard once without interrupting; a confirmed paste stays quiet (#165).
+                    if clipboardReceipt.isHUDVisible, let receipt = clipboardReceipt.receipt { announceFeedback(receipt.title + ". " + receipt.detail) }
                     undelivered.note(outcome, text: result, from: .transcript(captureID), in: deliveryRecords)
                 }
                 phase = .idle; voiceSession.phase = .completed; onPhaseChange?()
@@ -1266,6 +1268,8 @@ final class AppModel: NSObject, ObservableObject {
     private var captureCueClock: CaptureCueClock?
     private var captureCueExpiry: Task<Void, Never>?
     var announceForAccessibility: (String) -> Void = { CaptureCueAnnouncement.post($0) }
+    /// Where a dictation's words went, for VoiceOver: medium priority, so it waits for current speech (#165).
+    var announceFeedback: (String) -> Void = { FeedbackAnnouncement.post($0) }
     /// Silent captures in a row. A second is more likely a muted or wrong
     /// microphone, or a closed lid, than a pause, so it gets the explicit panel
     /// that says where to look instead of another brief cue.
