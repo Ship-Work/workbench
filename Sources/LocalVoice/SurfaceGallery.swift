@@ -2154,8 +2154,14 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("home", "offer", "Download or defer speech setup")
         state(.downloading, detail: "Downloading Parakeet · 42%")
         try shot("models", "download", "Measured download with reachable Cancel")
+        // Dictate's caption is the same line while speech prepares, wrapped, never clipped (#15).
+        guard model.preparing, !model.ready, model.modelMessage == "Downloading Parakeet · 42%" else {
+            throw VoiceError.message("The synthetic download did not reach Dictate's preparing state.")
+        }
+        try shot("dictate", "dictate-download", "Dictate while speech downloads")
         state(.cancelling, detail: "Setup cancelled. Any model load already in progress is finishing safely; recording will not start.")
         try shot("models", "cancelled-load", "Cancelled noninterruptible load")
+        try shot("dictate", "dictate-cancelled-load", "Dictate while a cancelled load finishes")
         state(failure: .init(kind: .invalidCache, message: "The saved model could not be prepared. Retry the saved files or explicitly download a replacement.", details: "Synthetic invalid vocabulary."))
         try shot("models", "cache-failure", "Saved-cache failure and deliberate recovery")
         state(admission: .serverUnverified, detail: "Local server configured, not yet verified")
