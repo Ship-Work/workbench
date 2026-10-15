@@ -16,6 +16,7 @@ final class AppModel: NSObject, ObservableObject {
         guard ready else { throw VoiceError.message("Open Workbench and finish preparing the speech model, then run this shortcut again.") }
         guard phase == .idle else { throw VoiceError.message("Workbench is busy. Finish the current recording first.") }
         guard !meetings.isBusy else { throw VoiceError.message("Finish the meeting recording or transcription first.") }
+        guard loaded || !captureRecovery.hasRecovery else { throw VoiceError.message(Self.savingOffRefusal) }
         guard !captureRecovery.hasRecovery else { throw CaptureRecoveryError.pending }
         let file = try ImportedAudio.open(url)
         let duration = Double(file.length) / file.processingFormat.sampleRate
@@ -720,6 +721,10 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
 
+    /// With automatic saving off, Retry saving cannot succeed and is not offered, so a new start
+    /// names the door that is there: Discard recovery…, in Dictate and in a Shortcuts error.
+    private static let savingOffRefusal = "Automatic saving is off for this session, and a dictation is kept in Dictate. Copy its words, then use Discard recovery… to dictate again, or reopen Workbench."
+
     private func admitNewCapture() -> Bool {
         guard captureRecovery.hasRecovery else { return true }
         if captureRecovery.canKeepAudioForLater {
@@ -733,7 +738,8 @@ final class AppModel: NSObject, ObservableObject {
                 captureFailure = message; report(message, on: .dictate); status = message; onPhaseChange?(); return false
             }
         }
-        let message = captureRecovery.problem?.localizedDescription ?? "A previous capture is kept. Use \(retryCaptureLabel) before starting another capture."
+        let message = captureRecovery.problem?.localizedDescription
+            ?? (loaded ? "A previous capture is kept. Use \(retryCaptureLabel) before starting another capture." : Self.savingOffRefusal)
         captureFailure = message; report(message, on: .dictate); status = message; onPhaseChange?(); return false
     }
 

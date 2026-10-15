@@ -29,7 +29,7 @@ methods = model.extract([
     # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
     'transcribeForShortcut',
     # Transcription, its commit and the recovery it keeps.
-    'transcribe', 'admitNewCapture', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
+    'transcribe', 'admitNewCapture', 'savingOffRefusal', 'commitRecognizedCapture', 'savePendingCapture', 'restoreCaptureRecovery',
     'discardRecordingRecovery', 'discardCaptureRecovery', 'showCaptureRecoveryFiles', 'showSavedRecordings',
     # Manual copies and the undelivered result they resolve (#134 T5).
     'copyTranscript', 'deliveryRecords', 'unresolvedDelivery', 'copyTextWithReceipt', 'copyUnresolvedDelivery',
@@ -697,6 +697,10 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   "With saving off, the words stay in Dictate and nothing is written")
         unsavedShortcut.cancelShortcut(unsavedID)
         try check(unsavedReplies == 1, "A later Cancel in Shortcuts cannot reply a second time")
+        var unsavedRefusal = "no refusal"
+        do { _ = try await unsavedShortcut.transcribeForShortcut(importedURL) } catch { unsavedRefusal = error.localizedDescription }
+        try check(unsavedRefusal.contains("Discard recovery…") && !unsavedRefusal.contains("Retry") && unsavedShortcut.shortcutRequest.id == nil,
+                  "With saving off, the next Shortcuts run names Discard recovery…, not a Retry that is not shown: \(unsavedRefusal)")
         let unsaved = CaptureHarness(directory: folder("unsaved")); unsaved.loaded = false
         let unsavedURL = try unsaved.makeRecording(wav)
         unsaved.run(unsavedURL, owned: true); await finish(unsaved)
@@ -704,6 +708,9 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
                   "With saving off, Dictate says why it stopped: \(unsaved.phase), \(String(describing: unsaved.captureFailure))")
         try check(!unsaved.canRetry && unsaved.hasCaptureRecovery && unsaved.canDiscardCaptureRecovery,
                   "With saving off, Retry saving is not offered and Discard recovery… is the way back to dictating")
+        let unsavedAdmits = unsaved.admitsCapture()
+        try check(!unsavedAdmits && unsaved.captureFailure?.contains("Discard recovery…") == true && unsaved.captureFailure?.contains("Retry") == false,
+                  "With saving off, the next start names Discard recovery…, not a Retry that is not shown: \(String(describing: unsaved.captureFailure))")
 
         // Preserve malformed/future records and malicious paths; do not follow symlinks.
         for (name, data) in [
