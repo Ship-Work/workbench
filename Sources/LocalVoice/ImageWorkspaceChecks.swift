@@ -170,13 +170,20 @@ enum ImageWorkspaceChecks {
             try check(handled && preview.editing === liveEditor && liveEditor.draft.edit == before,
                       "Escape cancels a transient crop gesture before the window's Close shortcut")
             // ⌘Z and ⇧⌘Z in Title, Tags or Notes belong to that field. The canvas and a caption keep the image's Undo.
-            // A synthetic key event does not tell SwiftUI's ⌘Z from ⇧⌘Z, so the image's ⌘Z is checked with Redo empty.
+            // Keys come from CGEvents, which carry the keyboard layout: NSEvent.keyEvent's lack it, and SwiftUI then
+            // matches ⌘Z to Redo as often as to Undo. Key 6 is Z on QWERTY layouts.
             liveEditor.addText(); liveEditor.undo(); liveEditor.tool = .select; liveEditor.select(nil); try await settle(preview)
-            func undoKey(shift: Bool) -> NSEvent {
-                NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? [.command, .shift] : .command, timestamp: 0,
-                                 windowNumber: livePanel.windowNumber, context: nil, characters: "z",
-                                 charactersIgnoringModifiers: shift ? "Z" : "z", isARepeat: false, keyCode: 6)!
+            func undoKey(shift: Bool) -> NSEvent? {
+                guard let key = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState), virtualKey: 6, keyDown: true) else { return nil }
+                key.flags = shift ? [.maskCommand, .maskShift] : .maskCommand
+                return NSEvent(cgEvent: key)
             }
+            func press(shift: Bool) async throws -> Bool {
+                guard let key = undoKey(shift: shift) else { return false }
+                let handled = livePanel.performKeyEquivalent(with: key); try await settle(preview)
+                return handled
+            }
+            try check(undoKey(shift: false)?.charactersIgnoringModifiers?.lowercased() == "z", "the synthetic ⌘Z reads as Z on this keyboard layout")
             func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] { [view as? T].compactMap { $0 } + view.subviews.flatMap { views(type, in: $0) } }
             let content = livePanel.contentView ?? NSView()
             func field(_ placeholder: String) -> NSTextField? {
@@ -186,28 +193,34 @@ enum ImageWorkspaceChecks {
             let details: [(name: String, view: NSView?)] = [("Title", field("Title")), ("Tags", field("Tags, separated by commas")),
                                                              ("Notes", editors.count == 1 ? editors[0] : nil)]
             try check(!liveEditor.undoStack.isEmpty && !liveEditor.redoStack.isEmpty, "the live editor has image steps to undo and redo")
+            // Each field starts from the canvas, so no field inherits the shortcuts' state from the one before it.
+            func canvasKeys(_ moment: String) async throws {
+                livePanel.makeFirstResponder(liveCanvas); try await settle(preview)
+                let undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
+                let undone = try await press(shift: false)
+                try check(undone && liveEditor.undoStack.count == undos - 1 && liveEditor.redoStack.count == redos + 1,
+                          "⌘Z on the canvas \(moment) takes one image step")
+                let redone = try await press(shift: true)
+                try check(redone && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
+                          "⇧⌘Z on the canvas \(moment) puts that step back")
+            }
             for (name, view) in details {
+                try await canvasKeys("before \(name) has focus")
                 if let view { livePanel.makeFirstResponder(view) }
                 try await settle(preview)
                 let responder = livePanel.firstResponder
                 try check(view != nil && (responder === view || (responder as? NSTextView)?.delegate === view), "\(name) takes focus in the live editor")
                 let edit = liveEditor.draft.edit, undos = liveEditor.undoStack.count, redos = liveEditor.redoStack.count
                 for shift in [false, true] {
-                    let handled = livePanel.performKeyEquivalent(with: undoKey(shift: shift))
-                    try await settle(preview)
+                    let handled = try await press(shift: shift)
                     try check(!handled && liveEditor.draft.edit == edit && liveEditor.undoStack.count == undos && liveEditor.redoStack.count == redos,
                               "\(shift ? "⇧⌘Z" : "⌘Z") in \(name) goes to the field and leaves the image's marks and steps alone")
                 }
             }
-            liveEditor.redo()
-            livePanel.makeFirstResponder(liveCanvas); try await settle(preview)
-            let undos = liveEditor.undoStack.count
-            let canvasUndo = livePanel.performKeyEquivalent(with: undoKey(shift: false)); try await settle(preview)
-            try check(canvasUndo && liveEditor.undoStack.count == undos - 1 && liveEditor.redoStack.count == 1,
-                      "⌘Z on the canvas after a field had focus takes one image step")
+            try await canvasKeys("after Notes had focus")
             liveEditor.addTextForTyping(); try await settle(preview)
             let caption = livePanel.firstResponder as? NSTextView, captionSteps = liveEditor.undoStack.count
-            let captionUndo = livePanel.performKeyEquivalent(with: undoKey(shift: false)); try await settle(preview)
+            let captionUndo = try await press(shift: false)
             try check(caption?.isFieldEditor == false && captionUndo && liveEditor.undoStack.count == captionSteps - 1,
                       "⌘Z in a caption still undoes the image step")
             livePanel.makeFirstResponder(liveCanvas)
