@@ -725,7 +725,7 @@ struct WorkbenchHomePage: View {
             }
             if meetings.isRecording { MeetingQuickStatus(model: meetings) { model.page = "meeting" } }
             // Speech setup while it prepares or carries the writing model's line. The guide shows the
-            // speech engine itself while it is offered; beside other work, the download offer waits in Models.
+            // speech engine itself while it is offered; otherwise the download offer waits in Models.
             if speechSetupIsCurrentWork {
                 engineBanner.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { sectionFrames?("home.current-work.speech", $0) }
             }
