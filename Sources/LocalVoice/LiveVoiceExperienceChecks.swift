@@ -81,7 +81,7 @@ import SwiftUI
         _ = NSApplication.shared
         let plain = [LiveVoiceSourceStatus(source: .app, name: "Zoom", health: .quiet)]
         var explained = plain
-        explained[0].message = MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: "Screen & System Audio Recording")
+        explained[0].message = MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, settings: "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only")
         let plainHeight = NSHostingView(rootView: LiveVoiceSourcesView(sources: plain).frame(width: 420)).fittingSize.height
         let explainedHeight = NSHostingView(rootView: LiveVoiceSourcesView(sources: explained).frame(width: 420)).fittingSize.height
         try expect(explainedHeight > plainHeight + 8, "a source's explanation takes its own line under the source (\(Int(plainHeight)) → \(Int(explainedHeight)) pt)")
@@ -177,7 +177,7 @@ import SwiftUI
                 LiveVoiceSegment(source: .app, start: 21, end: 25, text: "Great. We can decide on the date after that.", isFinal: phase == .completed)
             ]
             var app = LiveVoiceSourceStatus(source: .app, name: "Mac calling service", health: phase == .paused ? .paused : silentApp ? .quiet : .receiving)
-            if silentApp { app.message = MeetingSilenceHint.message(appName: app.name, elapsed: 25, heard: false, activity: .active, permission: "Screen & System Audio Recording") }
+            if silentApp { app.message = MeetingSilenceHint.message(appName: app.name, elapsed: 25, heard: false, activity: .active, settings: "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only") }
             return LiveVoiceSnapshot(sessionID: UUID(), phase: phase, elapsed: 25,
                 sources: [app, .init(source: .microphone, name: "Your microphone", health: phase == .reconnecting ? .reconnecting : .quiet)],
                 segments: silentApp ? words.filter { $0.source == .microphone } : words)

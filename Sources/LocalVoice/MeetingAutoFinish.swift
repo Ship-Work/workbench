@@ -32,16 +32,18 @@ struct MeetingAutoFinish {
 
 /// Why the page says nothing has arrived from the chosen app. A refused System Audio Recording tap
 /// delivers silence rather than an error, so a call the app is using audio for, fifteen seconds in
-/// with no sound heard, gets one hedged sentence that names the list in Privacy & Security. Never for
-/// a microphone-only recording, an app that is not using audio or metadata Workbench cannot read; it
-/// clears once sound arrives, and the source's health stays whatever capture reports.
+/// with no sound heard, gets one hedged sentence that says where the switch is in Privacy & Security,
+/// in the words Home's Permissions row uses for the running macOS (MacPermission.callAudio.settingsPath,
+/// the one place that knows). Never for a microphone-only recording, an app that is not using audio,
+/// an app the catalogue does not know or metadata Workbench cannot read (both read as unknown
+/// activity); it clears once sound arrives, and the source's health stays whatever capture reports.
 enum MeetingSilenceHint {
     static let delaySeconds = 15.0
 
     static func message(appName: String?, elapsed: Double, heard: Bool, activity: MeetingAutoFinish.Activity,
-                        permission: String = MacPermission.callAudioListName) -> String? {
+                        settings: String = MacPermission.callAudio.settingsPath) -> String? {
         guard let appName, !heard, elapsed >= delaySeconds, activity == .active else { return nil }
-        return "No sound has arrived from \(appName) yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check Privacy & Security › \(permission)."
+        return "No sound has arrived from \(appName) yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check \(settings)."
     }
 }
 
