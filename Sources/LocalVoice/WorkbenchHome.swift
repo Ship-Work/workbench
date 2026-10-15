@@ -826,8 +826,7 @@ struct WorkbenchHomePage: View {
             if model.preparing { Button("Cancel setup") { model.cancelSpeechPreparation() }.disabled(model.recognition.phase == .cancelling) }
             else if !model.ready && model.recognition.configuration.provider == .parakeet {
                 Button("Download Parakeet") { Task { await model.downloadSpeechModel() } }
-                // Only where it hides something: the guide, once Skip for now has gone.
-                if journey.showsGuide && !journey.offersSkip { Button("Not now") { skipGuide() } }
+                if journey.offersNotNow { Button("Not now") { skipGuide() } }
             }
             Button("Models…") { model.page = "models" }
         }.padding(16).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
@@ -954,6 +953,9 @@ struct HomeJourney: Equatable {
     var offersSkip: Bool { showsGuide && !hasDictated }
     /// Show me a first dictation, while the guide is skipped and nothing has been dictated.
     var offersGuide: Bool { !showsGuide && !hasDictated }
+    /// Not now beside the guide's speech download, once Skip for now has gone: only there does it
+    /// hide something. Outside the guide it would re-save a state already in effect (#15).
+    var offersNotNow: Bool { showsGuide && !offersSkip }
     /// What to save once History holds a dictation.
     var guideToSave: FirstDictationGuide? { transcripts > 0 && guide != .completed ? .completed : nil }
     /// The writing model's download or failure is current work while speech is ready, in its own

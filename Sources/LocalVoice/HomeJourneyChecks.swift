@@ -82,6 +82,9 @@ enum HomeJourneyChecks {
                       !HomeJourney.speechSetupIsCurrentWork(speechReady: false, preparing: preparing, guideShows: true, writingModelCounts: counts)
                           && !HomeJourney.speechSetupIsCurrentWork(speechReady: true, preparing: preparing, guideShows: false, writingModelCounts: counts) } },
                   "speech setup is never current work while the guide shows it or once speech is ready")
+        // Not now only where it hides the guide: never beside Skip for now, and never outside the guide.
+        try check(!fresh.offersNotNow && !skipped.offersNotNow && !removed.offersNotNow && !resumed.offersNotNow && landed.offersNotNow,
+                  "Not now shows only in the guide once Skip for now has gone")
         // A failed download holds Current work only while the saved Text style uses Ollama; a running one always does.
         let downloadLine = "Downloading gemma3:1b · 42%", failedLine = "gemma3:1b couldn’t be downloaded. Ollama stopped responding."
         try check(HomeJourney.writingModelLine(download: nil, failure: failedLine, savedStyleUsesOllama: true) == failedLine,
