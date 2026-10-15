@@ -22,7 +22,7 @@ test('the phone-share help says what a window share leaves out, as Present\'s fo
 test('the guide says the complete words are copied when live insertion stops', () => {
   // LiveDictationDelivery.finish copies the words whatever Restore clipboard says once its writer has stopped.
   assert.ok(element(guide, 'dictate').includes(
-    'Moving or editing the field stops live insertion, and the complete words are copied, ready to paste.'));
+    'Moving or editing the field stops live insertion, and the complete words are copied so you can replace what was written.'));
 });
 
 test('the handbook names no retired tool as an entry point', () => {
