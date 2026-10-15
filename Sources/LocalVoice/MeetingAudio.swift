@@ -466,8 +466,6 @@ enum MeetingCoreAudio {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    static func processObjects() -> [AudioObjectID] { (try? processObjectsChecked()) ?? [] }
-
     static func processObjectsChecked() throws -> [AudioObjectID] {
         guard isProcessMetadataAvailable else { throw MeetingError.message(unavailableReason) }
         var property = address(kAudioHardwarePropertyProcessObjectList)

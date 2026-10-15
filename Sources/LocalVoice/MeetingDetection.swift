@@ -217,12 +217,6 @@ final class MeetingDetector {
         streaks.removeAll()
     }
 
-    /// The wording the surface shows. It claims a possibility, never a fact.
-    static func offerText(for app: MeetingAudioApp) -> String {
-        if isCallService(app) { return "A FaceTime or phone call may be active on this Mac. Review the audio source before recording." }
-        return "\(app.name) is using the microphone, so a call may be running. Record this meeting?"
-    }
-
     static func offerTitle(for app: MeetingAudioApp) -> String {
         isCallService(app) ? "Possible call on this Mac" : "Possible call in " + app.name
     }
