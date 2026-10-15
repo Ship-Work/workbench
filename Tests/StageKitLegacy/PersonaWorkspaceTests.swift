@@ -162,19 +162,20 @@ final class PersonaWorkspaceTests {
     }
 
     /// Changing page keeps an unsaved Arrange overlays layout (#340). Each visit hosts a new
-    /// workspace page, as the sidebar builds one per route. Coming back reopens Arrange overlays
-    /// with the edits, what is typed there is kept for the next visit, and once nothing is
-    /// unsaved or the group is gone, Persona opens on its own page. Only Save layout writes.
+    /// workspace page, as the sidebar builds one per route. Persona always comes back on its own
+    /// page, with its camera, shown and live panels; Arrange overlays… then opens with the edits,
+    /// what is typed there is kept for the next visit, and once nothing is unsaved or the group is
+    /// gone, it opens on a saved layout. Only Save layout writes.
     func testChangingPageKeepsAnUnsavedArrangement() throws {
         try MainActor.assumeIsolated {
             let (root, library, group) = try fixture()
             defer { library.shutdown(); try? FileManager.default.removeItem(at: root) }
             func fields(in view: NSView) -> [NSTextField] { ((view as? NSTextField).map { [$0] } ?? []) + view.subviews.flatMap { fields(in: $0) } }
-            /// One visit to Persona: the public group label, which only Arrange overlays shows,
-            /// after typing `typed` into it.
-            func visit(typing typed: String? = nil) -> String? {
+            /// Hosts `view` offscreen and returns the public group label field, which only Arrange
+            /// overlays shows, after typing `typed` into it.
+            func label(in view: AnyView, typing typed: String? = nil) -> String? {
                 let size = CGSize(width: 900, height: 900)
-                let hosting = NSHostingView(rootView: PersonaLibraryView(library: library, mode: .workspace).frame(width: size.width, height: size.height))
+                let hosting = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
                 let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -10000, y: -10000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 window.contentView = hosting
@@ -189,29 +190,39 @@ final class PersonaWorkspaceTests {
                 }
                 return field.stringValue
             }
+            /// One visit to Persona: whether it opened on Arrange overlays.
+            func visitOpensArrange() -> Bool { label(in: AnyView(PersonaLibraryView(library: library, mode: .workspace))) != nil }
+            /// Choosing Arrange overlays… on the page: the view it shows, with its label after typing.
+            func arrange(typing typed: String? = nil) -> String? {
+                label(in: AnyView(PersonaPresentationPreparation(library: library, onStart: { _, _ in }, onResume: {}, onManageGroups: {},
+                                                                onDraftChanged: { _ in })), typing: typed)
+            }
             let saved = try contents(of: root)
-            XCTAssertTrue(visit() == nil, "With nothing unsaved, Persona opens on its own page")
+            XCTAssertFalse(visitOpensArrange(), "With nothing unsaved, Persona opens on its own page")
             let original = library.groups.first { $0.id == group }!
             var moved = original.overlays!; moved[1].placement.x = 0.5; moved[1].visible = false
-            library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: moved,
-                                                                 publicLabel: "Edited set", selectedID: moved[1].id)
-            XCTAssertEqual(visit(typing: "Typed set"), "Typed set", "Coming back reopens Arrange overlays with the unsaved label")
+            let draft = PersonaPresentationDraft(groupID: group, original: original, overlays: moved, publicLabel: "Edited set", selectedID: moved[1].id)
+            library.presentationDraft = draft
+            XCTAssertFalse(visitOpensArrange(), "An unsaved layout leaves Persona on its own page, where a notice's recovery is")
+            XCTAssertEqual(library.presentationDraft, draft, "and keeps waiting")
+            XCTAssertEqual(arrange(typing: "Typed set"), "Typed set", "Arrange overlays… opens with the unsaved label")
             XCTAssertEqual(library.presentationDraft?.publicLabel, "Typed set", "and keeps what is typed there")
-            XCTAssertEqual(visit(), "Typed set", "for the next visit")
+            XCTAssertFalse(visitOpensArrange(), "The next visit opens on Persona's own page too")
+            XCTAssertEqual(arrange(), "Typed set", "and Arrange overlays… still has the typed label")
             XCTAssertEqual(library.presentationDraft?.overlays, moved, "with each overlay as it was moved and hidden")
             XCTAssertEqual(library.presentationDraft?.selectedID, moved[1].id, "and the same overlay selected")
 
             library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: original.overlays!,
                                                                  publicLabel: "Edited set", selectedID: nil)
-            XCTAssertEqual(visit(typing: original.publicLabel), original.publicLabel)
+            XCTAssertEqual(arrange(typing: original.publicLabel), original.publicLabel)
             XCTAssertTrue(library.presentationDraft == nil, "Typing the saved label back leaves nothing unsaved")
-            XCTAssertTrue(visit() == nil, "so Persona opens on its own page")
+            XCTAssertEqual(arrange(), original.publicLabel, "so Arrange overlays… opens on the saved layout")
             XCTAssertTrue(try contents(of: root) == saved, "Keeping a layout across pages writes nothing")
 
             library.presentationDraft = PersonaPresentationDraft(groupID: group, original: original, overlays: moved,
                                                                  publicLabel: "Edited set", selectedID: nil)
             library.removeGroup(group)
-            XCTAssertTrue(visit() == nil, "A removed group's layout does not reopen")
+            XCTAssertTrue(arrange() != "Edited set", "A removed group's layout does not come back")
             XCTAssertTrue(library.presentationDraft == nil, "and is dropped")
 
             // Back, Done, Escape and Manage groups end in the Discard question. Offscreen it cannot be
@@ -345,13 +356,17 @@ final class PersonaWorkspaceTests {
             for (name, size) in [("persona-small", CGSize(width: 620, height: 650)), ("persona-normal", CGSize(width: 834, height: 730))] {
                 try render(PersonaLibraryView(library: library, mode: .workspace), size: size, to: directory.appendingPathComponent(name + ".png"))
             }
-            // Back on Persona with an unsaved Arrange overlays layout (#340): one copy moved, the other hidden, the label edited.
+            // Back on Persona with an unsaved Arrange overlays layout waiting (#340): one copy moved, the other hidden, the
+            // label edited. The page opens as usual; Arrange overlays… brings the layout back, rendered on its own.
             let saved = library.groups.first { $0.id == group }!
             var moved = saved.overlays!; moved[0].placement.x = 0.62; moved[1].visible = false
             library.presentationDraft = PersonaPresentationDraft(groupID: group, original: saved, overlays: moved, publicLabel: "Edited set", selectedID: moved[0].id)
-            for (name, appearance) in [("persona-arrange-kept-light", NSAppearance.Name.aqua), ("persona-arrange-kept-dark", .darkAqua)] {
+            for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 try render(PersonaLibraryView(library: library, mode: .workspace), size: CGSize(width: 1085, height: 900),
-                           to: directory.appendingPathComponent(name + ".png"), appearance: NSAppearance(named: appearance))
+                           to: directory.appendingPathComponent("persona-arrange-kept-" + name + ".png"), appearance: NSAppearance(named: appearance))
+                try render(PersonaPresentationPreparation(library: library, onStart: { _, _ in }, onResume: {}, onManageGroups: {}, onDraftChanged: { _ in })
+                    .padding(24).background(Color(nsColor: .windowBackgroundColor)), size: CGSize(width: 828, height: 640),
+                           to: directory.appendingPathComponent("persona-arrange-kept-open-" + name + ".png"), appearance: NSAppearance(named: appearance))
             }
             library.presentationDraft = nil
             // Present's selection-only chooser, with Persona preparing a group of one card.

@@ -134,6 +134,7 @@ struct TestRunner {
                 ("Present persona chooser lists every card and only selects", suite.testPresentChooserListsEveryCardAndOnlySelects),
                 ("persona workspace keeps an unsaved arrangement across pages", suite.testChangingPageKeepsAnUnsavedArrangement),
                 ("persona sessions: unsaved arrangement kept in memory", PersonaSessionTests().testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
+                ("persona sessions: kept arrangement follows or drops changed members", PersonaSessionTests().testKeptArrangementFollowsItsGroupsMembersOrIsDropped),
                 ("optional offscreen workspace layouts", suite.testOffscreenWorkspaceLayouts)
             ]
             for (name, test) in tests {
@@ -692,6 +693,7 @@ struct TestRunner {
             ("persona sessions: frozen artwork and failed start", personaSessions.testFrozenArtworkSurvivesLibraryEditsAndFailedReplacementStart),
             ("persona sessions: explicit conflict-aware layout save", personaSessions.testSaveLayoutIsExplicitAtomicAndRejectsChangedPreparation),
             ("persona sessions: unsaved arrangement kept in memory", personaSessions.testUnsavedArrangementIsKeptInMemoryUntilItsGroupGoes),
+            ("persona sessions: kept arrangement follows or drops changed members", personaSessions.testKeptArrangementFollowsItsGroupsMembersOrIsDropped),
             ("persona sessions: read-only and busy state", personaSessions.testReadOnlySessionsAndInteractionGuardsNeverWriteOrTrapOverlays),
             ("persona sessions: invalid and future archive preservation", personaSessions.testInvalidLayoutsAndFutureArchivePreserveOriginalBytes),
             ("persona sessions: bounded replacement preflight", personaSessions.testBoundedPreflightAlsoProtectsLegacyShowAndCurrentSession),
