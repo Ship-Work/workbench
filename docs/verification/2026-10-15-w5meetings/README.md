@@ -36,6 +36,13 @@ The microphone, source-failure, app-only and saving-without-audio shots are byte
 
 No check compares two live Core Audio reads, because processes can start or quit between them. The timing gain is from the brief's scratch benchmark on 36 process objects: about 9.3 ms for a full snapshot and matching against about 3.3 ms for the detection snapshot. It was not measured again here.
 
+## Independent review
+
+An independent review of the whole branch returned "ship" with two P3 findings. It re-ran the build, `--check-meetings`, `--check-bug-report`, `--check-core`, `check-surfaces.py`, `check-attention-text.py` and the Meetings gallery pass, and its fresh renders matched all 8 committed `after/` images byte for byte. After the review the build and those checks were run once more on the final source, with the same results. Two of the failing-without-the-change claims were confirmed again by mutation: the train's `MeetingModel.swift` fails "five idle detection polls read metadata and publish nothing", and removing the "Preparing speech…" title fails "a running download reads Preparing speech… with its progress as the caption, and asks for no setup".
+
+- **"Preparing speech…" while setup is being cancelled.** Left as it is. After Cancel setup, until the model load finishes, the title still reads "Preparing speech…" and the caption reads "Setup cancelled… recording will not start." Dictate shows the same pair ("Preparing dictation…") from the same snapshot, so the two pages keep one form. Changing it is a shared Dictate and Meetings wording decision, not this branch's. The train showed "Speech setup needed" and a triangle card in that state, so this is no regression.
+- **The code commits name only #280.** The pushed commits are not rewritten. The pull request names #378 and #280.
+
 ## Not verified natively
 
 On a signed Preview, by the integration owner or Ethan:
