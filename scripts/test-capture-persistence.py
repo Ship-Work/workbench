@@ -99,9 +99,10 @@ writers = undelivered_writers(model)
 # Launch restores the undelivered result only once capture recovery has settled the draft,
 # so a draft that recovery replaced drops a draft entry instead of showing it.
 launch = model.select(['init(preferences:startSpeechLifecycle:)'])[0].code
-# The recorder's start, which these checks script, clears the attention, and with it the
-# Sound Settings… door that follows the repeated-silence code (#156).
-assert 'attention = nil' in model.select(['startRecording(_:)'])[0].code, 'a new start clears the attention'
+# The recorder's start, which these checks script, clears the attention before any branch
+# can return, and with it the Sound Settings… door that follows the repeated-silence code (#156).
+assert re.search(r'guard recordingAttempt == attempt else \{ return \}\s*phase = \.requesting; attention = nil;',
+                 model.select(['startRecording(_:)'])[0].code), 'every new start clears the attention before it can return'
 assert 'undelivered.restore(' in launch and launch.index('restoreCaptureRecovery()') < launch.index('undelivered.restore('), \
     'launch restores the undelivered result after capture recovery'
 labels = model.extract(['retryCaptureLabel', 'retryCaptureHelp', 'hasCaptureRecovery', 'canRecordAgain',
