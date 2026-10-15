@@ -1,6 +1,6 @@
 # Read's leftovers, unused Meetings helpers and the old handoff folder route · 15 October 2026
 
-Branch `claude/retire-read-meetings-handoff-leftovers`, stacked on the 15 October train (`claude/train-1015` at 59753fc). It lands after #353 ships. Synthetic data only. Refs #280, #281, #284.
+Branch `claude/retire-read-meetings-handoff-leftovers`, stacked on the 15 October train (`claude/train-1015`, merged in at 88c5e67). It lands after #353 ships. Synthetic data only. Refs #280, #281, #284.
 
 ## What changed
 
@@ -17,14 +17,14 @@ Not done here: the two behaviour items in the same issues, a call offer's purpos
 
 ## Checks
 
-Debug build on this Mac at the branch head.
+Debug build on this Mac at the branch head. After the train moved to 88c5e67 (a call offer's Call ends when its recording finishes), it was merged in, every deleted name was searched for again across the repository, and the build, every checks-phase mode, `scripts/test.sh harnesses` and `check-surfaces.py` were run again on the merged head with the same results.
 
 | Check | Result | Fails without the change |
 | --- | --- | --- |
 | `--check-core` | exit 0; Workbench controls 222 | Yes. With the train's `WorkbenchControlTool.swift`: "a refused Show personas names each kind of work that holds it", exit 1 |
 | `python3 scripts/test-read-retirement.py` (also `--binary`) | 5 tests OK; 13 retired commands refused | Yes. With the train's sources, `test_blocker_lines_name_retained_work_only` fails on `MeetingRecordingReview.swift: capture or reading` |
 | `--check-transcript-handoff` | 53 checks (train: 129, runner 11) | No. The new case, a folder that isn't a session gets a readable reason, holds on the train too; the train's bug was the runner in front of it |
-| `--check-meetings` | 292 Meeting checks, live voice 21, live voice experience 19 | Not new |
+| `--check-meetings` | 295 Meeting checks, live voice 21, live voice experience 19 | Not new |
 | `--check-handoff-jobs` | 223 checks | Not new |
 | `--check-history-library`, `--check-history-journey` | History page 63; 20 steps | Not new |
 | Every other checks-phase mode: read-retirement, shortcut-migration, readback, snap-capture, presenter, providers, refinement, readback-pack, capture-preview, image-workspace, subscription-cli, bug-report | exit 0 each | Not new |
