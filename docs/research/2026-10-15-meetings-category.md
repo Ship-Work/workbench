@@ -119,3 +119,82 @@ Eight research clusters were surveyed on 15 October 2026 (Granola and the no-bot
 | Registry entry for the Meetings page's Sound Settings… button | the registry map | A page-local control that opens System Settings; the checker treats page-local controls as out of scope and passes today | A rule that external-settings openers are entry points | `docs/surfaces.json` |
 
 A research-run limitation: the shared web-search budget ran out part way through the bot-leaders cluster, and three clusters (local Mac tools, speech models and diarization, managed Macs and consent) came from the second run; the synthesis names what it could not confirm.
+
+## 6. Verified defects
+
+Eight readers mapped the subsystems; every defect they claimed was judged by two skeptics (correctness and reachability) and kept only when both found it real. 49 survived, 9 were dropped, and a completeness critic then read the joins between subsystems. Status names what [#374](https://github.com/Ship-Work/workbench/pull/374) built; everything marked open is build-ready with its file and line, and a GitHub issue carries the same list for the next agent.
+
+| Severity | Area | Defect | Where | Cost | Status |
+| --- | --- | --- | --- | --- | --- |
+| P1 | recognition-live | One ambiguous or re-decoded word at an 8 s commit boundary ends live words for the rest of the meeting | `LiveVoiceService.swift:105` | M | #374 |
+| P2 | audio-capture | A refused Audio Recording permission is never reported: the meeting records silence and History blames the other people | `MeetingAudio.swift:653` | M | #374 (silence explained; a refusal is still not provable from code) |
+| P2 | detection-admission | Offer panel never appears over a full-screen call and is gone after 20 s with no other surface | `MeetingWorkspaceView.swift:426` | S | #374 (full-screen and Spaces; the 20 s window stays) |
+| P2 | detection-admission | Safari calls are never offered: the catalogue's Safari entry cannot match the WebKit audio process | `MeetingModels.swift:58` | M | open |
+| P2 | handoff-followup | Copy instructions route can never return a result: Home says "no result yet" forever and loses Prepare follow-up… | `HandoffJobs.swift:843` | M | open |
+| P2 | recognition-live | After live recognition dies mid-recording the caption says 'Words are catching up' forever | `LiveVoiceTranscriptView.swift:21` | S | #374 |
+| P2 | recognition-live | Live-completed two-source meetings never drop microphone echoes; on laptop speakers the other side's words are saved as You | `LiveVoiceSession.swift:68` | M | open |
+| P2 | recognition-live | Snapshots publish at ≥10 Hz and every publish rebuilds and remeasures the whole transcript on the main thread | `LiveVoiceService.swift:232` | M | open |
+| P2 | ui-surfaces | Hide toolbar on: a recording meeting shows no pill, dot or Finish anywhere on screen | `CapturePanel.swift:423` | S | #374 |
+| P2 | ui-surfaces | An app source that never delivers audio reads 'Quiet' for the whole call; a refused tap is indistinguishable from silence on every surface | `LiveVoiceService.swift:195` | M | #374 |
+| P3 | audio-capture | Any default-output change (headphones, AirPods, display audio) tears down both sources, so the microphone track loses audio on every switch and mic-only Dictate reports 'The microphone device changed' | `MeetingAudio.swift:1000` | M | #374 (per-route restart; hardware owed) |
+| P3 | audio-capture | When the chosen app quits or crashes mid-meeting the microphone is also cut for the 15 s recovery window before the recording ends | `MeetingAudio.swift:874` | S | #374 (per-route restart) |
+| P3 | audio-capture | Hitting the two-hour ceiling (or an overlap stop) also reports 'could not be written and are missing' for the rejected packet | `MeetingAudio.swift:273` | S | open |
+| P3 | audio-capture | FaceTime, Phone and Safari picker entries tap a bundle whose call/media audio plays in a service the tap excludes | `MeetingModels.swift:55` | S | open |
+| P3 | detection-admission | Snooze, Not now and Change source suppress offers invisibly; switching detection off and on does not clear a snooze | `MeetingDetection.swift:152` | S | open |
+| P3 | detection-admission | A running app reads as 'no longer available' when its representative process changes | `MeetingDetection.swift:121` | M | open |
+| P3 | detection-admission | Source caption asserts headphone voices are recorded; the written unverified-app caution is dead code | `MeetingWorkspaceView.swift:275` | S | open |
+| P3 | detection-admission | 'Finish when call audio ends' caption says only microphone-only recordings finish manually; any unrecognised app never auto-finishes | `MeetingDetection.swift:105` | S | open |
+| P3 | detection-admission | A stale metadata error is re-raised every 3 s as the page's problem, replacing other problems, until a successful refresh | `MeetingModel.swift:720` | S | open |
+| P3 | docs-site-registry | Site hero art names a remote speaker and shows participant avatars; the app labels only You/Others | `index.html:115` | S | #374 |
+| P3 | docs-site-registry | Site says “Turn on Meetings” and the guide says “Start on the detected call” without the off-by-default opt-in | `index.html:121` | S | #374 |
+| P3 | docs-site-registry | Prepare follow-up offers only the generic follow-up skill; the bundled Meeting notes and follow-up skill is unreachable from Meetings and Home | `WorkbenchHome.swift:249` | S | #374 |
+| P3 | handoff-followup | Prepare follow-up… offers only the generic skill; Meeting notes and follow-up and Coach are unreachable from the meeting's own door | `WorkbenchHome.swift:249` | S | #374 |
+| P3 | handoff-followup | Prepare follow-up… → Start task loops on an error when the meeting's earlier follow-up failed, was stopped or was interrupted | `HandoffJobs.swift:792` | S | open |
+| P3 | handoff-followup | A long meeting hits the 100,000-character connected limit with a message that cannot be followed for one transcript | `HandoffRunReadiness.swift:47` | M | open |
+| P3 | lifecycle-recovery-storage | "Free about 500 MB" promises a safe meeting; two PCM tracks exhaust that budget in roughly half an hour | `MeetingModels.swift:306` | S | open |
+| P3 | lifecycle-recovery-storage | After History commits but the final `.committed` journal write fails, Meetings says saving could not finish and offers Transcribe again | `MeetingRecovery.swift:267` | S | open |
+| P3 | lifecycle-recovery-storage | Automatic finish saves the meeting with no note that Workbench ended it | `MeetingModel.swift:668` | S | open |
+| P3 | lifecycle-recovery-storage | The two-hour cut arrives with no warning and counts paused and reconnecting time | `MeetingModel.swift:651` | M | open |
+| P3 | recognition-live | A continuous speaker is split into a new 'You:' paragraph at every pause over 0.8 s, in the live view and the saved transcript | `LiveVoiceSession.swift:71` | S | open |
+| P3 | recognition-live | Batch echo drop uses symmetric Jaccard, so a short microphone fragment inside a long remote utterance is never dropped | `MeetingConversation.swift:121` | S | open |
+| P3 | recognition-live | Format-2 'original wording' zips both speakers' words together by start time | `LiveVoiceSession.swift:56` | S | open |
+| P3 | ui-surfaces | Keep recording is not offered on the menu-bar panel or Home during the auto-finish countdown | `MeetingWorkspaceView.swift:9` | S | open |
+| P3 | ui-surfaces | Panel and Home row read 'Meetings · finishing' with 'Stop processing' while a meeting is starting | `MeetingWorkspaceView.swift:11` | S | open |
+| P3 | ui-surfaces | Live transcript labels every turn 'You' (or 'Others') for single-source recordings; the saved text has no labels | `MeetingWorkspaceView.swift:143` | S | open |
+| P3 | ui-surfaces | History row and Review transcript claim 'Original recording' from the transcript's purpose alone; Review recording then fails | `CaptureHistoryView.swift:93` | S | open |
+| P3 | ui-surfaces | The proactive offer panel is pointer-only: not announced, no keyboard focus, no Escape | `MeetingWorkspaceView.swift:426` | M | open |
+| P3 | ui-surfaces | No warning before the two-hour limit on any surface; the meeting ends itself | `MeetingModel.swift:651` | S | open |
+| P4 | docs-site-registry | Registry omits the meeting page's Sound Settings… opener while registering Dictate's | `surfaces.json:294` | S | open |
+| P4 | docs-site-registry | README never mentions Meetings | `README.md:10` | S | open |
+| P4 | docs-site-registry | Site names the call-audio permission “Audio Recording”, which macOS 15+ lists as Screen & System Audio Recording | `privacy.html:109` | S | #374 |
+| P4 | lifecycle-recovery-storage | Derived segment WAVs are never removed after a meeting commits | `MeetingRecovery.swift:266` | S | open |
+| P4 | lifecycle-recovery-storage | Every recovery refresh fully inspects every session, including reading and decoding each committed meeting's live journal twice | `MeetingRecovery.swift:31` | S | open |
+| P4 | recognition-live | Details receipt says 'Apple Intelligence' even when both Apple Intelligence calls failed or timed out | `LocalDetailSuggestions.swift:44` | S | open |
+| P4 | ui-surfaces | Menu-bar panel shows two 'Finish meeting' controls: the Dictate row relabels itself and the Meetings row repeats it | `WorkbenchControlTool.swift:201` | S | open |
+| P4 | ui-surfaces | Outside the window a meeting has no elapsed time: the pill hint, chooser row and panel row omit it | `FloatingToolbar.swift:211` | S | open |
+| P4 | ui-surfaces | New recording… leaves the previous meeting's full transcript on the page under Start recording | `MeetingWorkspaceView.swift:141` | S | open |
+| P4 | ui-surfaces | Home's Current work meeting row lacks the red record symbol, elapsed time and row style the other recordings use | `WorkbenchHome.swift:726` | S | open |
+| P4 | ui-surfaces | Recording review says 'Finish the current capture or reading' although Read is retired | `MeetingRecordingReview.swift:232` | S | open |
+
+**What the critic found between the subsystems**, with file and line:
+
+- **P2** Start on the floating offer panel pulls Workbench's window over the call and activates the app (`MeetingWorkspaceView.swift:396`).
+- **P2** The route watchdog ends a recording whose chosen app stops delivering buffers, pre-empting the guarded Finish and tearing the microphone down every 2 s meanwhile (`MeetingAudio.swift:1009`).
+- **P2** ⌘Q during a recording stops it silently, discards the live words and leaves a batch Transcribe for later; unsaved narration gets a confirmation but a meeting does not (`main.swift:751`).
+- **P3** A long two-track meeting on the batch path silently loses its You/Others labels past 2,000 utterances on one track (`MeetingConversation.swift:53`).
+
+**Cross-subsystem risks** the critic traced: Audio-capture watchdog versus the guarded auto-finish: the two mechanisms are mutually exclusive by an unverified tap behaviour; Detection offer → shell navigation: the offer's Start ends in Workbench's window, not in the call; Shell quit → Meetings and Handoff: termination cancels a recording and a running follow-up with no confirmation; Recognition-live failure → recovery → History: an incomplete live pass turns a long meeting into a long, speaker-unlabelled batch save; Recovery success is a conjunction over both recorders, so the microphone's reconnection is hostage to the app lane; Checks that enshrine the behaviours above or pass without exercising the production path.
+
+**The maintainer's decided requirements, as the code stands at the train head** (the critic's reading; #374 moves one-click Start, live words and device switching forward and does not change the silent-recording decision, which three contract lines forbid and which needs the maintainer's call before code):
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| One-click Start for every meeting type | Partial | Catalogue apps and the Mac calling service get an offer with Start (MeetingDetection.swift:150-187; MeetingWorkspaceView.swift:424-441), but that Start fronts Workbench over the call (MeetingWorkspaceView.swift:393-398; main.swift:388, 714-716), lives in a 20  |
+| Silent recording after opt-in with a visible recording state | Not implemented; blocked by the contract | Every recording needs a click on the offer or page: refreshDetection only publishes `offer` (MeetingModel.swift:711-718) and the contract forbids self-start (workbench.md:103 rule 5 'A recording always starts from the person's choice'; live-voice.md:25 'never  |
+| Live words while in the meeting | Partial | Implemented for Parakeet (MeetingModel.swift:348-357; LiveVoiceService.swift:171-257) and shown on the Meetings page only (MeetingWorkspaceView.swift:141-145); live-voice.md:21 forbids a transcript on the pill, so nothing shows words while the call app is in f |
+| Headphone/device switching must not stop a transcription | Partial; a self-end path exists and is checked as a feature | A default-device change begins recovery rather than a stop (MeetingAudio.swift:1000-1005) and the session identity survives (MeetingModel.swift:644-646), but recovery rebuilds both sources with a gap on both tracks (956-963, 1047-1055), requires a buffer from  |
+| Copy transcript always works | Holds | MeetingTranscriptCopy.copy resolves the committed UUID in History and refuses only a removed or empty record (MeetingCompletion.swift:6-14); AppModel.copyMeetingTranscript → copyTextWithReceipt has no phase, model or assistant guard and always sets `status` to |
+| Hand off once | Holds for the connected route; the journey fails around it | Identical task + inputs + skill reuse the earlier job by fingerprint (HandoffJobs.swift:281-293), `activeID` refuses a second start while one runs (786), a completed job returns a notice instead of a new run (792-793), and Meetings and Home pass the same task  |
+
+The critic's single highest-value next step is the same as this record's: one native run of a real call app leaving a call while Workbench records, with a headphone switch during it. It settles whether a tap-only aggregate keeps delivering while the tapped app has no running audio, which decides whether the route watchdog or the guarded Finish ends such a call, and it is cheaper than any fix it would direct.
+

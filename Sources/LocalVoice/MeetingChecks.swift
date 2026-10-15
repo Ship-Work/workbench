@@ -788,6 +788,9 @@ enum MeetingChecks {
         timers[4](); model.refreshDetection()
         try expect(visible.isEmpty && closed == 5 && created == 5,
                    "closing the controller removes its panel and prevents stale timers or publications reopening it")
+        // Start on the offer stays with the call once recording; the page opens only for a start that needs attention.
+        try expect(!MeetingOfferPanelController.opensPageAfterStart(recording: true) && MeetingOfferPanelController.opensPageAfterStart(recording: false),
+                   "a start that reached recording keeps the person in their call; a start that did not opens the page")
         actions[4].snooze()
         let callsBeforeSnooze = source.calls
         model.refreshDetection()
