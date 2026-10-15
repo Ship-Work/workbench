@@ -8,13 +8,12 @@ struct ShortcutKeycap: View {
     var body: some View {
         Button { model.onEditShortcut?(id) } label: {
             HStack(spacing: 7) {
-                Text(model.editingShortcut == id ? "Press keys…" : model.preferences.shortcut(id).label)
+                Text(model.preferences.shortcut(id).label)
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                 Image(systemName: "pencil").font(.system(size: 10))
             }.padding(.horizontal, 10).padding(.vertical, 7)
-                .foregroundStyle(model.editingShortcut == id ? Workbench.accent : .primary)
+                .foregroundStyle(.primary)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(model.editingShortcut == id ? Workbench.accent : .clear))
         }.buttonStyle(.plain).disabled(model.phase != .idle)
             .accessibilityLabel("Edit \(title.lowercased()) shortcut")
             .help("Opens Settings › Keyboard with this shortcut selected")
@@ -32,32 +31,11 @@ struct ShortcutControl: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 if showsTitle { Text(title); Spacer() }
-                if model.editingShortcut == id { Button("Cancel") { model.onCancelShortcut?() }.buttonStyle(.workbenchLink) }
                 ShortcutKeycap(model: model, id: id, title: title)
                 if !showsTitle { Spacer() }
             }
-            if model.editingShortcut == id {
-                if let message = model.shortcutRecordingMessage { WorkbenchNote(message, font: .caption) }
-                else { Text("Press your combination. Use ⌃, ⌥ or ⌘ with a key.").font(.caption).foregroundStyle(.secondary) }
-            }
             if let failure = model.shortcutFailures[id] { WorkbenchNote(failure, font: .caption) }
         }
-    }
-}
-
-struct VoiceShortcutSettings: View {
-    @ObservedObject var model: AppModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Click a shortcut, then press your preferred combination.").font(.caption).foregroundStyle(.secondary)
-            ShortcutControl(model: model, id: 1, title: "Dictate")
-            ShortcutControl(model: model, id: 2, title: "Quick controls")
-            ShortcutControl(model: model, id: 5, title: "Snap & Talk")
-            ShortcutControl(model: model, id: 3, title: "Library")
-            Text("Escape cancels. Delete turns a shortcut off. Existing shortcuts stay unchanged if a combination is unavailable.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button("Restore default shortcuts") { model.onResetShortcuts?() }
-        }.disabled(model.phase != .idle)
     }
 }
 

@@ -74,8 +74,6 @@ final class AppModel: NSObject, ObservableObject {
     }
     @Published var rawTranscript = ""
     @Published var cleanupMethod = ""
-    @Published var editingShortcut: UInt32?
-    @Published var shortcutRecordingMessage: String?
     @Published var previewingPanel = false
     let promptInsertion = PromptInsertion()
     /// The floating toolbar's mode follows the journey: starting anything from
@@ -218,8 +216,6 @@ final class AppModel: NSObject, ObservableObject {
     var onShowAnnotationMenu: (() -> Void)?
     var onMenuRecording: (() -> Void)?
     var onCloseMenu: (() -> Void)?
-    var onCancelShortcut: (() -> Void)?
-    var onResetShortcuts: (() -> Void)?
     var onResetPanel: (() -> Void)?
     var microphoneStartFailure: ((TextDelivery.Target?) -> String?)?
 

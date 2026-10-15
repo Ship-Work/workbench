@@ -548,7 +548,6 @@ public final class StageKitController: ObservableObject {
         coordinator.perform(action)
     }
     public func setShortcutsSuspended(_ suspended: Bool) { coordinator.setShortcutsSuspended(suspended) }
-    public func resetShortcuts() { coordinator.restoreShortcuts() }
     public func refreshShortcutRegistration() { if started { coordinator.refreshShortcutRegistration() } }
 
     public var shortcutDescriptors: [StageShortcutDescriptor] {

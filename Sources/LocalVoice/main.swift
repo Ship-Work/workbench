@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     var statusItem: NSStatusItem!
     let hotkeys = VoiceHotkeys()
     var popover: NSPopover!
-    var recorderMonitor: Any?
     /// The field the menu-bar panel was opened over, for actions started from that visit only.
     var menuTarget = PanelDestination<TextDelivery.Target>()
     var stage: StageKitController!
@@ -317,15 +316,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.onShowAnnotationMenu = { [weak self] in self?.showAnnotationMenu() }
         model.onMenuRecording = { [weak self] in self?.menuRecording() }
         model.onCloseMenu = { [weak self] in self?.closeControls() }
-        model.onCancelShortcut = { [weak self] in self?.finishEditing() }
-        model.onResetShortcuts = { [weak self] in
-            guard let self else { return }
-            self.finishEditing()
-            var preferences = self.model.preferences
-            for id in VoicePreferences.shortcutIDs { preferences.setShortcut(VoicePreferences().shortcut(id), for: id) }
-            self.model.preferences = preferences
-            self.stage.resetShortcuts()
-        }
         model.onResetPanel = { [weak self] in self?.capturePanel.position(reset: true) }
         hotkeys.onKey = { [weak self] id, down, time in
             guard let self, VoicePreferences.shortcutIDs.contains(id) else { return }
@@ -416,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }.store(in: &receiptObservations)
     }
     func registerShortcuts() {
-        guard model.editingShortcut == nil, !shortcutsSuspended else { return }
+        guard !shortcutsSuspended else { return }
         let conflicts = ShortcutConflict.duplicateFailures(in: shortcutEntries()).filter { $0.key.hasPrefix("voice.") }
         hotkeys.register(ShortcutConflict.voiceRegistrationPreferences(model.preferences, failures: conflicts))
         registeredVoiceShortcutConflicts = conflicts
@@ -424,39 +414,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         for id in VoicePreferences.shortcutIDs { if let message = conflicts["voice.\(id)"] { model.shortcutFailures[id] = message } }
         stage.refreshShortcutRegistration()
         readback?.setShortcutFailure(model.shortcutFailures[5])
-    }
-    func editShortcut(_ id: UInt32) {
-        guard model.phase == .idle else { return }
-        finishEditing(); hotkeys.unregister(); model.editingShortcut = id
-        NSApp.activate(ignoringOtherApps: true)
-        if popover.isShown { popover.contentViewController?.view.window?.makeKey() }
-        else { window.makeKey() }
-        recorderMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            guard !event.isARepeat else { return nil }
-            if event.keyCode == 53 { self.finishEditing(); return nil }
-            var shortcut = VoiceShortcut(event: event)
-            if event.keyCode == 51 && shortcut.modifiers == 0 { shortcut.enabled = false }
-            else if shortcut.modifiers & UInt32(controlKey | optionKey) == 0 {
-                self.model.shortcutRecordingMessage = "Include Control or Option."; return nil
-            }
-            if shortcut.enabled && VoicePreferences.shortcutIDs.contains(where: { $0 != id && self.model.preferences.shortcut($0) == shortcut }) { self.model.shortcutRecordingMessage = "That shortcut is already assigned in Workbench."; return nil }
-            var candidate = self.model.preferences
-            candidate.setShortcut(shortcut, for: id)
-            self.hotkeys.register(candidate)
-            let failure = self.hotkeys.failures[id]
-            self.hotkeys.unregister()
-            if let failure { self.model.shortcutRecordingMessage = failure; return nil }
-            self.model.preferences = candidate
-            self.model.status = "Shortcut saved: \(shortcut.label)."
-            self.finishEditing(); return nil
-        }
-    }
-    func finishEditing() {
-        if let recorderMonitor { NSEvent.removeMonitor(recorderMonitor); self.recorderMonitor = nil }
-        // Closing ordinary controls must not clear the key-down state of a held dictation shortcut.
-        guard model != nil, model.editingShortcut != nil else { return }
-        model.editingShortcut = nil; model.shortcutRecordingMessage = nil; registerShortcuts()
     }
     private func setupMenus() {
         let menus = makeMainMenu()
@@ -608,10 +565,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     /// The window was showing when stage work hid it, so the end of a presentation brings it back.
     var windowHiddenForStage = false
-    func closeControls() { popover.performClose(nil); finishEditing() }
+    func closeControls() { popover.performClose(nil) }
     /// Every way the panel closes ends here: the editor and its recorder end
     /// and global actions resume.
-    func popoverDidClose(_ notification: Notification) { menuTarget.closed(); panelLeave.stop(); panelEditor?.end(); finishEditing(); keyboard?.stopInteraction() }
+    func popoverDidClose(_ notification: Notification) { menuTarget.closed(); panelLeave.stop(); panelEditor?.end(); keyboard?.stopInteraction() }
     func resumeTarget(_ action: @escaping (TextDelivery.Target?) -> Void) {
         let target = menuTarget.current
         closeControls()
