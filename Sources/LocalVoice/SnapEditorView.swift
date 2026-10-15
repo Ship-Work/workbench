@@ -160,30 +160,48 @@ struct SnapEditorView: View {
 /// Puts the caption field first with its whole caption selected when the toolbar's Text asks.
 /// FocusState alone cannot select text, and may not reach a field mounted by the same update,
 /// so this finds the AppKit text view of the TextEditor it sits behind.
+///
+/// It also turns off that text view's own typing undo. A caption's typing is a step on the
+/// image's Undo (#331); the text view's undo would go onto the panel's shared stack, where
+/// Edit › Undo from Title, Tags or Notes could rewind the caption box apart from its mark.
 private struct CaptionFocus: NSViewRepresentable {
     let request: UUID?
     let done: () -> Void
-    final class Coordinator { var handled: UUID? }
+    final class Coordinator { var handled: UUID?; weak var caption: NSTextView?; var finding = false }
     /// Sits behind the field and never takes its clicks.
     final class Hook: NSView { override func hitTest(_ point: NSPoint) -> NSView? { nil } }
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSView { Hook() }
     func updateNSView(_ view: NSView, context: Context) {
-        guard let request, request != context.coordinator.handled else { return }
-        context.coordinator.handled = request
-        focus(behind: view, attempts: 20)
+        let coordinator = context.coordinator
+        if coordinator.caption == nil, !coordinator.finding {
+            coordinator.finding = true
+            find(behind: view, attempts: 20) { textView in
+                coordinator.finding = false
+                textView?.allowsUndo = false; coordinator.caption = textView
+            }
+        }
+        guard let request, request != coordinator.handled else { return }
+        coordinator.handled = request
+        find(behind: view, attempts: 20) { textView in
+            if let textView, let window = textView.window {
+                textView.allowsUndo = false
+                window.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
+            }
+            done()
+        }
     }
     /// Runs after this update, once the text view shows the new caption. A field still mounting
-    /// gets a few more tries; the request is cleared either way, so it never fires later.
-    private func focus(behind view: NSView, attempts: Int, after delay: TimeInterval = 0) {
+    /// gets a few more tries; `found` runs either way, with nil when none appeared, so a focus
+    /// request is cleared and never fires later.
+    private func find(behind view: NSView, attempts: Int, after delay: TimeInterval = 0, found: @escaping (NSTextView?) -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard let window = view.window, let textView = Self.textView(behind: view, in: window) else {
-                if attempts > 0 { focus(behind: view, attempts: attempts - 1, after: 0.02) } else { done() }
+                if attempts > 0 { find(behind: view, attempts: attempts - 1, after: 0.02, found: found) } else { found(nil) }
                 return
             }
-            window.makeFirstResponder(textView)
-            textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
-            done()
+            found(textView)
         }
     }
     private static func textView(behind view: NSView, in window: NSWindow) -> NSTextView? {
