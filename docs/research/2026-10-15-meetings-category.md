@@ -122,7 +122,7 @@ A research-run limitation: the shared web-search budget ran out part way through
 
 ## 6. Verified defects
 
-Eight readers mapped the subsystems; every defect they claimed was judged by two skeptics (correctness and reachability) and kept only when both found it real. 49 survived, 9 were dropped, and a completeness critic then read the joins between subsystems. Status names what [#374](https://github.com/Ship-Work/workbench/pull/374) built; everything marked open is build-ready with its file and line, and a GitHub issue carries the same list for the next agent.
+Eight readers mapped the subsystems; every defect they claimed was judged by two skeptics (correctness and reachability) and kept only when both found it real. 49 survived, 9 were dropped, and a completeness critic then read the joins between subsystems. Status names what [#374](https://github.com/Ship-Work/workbench/pull/374) built; everything marked open is build-ready with its file and line, and [#377](https://github.com/Ship-Work/workbench/issues/377) carries the same list for the next agent.
 
 | Severity | Area | Defect | Where | Cost | Status |
 | --- | --- | --- | --- | --- | --- |
