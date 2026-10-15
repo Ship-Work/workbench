@@ -1073,7 +1073,7 @@ class Inventory:
                     claimed = (path, name) in self.visited and not (mode == 'panel' and (path, name) in self.offered)
                     if claimed or name in EXCLUDED.get(relative, []):
                         continue
-                    self.visited.add((path, name))
+                    self.visited.add((path, name)); self.offered.discard((path, name))  # Once, like any other view.
                     owner = self.tree.swift(path)
                     ranges = [(s[0], s[1]) for s in owner.scopes if s[2] == kind and s[3] == name]
                     embedded = 'quick panel status rows' if mode == 'panel' else surface(swift, i, '')

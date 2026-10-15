@@ -171,6 +171,11 @@ class SurfaceTests(unittest.TestCase):
         entries = self.entries()
         self.assertEqual(before, [e for e in entries if e['surface'] == 'quick panel status rows'])
         self.assertIn('Open email draft', [e['label'] for e in entries])
+        # The panel collects it once however often it shows it, and a view that embeds itself ends.
+        self.write('LocalVoice/Kit.swift', 'struct KitNote: View { let text: String; var body: some View { '
+                   'HStack { Image(systemName: "x"); Text(text); ForEach(more) { KitNote(text: $0) } } } }')
+        self.file.write_text(PANEL % 'KitNote(message); KitNote(other); Button("Read") { read() }')
+        self.assertEqual(before, [e for e in self.entries() if e['surface'] == 'quick panel status rows'])
 
     def test_the_header_switch_row_is_a_header_control(self):
         self.file.write_text(PANEL % '''
