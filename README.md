@@ -77,8 +77,8 @@ Use [GitHub issues](https://github.com/Ship-Work/workbench/issues) as the work q
 - Voice and [StageMark](https://github.com/EthDawg/StageMark) are the sources of this consolidation; [source provenance](docs/consolidation-source.md) records the import.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio), pinned to 0.15.6: Apache 2.0.
 - [Parakeet TDT v2 CoreML](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml): see its upstream model card and license.
-- [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) by Kyutai, in [FluidInference's Core ML conversion](https://huggingface.co/FluidInference/pocket-tts-coreml): CC BY 4.0. Downloaded only when someone chooses Neural voices.
-- Apple AppKit, SwiftUI, AVFoundation and installed macOS voices.
+- [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) by Kyutai, in [FluidInference's Core ML conversion](https://huggingface.co/FluidInference/pocket-tts-coreml): CC BY 4.0. It powered the retired Read voices; current builds neither include nor download it.
+- Apple AppKit, SwiftUI and AVFoundation.
 - Workflow inspiration: [Pat Simmons's local Wispr Flow replacement](https://www.youtube.com/watch?v=IMQw3aHjf2Q&t=437s).
 - Matt ([@mattywhitenz](https://github.com/mattywhitenz)) proposed Apple Shortcuts dictation and optional Speko reading in [#10](https://github.com/Ship-Work/workbench/issues/10) and [#11](https://github.com/Ship-Work/workbench/issues/11).
 - Matt's [Snap & Talk crash fix](https://github.com/Ship-Work/workbench/pull/103) ships in Workbench. His original [ServiceNow deck skill, artwork and generation helpers](https://github.com/Ship-Work/workbench/pull/104) are preserved in the private company pack, alongside their public contribution history. Existing sessions retain their chosen complete version.
