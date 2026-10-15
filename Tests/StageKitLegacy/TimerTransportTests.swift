@@ -373,6 +373,26 @@ final class TimerTransportTests {
                 XCTAssertFalse(stage.isTimerPositionControlShown, "Escape, a choice or a click elsewhere closes it")
                 XCTAssertEqual(app.timerPlacementAnchor, .topLeft, "Closing without a choice keeps the saved position")
 
+                // Duration shows the duration that is set, even one the menu has no preset for (#174).
+                for (minutes, shown, after) in [(3.0, "3 min", "1 min"), (20, "20 min", "15 min"), (2.5, "2.5 min", "1 min"), (5, "5 min", "1 min")] {
+                    settings.value.timerMinutes = minutes
+                    for menu in [stage.makeTimerMenu(), stage.makeTimerMenu(optionsOnly: true)] {
+                        let durations = try item(menu, "Duration").submenu?.items ?? []
+                        let checked = durations.filter { $0.state == .on }.map(\.title)
+                        XCTAssertEqual(checked, [shown], "Exactly one Duration is checked, the one set: \(titles(menu))")
+                        let index = durations.firstIndex { $0.title == shown } ?? 0
+                        XCTAssertEqual(index > 0 ? durations[index - 1].title : "", after, "and it sits in order")
+                        XCTAssertEqual(durations.count, minutes == 5 ? 6 : 7, "A preset adds no second item")
+                    }
+                }
+                choose(try item(try item(stage.makeTimerMenu(optionsOnly: true), "Duration").submenu ?? NSMenu(), "10 min"))
+                XCTAssertEqual(settings.value.timerMinutes, 10)
+                settings.value.timerMinutes = 1
+                // The chime has one name: the Timer page's switch and this menu say the same.
+                for menu in [stage.makeTimerMenu(), stage.makeTimerMenu(optionsOnly: true)] {
+                    XCTAssertTrue(titles(menu).contains("Chime When Time Is Up") && !titles(menu).contains("Chime When Finished"), "\(titles(menu))")
+                }
+
                 XCTAssertEqual(titles(stage.makeTimerMenu()).prefix(1), ["Start Timer"])
                 XCTAssertFalse(titles(stage.makeTimerMenu(optionsOnly: true)).contains("Start Timer"), "The panel row starts it")
                 XCTAssertEqual(stage.timerStateDetail, "")
