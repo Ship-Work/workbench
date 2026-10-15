@@ -321,15 +321,17 @@ public final class StageKitController: ObservableObject {
             if !optionsOnly { menu.addItem(StageMenuAction("Stop Timer") { [weak app] in app?.resetTimer(); app?.hideTimer() }) }
         }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
+        // A preset is checked when the chosen duration reads as that preset, so a duration a hair
+        // off one never shows a second item with the preset's name.
+        let chosen = app.settings.value.timerMinutes
         var durations: [NSMenuItem] = [1, 5, 10, 15, 30, 60].map { minutes in
-            StageMenuAction("\(minutes) min", checked: app.settings.value.timerMinutes == Double(minutes)) { [weak app] in
+            StageMenuAction("\(minutes) min", checked: chosen.formatted(.number) == Double(minutes).formatted(.number)) { [weak app] in
                 app?.settings.value.timerMinutes = Double(minutes)
                 // A duration change applies on the next Start or Reset.
             }
         }
         // A duration none of these name, a Timer page preset or one typed there, still shows as the
         // one chosen, in order and worded as the page's field shows it (#174).
-        let chosen = app.settings.value.timerMinutes
         if !durations.contains(where: { $0.state == .on }) {
             let later = durations.firstIndex { ($0.title.split(separator: " ").first.flatMap { Double($0) } ?? 0) > chosen } ?? durations.count
             durations.insert(StageMenuAction("\(chosen.formatted(.number)) min", checked: true) { [weak app] in
