@@ -82,6 +82,13 @@ class RetirementAdmission(unittest.TestCase):
         self.assertTrue((ROOT / "Sources/LocalVoice/RecognitionProviders.swift").exists())
         self.assertTrue((ROOT / "Sources/LocalVoice/MeetingAudio.swift").exists())
 
+    def test_readme_credits_describe_no_reading_voice_download(self):
+        # The README keeps Pocket TTS's credit but must not offer its retired download.
+        credits = (ROOT / "README.md").read_text().split("## Credits and license", 1)[1]
+        self.assertIn("Pocket TTS", credits)
+        for retired in ("Neural voices", "installed macOS voices"):
+            self.assertNotIn(retired, credits)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
