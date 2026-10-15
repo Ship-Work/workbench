@@ -2167,11 +2167,24 @@ private struct HistoryNativeAcceptanceView: View {
                 detail: "Production first-speech controls at minimum window size; synthetic engine phases, no models, downloads or permissions.",
                 file: "speech-\(id)-\(theme).png", to: output))
         }
+        // The offer is what an engine's own startup check reaches on an empty cache, as on a
+        // fresh Mac, never a written-in state: a not-downloaded model is not a failed setup (#15).
+        let cache = home.appendingPathComponent("Fresh speech/parakeet-tdt-0.6b-v2-coreml", isDirectory: true)
+        let fresh = RecognitionEngine(store: .init(defaults: try SurfaceGallery.isolatedDefaults("FreshSpeech", home: home)), services: .init(
+            prepareCached: { try await RecognitionLocalModels.prepareCached(cache: cache, progress: $0) },
+            acquire: { _ in throw CancellationError() }, send: { _ in throw CancellationError() }))
+        var checked: RecognitionSnapshot?
+        Task { try? await fresh.prepareCached(); checked = await fresh.snapshot() }
+        try wait("a fresh engine's startup check") { checked != nil }
+        guard var offer = checked, offer.failure == nil, !offer.canTranscribe, offer.line == "Download Parakeet to turn speech into text on this Mac." else {
+            throw VoiceError.message("An engine on an empty cache did not end on the download offer. It read: \(checked?.line ?? "no snapshot")")
+        }
+        func offered() { sequence += 1; offer.sequence = sequence; model.acceptRecognition(offer) }
         model.preferences.firstDictationGuide = .offered
         model.history = []; model.transcript = ""; model.rawTranscript = ""
-        state()
+        offered()
         model.acceptRecognition(.init(sequence: sequence - 1, admission: .localReady))
-        guard !model.ready else { throw VoiceError.message("A stale main-actor snapshot restored readiness.") }
+        guard !model.ready, model.modelFailure == nil else { throw VoiceError.message("A stale main-actor snapshot restored readiness, or the offer carried a failure.") }
         try shot("home", "offer", "Download or defer speech setup")
         state(.downloading, detail: "Downloading Parakeet · 42%")
         try shot("models", "download", "Measured download with reachable Cancel")
@@ -2187,7 +2200,7 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("models", "cache-failure", "Saved-cache failure and deliberate recovery")
         state(admission: .serverUnverified, detail: "Local server configured, not yet verified")
         try shot("dictate", "server", "Unverified server admits a deliberate first attempt")
-        state(); try shot("readback", "deferred-narration", "Deferred speech with usable saved Snap & Talk work")
+        offered(); try shot("readback", "deferred-narration", "Deferred speech with usable saved Snap & Talk work")
         model.applyGalleryVoiceSnapshot(.init(sessionID: UUID(), phase: .listening,
                                    sources: [.init(source: .microphone, name: "Microphone")]))
         model.phase = .recording
