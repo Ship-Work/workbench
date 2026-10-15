@@ -530,9 +530,10 @@ enum MeetingSummary {
     static let quietPeak = 0.01
 
     /// A refused System Audio Recording tap records exact silence, so an app track that stayed quiet
-    /// names that possibility beside the list macOS keeps it in; a broken tap is silent too, so it is
-    /// a possibility, never a claim.
-    static func gaps(for manifest: MeetingManifest, permission: String = MacPermission.callAudioListName) -> [String] {
+    /// names that possibility beside where the switch is, in the words Home's Permissions row uses
+    /// (MacPermission.callAudio.settingsPath); a broken tap is silent too, so it is a possibility,
+    /// never a claim.
+    static func gaps(for manifest: MeetingManifest, settings: String = MacPermission.callAudio.settingsPath) -> [String] {
         var notes: [String] = []
         let remote = manifest.tracks.first { $0.source == .remote }
         let local = manifest.tracks.first { $0.source == .local }
@@ -541,7 +542,7 @@ enum MeetingSummary {
             if remote == nil || remote?.seconds ?? 0 <= 0 {
                 notes.append("No audio was received from \(name). Other people may be missing from the transcript.")
             } else if let peak = remote?.peak, peak >= 0, peak <= quietPeak {
-                notes.append("No sound arrived from \(name). If the others were audible, Workbench may not have been allowed to record system audio (Privacy & Security › \(permission)).")
+                notes.append("No sound arrived from \(name). If the others were audible, Workbench may not have been allowed to record system audio (\(settings)).")
             }
         }
         if manifest.includesMicrophone {

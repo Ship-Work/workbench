@@ -424,21 +424,25 @@ enum MeetingChecks {
     /// the chosen app is using audio for, with nothing heard, the app's source line says so and names
     /// the list; it clears when sound arrives. The saved notes say the same for a silent app track.
     private static func silenceHintChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
-        let list = "Screen & System Audio Recording"
-        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: list)
-                   == "No sound has arrived from Zoom yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check Privacy & Security › Screen & System Audio Recording.",
-                   "fifteen silent seconds of an app that is using audio name the system audio list")
-        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, permission: "Audio Recording")?
-                       .hasSuffix("check Privacy & Security › Audio Recording.") == true,
-                   "the hint carries the list name macOS uses on this version")
-        try expect(MeetingSilenceHint.message(appName: nil, elapsed: 600, heard: false, activity: .active, permission: list) == nil,
+        let settings = "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only"
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, settings: settings)
+                   == "No sound has arrived from Zoom yet. If you can hear the others, macOS may not be allowing Workbench to record system audio: check Privacy & Security › Screen & System Audio Recording › System Audio Recording Only.",
+                   "fifteen silent seconds of an app that is using audio say where the system audio switch is")
+        // One seam says where the switch is on this macOS: the words Home's Permissions row uses, so
+        // the line, the note and Home cannot drift (before macOS 15 that seam names no list).
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active)?
+                       .hasSuffix("check \(MacPermission.callAudio.settingsPath).") == true
+                   && MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .active, settings: "Privacy & Security")?
+                       .hasSuffix("check Privacy & Security.") == true,
+                   "the line names the switch's place as Home's Permissions row does on this macOS")
+        try expect(MeetingSilenceHint.message(appName: nil, elapsed: 600, heard: false, activity: .active, settings: settings) == nil,
                    "a microphone-only recording has no app to explain")
-        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 14.9, heard: false, activity: .active, permission: list) == nil,
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 14.9, heard: false, activity: .active, settings: settings) == nil,
                    "nothing is said before fifteen seconds")
-        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .inactive, permission: list) == nil
-                   && MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .unknown, permission: list) == nil,
-                   "an app that is not using audio, or metadata Workbench cannot read, earns no permission hint")
-        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 600, heard: true, activity: .active, permission: list) == nil,
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .inactive, settings: settings) == nil
+                   && MeetingSilenceHint.message(appName: "Zoom", elapsed: 15, heard: false, activity: .unknown, settings: settings) == nil,
+                   "an app that is not using audio, one the catalogue does not know or metadata Workbench cannot read (both unknown) earns no permission hint")
+        try expect(MeetingSilenceHint.message(appName: "Zoom", elapsed: 600, heard: true, activity: .active, settings: settings) == nil,
                    "sound heard once clears the hint for the rest of the call")
 
         // Through the real watcher: a silent known app, active in metadata, fifteen seconds in.
@@ -467,13 +471,14 @@ enum MeetingChecks {
         var quietApp = manifest(state: .stopped); quietApp.appName = "Zoom"
         quietApp.tracks = [MeetingTrack(source: .remote, file: "tracks/remote.caf", startSeconds: 0, seconds: 30, sampleRate: 48_000, peak: 0, droppedSeconds: 0),
                            MeetingTrack(source: .local, file: "tracks/local.caf", startSeconds: 0, seconds: 30, sampleRate: 16_000, peak: 0.4, droppedSeconds: 0)]
-        try expect(MeetingSummary.gaps(for: quietApp, permission: list)
-                   == ["No sound arrived from Zoom. If the others were audible, Workbench may not have been allowed to record system audio (Privacy & Security › Screen & System Audio Recording)."],
-                   "a silent app track's note names the system audio permission as a possibility")
+        try expect(MeetingSummary.gaps(for: quietApp, settings: settings)
+                   == ["No sound arrived from Zoom. If the others were audible, Workbench may not have been allowed to record system audio (Privacy & Security › Screen & System Audio Recording › System Audio Recording Only)."]
+                   && MeetingSummary.gaps(for: quietApp).first?.hasSuffix("(\(MacPermission.callAudio.settingsPath)).") == true,
+                   "a silent app track's note names the system audio switch as a possibility, where Home says it is")
         var missingApp = quietApp; missingApp.tracks = [quietApp.tracks[1]]
         var quietMicrophone = quietApp; quietMicrophone.tracks[0].peak = 0.5; quietMicrophone.tracks[1].peak = 0
-        try expect(MeetingSummary.gaps(for: missingApp, permission: list) == ["No audio was received from Zoom. Other people may be missing from the transcript."]
-                   && MeetingSummary.gaps(for: quietMicrophone, permission: list) == ["Your microphone stayed quiet for the whole recording."],
+        try expect(MeetingSummary.gaps(for: missingApp, settings: settings) == ["No audio was received from Zoom. Other people may be missing from the transcript."]
+                   && MeetingSummary.gaps(for: quietMicrophone, settings: settings) == ["Your microphone stayed quiet for the whole recording."],
                    "the missing-app and quiet-microphone notes keep their words")
     }
 
