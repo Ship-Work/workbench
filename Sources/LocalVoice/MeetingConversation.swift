@@ -123,8 +123,8 @@ enum MeetingConversation {
         return utterances.indices.filter { !dropped.contains($0) }.map { utterances[$0] }
     }
 
-    /// Chronological turns; a speaker's consecutive utterances join into one turn across a
-    /// pause shorter than live turns allow (LiveVoiceTurns.pauseSeconds).
+    /// Chronological turns; a speaker's consecutive utterances join into one turn across any
+    /// pause shorter than the one live turns use (LiveVoiceTurns.pauseSeconds).
     static func conversation(_ utterances: [Utterance]) -> String {
         var turns: [(speaker: Speaker, text: String, end: Double)] = []
         let ordered = withoutEchoes(utterances).sorted { ($0.start, $0.speaker.rawValue) < ($1.start, $1.speaker.rawValue) }
