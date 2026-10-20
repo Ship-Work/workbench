@@ -1,9 +1,12 @@
 import AppKit
+import CoreAudio
+import Darwin
 import Foundation
 
 /// What the detector is allowed to see: a process identifier, a bundle
-/// identifier and whether that process is running audio input or output. No
-/// samples, window titles, page contents or browser automation are involved.
+/// identifier, whether that process is running audio input or output and, for a
+/// shared helper, which app macOS holds responsible for it. No samples, window
+/// titles, page contents or browser automation are involved.
 struct MeetingProcessSnapshot: Equatable {
     var pid: Int32
     var bundleID: String
@@ -12,6 +15,50 @@ struct MeetingProcessSnapshot: Equatable {
     var name: String? = nil
     /// AppKit metadata only; no windows or their contents are inspected.
     var isUserFacingApp: Bool = true
+    /// The app a shared helper such as WebKit's media process plays sound for, read only for the
+    /// helpers a catalogue app can host (MeetingResponsibleApp); nil for every other process.
+    var responsibleBundleID: String? = nil
+
+    var knownApp: MeetingKnownApp? { MeetingAppCatalogue.known(bundleID, responsibleBundleID: responsibleBundleID) }
+    /// The source this process is listed, offered and captured under.
+    var owner: String { MeetingAppCatalogue.owner(bundleID, responsibleBundleID: responsibleBundleID) }
+}
+
+/// The app macOS holds responsible for a process: the app a WebKit helper works for, as macOS
+/// attributes the helper's microphone use to that app. macOS offers this only as a libSystem
+/// function without a public header, so it is looked up by name. When it is missing, a helper
+/// belongs to no app: Safari is then not offered from WebKit audio and the shared WebKit service
+/// stays a manual choice, as before (#377).
+enum MeetingResponsibleApp {
+    private typealias Lookup = @convention(c) (pid_t) -> pid_t
+    private static let lookup: Lookup? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_get_pid_responsible_for_pid")
+        .map { unsafeBitCast($0, to: Lookup.self) }
+
+    static func bundleID(for pid: pid_t) -> String? {
+        guard let lookup else { return nil }
+        let responsible = lookup(pid)
+        guard responsible > 0, responsible != pid else { return nil }
+        return NSRunningApplication(processIdentifier: responsible)?.bundleIdentifier
+    }
+}
+
+/// Capture's view of the same ownership, from Core Audio's process objects (MeetingProcessTap,
+/// MeetingSystemCapture.currentApp), so a recording taps exactly what the picker listed.
+extension MeetingCoreAudio {
+    static func owner(of object: AudioObjectID) -> String? {
+        guard let bundle = bundleID(of: object) else { return nil }
+        return MeetingAppCatalogue.owner(bundle, responsibleBundleID: responsibleBundleID(of: object, bundle: bundle))
+    }
+
+    static func isTapped(_ object: AudioObjectID, for appBundleID: String) -> Bool {
+        guard let bundle = bundleID(of: object) else { return false }
+        return MeetingAppCatalogue.taps(bundle, responsibleBundleID: responsibleBundleID(of: object, bundle: bundle), for: appBundleID)
+    }
+
+    private static func responsibleBundleID(of object: AudioObjectID, bundle: String) -> String? {
+        guard MeetingAppCatalogue.isHostedHelper(bundle), let pid = processID(of: object) else { return nil }
+        return MeetingResponsibleApp.bundleID(for: pid)
+    }
 }
 
 protocol MeetingProcessSource: AnyObject {
@@ -56,7 +103,9 @@ final class MeetingSystemProcessSource: MeetingProcessSource {
                                                  isRunningOutput: try MeetingCoreAudio.activity(object, input: false),
                                                  name: application?.localizedName,
                                                  isUserFacingApp: application?.bundleURL?.pathExtension.lowercased() == "app"
-                                                    && application?.activationPolicy != .prohibited))
+                                                    && application?.activationPolicy != .prohibited,
+                                                 responsibleBundleID: MeetingAppCatalogue.isHostedHelper(bundleID)
+                                                    ? MeetingResponsibleApp.bundleID(for: pid) : nil))
         }
         return result
     }
@@ -117,13 +166,14 @@ final class MeetingDetector {
     }
 
     /// During an explicitly started recording, monitor only its chosen app's
-    /// audio-use metadata. This is independent of proactive Start offers.
+    /// audio-use metadata: what its recording taps, including the service that
+    /// plays its calls. This is independent of proactive Start offers.
     func activity(for app: MeetingAudioApp) -> MeetingAutoFinish.Activity {
         guard source.isAvailable,
               MeetingAppCatalogue.known(app.bundleID) != nil || Self.isCallService(app) else { return .unknown }
         do {
             let processes = try source.detectionSnapshot().filter {
-                $0.bundleID == app.bundleID || MeetingAppCatalogue.known($0.bundleID)?.bundleID == app.bundleID
+                MeetingAppCatalogue.taps($0.bundleID, responsibleBundleID: $0.responsibleBundleID, for: app.bundleID)
             }
             return processes.contains { $0.isRunningInput || $0.isRunningOutput } ? .active : .inactive
         } catch { return .unknown }
@@ -136,15 +186,15 @@ final class MeetingDetector {
         // Show one choice for that same scope, preferring its stable main process.
         let ordered = processes.sorted { left, right in
             if left.isUserFacingApp != right.isUserFacingApp { return left.isUserFacingApp }
-            let leftMain = MeetingAppCatalogue.known(left.bundleID)?.bundleID.caseInsensitiveCompare(left.bundleID) == .orderedSame
-            let rightMain = MeetingAppCatalogue.known(right.bundleID)?.bundleID.caseInsensitiveCompare(right.bundleID) == .orderedSame
+            let leftMain = left.knownApp?.bundleID.caseInsensitiveCompare(left.bundleID) == .orderedSame
+            let rightMain = right.knownApp?.bundleID.caseInsensitiveCompare(right.bundleID) == .orderedSame
             if leftMain != rightMain { return leftMain }
             return left.pid < right.pid
         }
         for process in ordered {
-            let known = MeetingAppCatalogue.known(process.bundleID)
+            let known = process.knownApp
             let serviceName = MeetingAppCatalogue.manualServiceNames[process.bundleID]
-            let bundleID = known?.bundleID ?? process.bundleID
+            let bundleID = process.owner
             guard process.pid != ProcessInfo.processInfo.processIdentifier,
                   !MeetingAppCatalogue.isExcluded(process.bundleID),
                   process.isUserFacingApp || known != nil || serviceName != nil,
@@ -172,7 +222,7 @@ final class MeetingDetector {
         for process in processes {
             guard process.pid != ProcessInfo.processInfo.processIdentifier,
                   !MeetingAppCatalogue.isExcluded(process.bundleID),
-                  let known = MeetingAppCatalogue.known(process.bundleID),
+                  let known = process.knownApp,
                   !disabledBundleIDs.contains(known.bundleID),
                   // Playing sound alone is not a call. Something must be using
                   // the microphone through that app.
@@ -239,10 +289,11 @@ final class MeetingDetector {
 
     static func isCallService(_ app: MeetingAudioApp) -> Bool { MeetingAppCatalogue.callServiceBundleIDs.contains(app.bundleID) }
 
-    /// Only a catalogue app or the calling service can become an offer or own a
-    /// catalogue choice, so a poll needs no other process's metadata.
+    /// Only a catalogue app, a helper one can host, or the calling service can become an offer
+    /// or own a catalogue choice, so a poll needs no other process's metadata.
     static func considers(_ bundleID: String) -> Bool {
         MeetingAppCatalogue.known(bundleID) != nil || MeetingAppCatalogue.callServiceBundleIDs.contains(bundleID)
+            || MeetingAppCatalogue.isHostedHelper(bundleID)
     }
 
     private static func offerRank(_ bundleID: String) -> Int {

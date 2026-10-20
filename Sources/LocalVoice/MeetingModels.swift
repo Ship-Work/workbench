@@ -23,6 +23,15 @@ struct MeetingKnownApp {
     /// The app's own audio processes that are not named `<bundle>.helper`, such
     /// as new Teams' module host.
     var audioProcesses: [String] = []
+    /// Shared helpers that play this app's sound for it: Safari's page and call audio plays in
+    /// WebKit's media process, not in Safari. A helper belongs to the app only when macOS holds
+    /// the app responsible for it (MeetingResponsibleApp), so Mail's or another app's WebKit
+    /// audio never reads as Safari's (#377).
+    var hostedHelpers: [String] = []
+    /// The system service that plays this app's call audio: FaceTime and Phone calls play in the
+    /// Mac calling service. Recording the app taps that service too. It carries any call on this
+    /// Mac, so it is never merged into the app and stays its own source in the picker (#377).
+    var callAudioServices: [String] = []
 
     /// Bundle identifiers compare without case: macOS reports each app's
     /// declared spelling, and the Phone app declares `com.apple.mobilephone`.
@@ -51,10 +60,13 @@ enum MeetingAppCatalogue {
         MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication),
         MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication),
         MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication),
-        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication),
-        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication,
+                        callAudioServices: ["com.apple.avconferenced"]),
+        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication,
+                        callAudioServices: ["com.apple.avconferenced"]),
         MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser),
-        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser),
+        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser,
+                        hostedHelpers: ["com.apple.WebKit.GPU", "com.apple.WebKit.WebContent"]),
         MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser),
         MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser),
         MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser),
@@ -70,8 +82,11 @@ enum MeetingAppCatalogue {
     ]
 
     /// Existing Mac audio-service sources stay manually selectable by their own
-    /// PID and bundle. These labels neither enable detection nor merge their
-    /// capture scope into FaceTime/Phone/Safari. Receiver support needs testing.
+    /// PID and bundle. These labels never enable detection or become an app's
+    /// choice. FaceTime and Phone also tap the calling service, where their calls
+    /// play; Safari takes only the WebKit helpers macOS holds it responsible for,
+    /// and every other app's WebKit audio stays here as the shared service (#377).
+    /// Receiver support needs testing.
     static let manualServiceNames = [
         "com.apple.avconferenced": "Mac calling service",
         "com.apple.TelephonyUtilities": "Mac telephony service",
@@ -85,6 +100,34 @@ enum MeetingAppCatalogue {
 
     static func known(_ bundleID: String) -> MeetingKnownApp? {
         supported.first { $0.owns(bundleID) }
+    }
+
+    /// The catalogue app a process belongs to: its own process or helper, or a shared helper
+    /// macOS holds that app responsible for. Without a responsible app a shared helper belongs
+    /// to no app, so the honest result when attribution is unavailable is the shared service.
+    static func known(_ bundleID: String, responsibleBundleID: String?) -> MeetingKnownApp? {
+        if let app = known(bundleID) { return app }
+        guard let responsibleBundleID, let host = known(responsibleBundleID),
+              host.hostedHelpers.contains(where: { $0.caseInsensitiveCompare(bundleID) == .orderedSame }) else { return nil }
+        return host
+    }
+
+    /// The source a process is listed, offered and captured under: its app, else its own bundle.
+    static func owner(_ bundleID: String, responsibleBundleID: String?) -> String {
+        known(bundleID, responsibleBundleID: responsibleBundleID)?.bundleID ?? bundleID
+    }
+
+    /// Only these processes need their responsible app read; every other process costs nothing more.
+    static func isHostedHelper(_ bundleID: String) -> Bool {
+        supported.contains { $0.hostedHelpers.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame } }
+    }
+
+    /// Whether recording `appBundleID` taps this process: everything listed under that source,
+    /// and the service that plays its calls (#377). FaceTime and Phone tapped only their own
+    /// processes before, which hold none of a call's audio.
+    static func taps(_ bundleID: String, responsibleBundleID: String?, for appBundleID: String) -> Bool {
+        if owner(bundleID, responsibleBundleID: responsibleBundleID) == appBundleID { return true }
+        return known(appBundleID)?.callAudioServices.contains(bundleID) == true
     }
 
     static func isExcluded(_ bundleID: String) -> Bool {

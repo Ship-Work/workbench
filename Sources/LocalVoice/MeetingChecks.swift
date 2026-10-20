@@ -368,6 +368,7 @@ enum MeetingChecks {
         try routeRecoveryChecks(expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
+        checks += try await MeetingDetectionChecks.run(root: root.appendingPathComponent("detection-checks"))
         checks += try MeetingCompletionChecks.run()
         // Quit while a meeting records asks first (#280): Finish meeting saves, then quits; Keep
         // recording cancels the quit; Quit and keep for later is what Quit always did. Nothing else asks.
