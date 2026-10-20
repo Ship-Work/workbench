@@ -836,7 +836,23 @@ enum MeetingChecks {
         for _ in 0..<5 { model.refreshDetection() }
         try expect(publishes == 3 && model.problem == .unknown("Audio activity could not be checked. Synthetic metadata failure"),
                    "a metadata failure that persists publishes its problem once, not once per poll")
-        source.failure = false
+        // That one raise is all it gets (#377): put away with its ×, it stays away while the failure
+        // persists; it never covers another problem; a successful read takes back the one it raised.
+        let failure = MeetingProblem.unknown("Audio activity could not be checked. Synthetic metadata failure")
+        model.dismissError()
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(model.problem == nil, "a metadata failure put away with its × is not raised again while it persists")
+        model.openPrivacyPane = { _ in false }
+        model.openMicrophoneSettings()
+        let other = model.problem
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(other != nil && other != failure && model.problem == other, "a metadata failure that persists never replaces another problem")
+        model.dismissError()
+        source.failure = false; model.refreshDetection()
+        source.failure = true; model.refreshDetection()
+        try expect(model.problem == failure, "a failure that returns after a successful read is raised again")
+        source.failure = false; model.refreshDetection()
+        try expect(model.problem == nil, "a successful read takes back the metadata failure it raised")
         model.detectionEnabled = false
         let afterOff = publishes
         model.refreshDetection(); model.refreshDetection()
