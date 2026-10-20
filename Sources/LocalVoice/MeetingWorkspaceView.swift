@@ -45,7 +45,9 @@ struct MeetingQuickStatus: View {
         ForEach(Self.controls(starting: model.isStarting, recording: model.isRecording,
                               countingDown: model.autoFinishSeconds != nil), id: \.self) { control in
             switch control {
-            case .keepRecording: Button("Keep recording") { model.keepRecording() }.font(.caption).fixedSize()
+            case .keepRecording:
+                let shown = model.recordingIdentity
+                Button("Keep recording") { model.keepRecording(expected: shown) }.font(.caption).fixedSize()
             case .finish: Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red).fixedSize()
             case .cancelStart: Button("Cancel start") { Task { await model.cancel() } }.font(.caption).fixedSize()
             case .stopProcessing: Button("Stop processing") { Task { await model.cancel() } }.font(.caption).fixedSize()

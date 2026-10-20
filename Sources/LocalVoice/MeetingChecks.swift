@@ -1722,12 +1722,17 @@ enum MeetingChecks {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         try expect(MeetingTimeLimit.warning(elapsed: 6_899) == nil && MeetingTimeLimit.warning(elapsed: 6_900) == "Finishes at 2 hours in 5 min"
+                   && MeetingTimeLimit.warning(elapsed: 6_930) == "Finishes at 2 hours in 4 min"
                    && MeetingTimeLimit.warning(elapsed: 7_080) == "Finishes at 2 hours in 2 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_079) == "Finishes at 2 hours in 2 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_139.5) == "Finishes at 2 hours in 1 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_140) == "Finishes at 2 hours in 1 min"
                    && MeetingTimeLimit.warning(elapsed: 7_141) == "Finishes at 2 hours in under a minute"
+                   && MeetingTimeLimit.warning(elapsed: 7_170) == "Finishes at 2 hours in under a minute"
                    && MeetingTimeLimit.caption(elapsed: 3_600, paused: false) == "Up to 2 hours"
                    && MeetingTimeLimit.caption(elapsed: 3_600, paused: true) == "Up to 2 hours, pauses included"
                    && MeetingTimeLimit.caption(elapsed: 6_960, paused: true) == "Finishes at 2 hours in 4 min",
-                   "the two-hour limit warns from five minutes before it, and says that pauses count while paused")
+                   "the two-hour limit warns from five minutes before it in whole minutes left, and says that pauses count while paused")
         try expect(MeetingWorkspaceView.clock(75) == "1:15" && MeetingWorkspaceView.clock(3_599) == "59:59"
                    && MeetingWorkspaceView.clock(6_930) == "1:55:30" && MeetingWorkspaceView.clock(7_200) == "2:00:00",
                    "the page's elapsed time shows hours once a recording has them, beside the limit's warning")
@@ -1762,12 +1767,17 @@ enum MeetingChecks {
         try expect(model.timeLimitWarning == "Finishes at 2 hours in 5 min" && row().title == "Meetings · recording · finishes at 2 hours in 5 min",
                    "five minutes before the two-hour limit the recording's row says when Workbench will finish it")
 
+        // A Keep recording click that lands with no countdown showing, as a late click from the panel or
+        // Home would, changes nothing: the countdown still comes when call audio ends (#377).
+        model.keepRecording()
         try await Task.sleep(nanoseconds: 100_000_000)
         callAudio(false)
         await waitUntil { model.autoFinishSeconds != nil }
         try expect(row().title.hasPrefix("Meetings · call audio ended · finishing in ") && row().controls == [.keepRecording, .finish],
-                   "during the call-audio countdown the panel and Home rows offer Keep recording beside Finish meeting")
-        model.keepRecording()
+                   "a Keep recording click with no countdown does not switch automatic finish off, and the countdown offers Keep recording on the panel and Home")
+        model.keepRecording(expected: UUID())
+        try expect(model.autoFinishSeconds != nil, "a Keep recording click shown for another recording does not end this one's countdown")
+        model.keepRecording(expected: model.recordingIdentity)
         try await Task.sleep(nanoseconds: 100_000_000)
         try expect(model.isRecording && model.autoFinishSeconds == nil && row().controls == [.finish],
                    "Keep recording ends the countdown and the same recording continues")
