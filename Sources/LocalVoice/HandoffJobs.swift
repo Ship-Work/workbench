@@ -52,6 +52,8 @@ struct HandoffInputRecord: Codable, Equatable {
 struct HandoffJobInputs: Equatable {
     var task = ""
     var items: [HandoffInputRecord] = []
+    /// The frozen skill's identity, so Home can tell whether a meeting's door would reopen this task.
+    var skillID: String?
     /// Why the saved inputs cannot be listed, when they cannot.
     var problem: String?
 
@@ -66,7 +68,7 @@ struct HandoffJobInputs: Equatable {
         guard let record = try? HandoffJobStore.read(HandoffSnapshotRecord.self, at: url),
               record.items.count <= HandoffJobStore.maximumItems else { return .init(problem: damaged) }
         guard record.id == job.id, record.formatVersion == 1 else { return .init(problem: foreign) }
-        return .init(task: record.task, items: record.items)
+        return .init(task: record.task, items: record.items, skillID: record.skill.id)
     }
 }
 
@@ -273,24 +275,10 @@ enum HandoffJobStore {
         guard !skill.files.keys.contains(where: { ownedPaths.contains($0.lowercased()) }) else {
             throw VoiceError.message("This skill contains a reserved handoff filename. Its original files were kept.")
         }
-        var files = skill.files
-        let records = inputRecords(sources)
-        for (source, record) in zip(sources, records) {
-            for (path, bytes) in zip(record.images, source.images) { files[path] = bytes }
-        }
-        // Stable payload hash excludes run ID and clock. Copy and repeated clicks
-        // return to the same immutable snapshot instead of creating more folders.
-        var hash = SHA256()
-        hash.update(data: Data(task.utf8))
-        hash.update(data: try encode(records))
-        hash.update(data: try encode(skill.reference))
-        if let review { hash.update(data: try encode(review)) }
-        for key in files.keys.sorted() {
-            hash.update(data: Data(key.utf8)); hash.update(data: Data([0])); hash.update(data: files[key]!)
-        }
-        let fingerprint = hash.finalize().map { String(format: "%02x", $0) }.joined()
-        if let found = existing.first(where: { $0.fingerprint == fingerprint }),
-           (try? verify(found, root: root.appendingPathComponent(found.id.uuidString))) != nil { return found }
+        let frozen = try identity(sources: sources, task: task, skill: skill, review: review)
+        let fingerprint = frozen.fingerprint, records = frozen.records
+        var files = frozen.files
+        if let found = reusable(fingerprint, in: existing, root: root) { return found }
         try privateDirectory(root)
         let id = UUID()
         let staging = root.appendingPathComponent(".staging-" + id.uuidString)
@@ -334,6 +322,37 @@ enum HandoffJobStore {
         try write(encode(job), to: staging.appendingPathComponent("receipt.json"))
         try FileManager.default.moveItem(at: staging, to: destination)
         return job
+    }
+
+    /// The stable identity of a reviewed selection, with the records and files it freezes. The hash
+    /// excludes run ID and clock, so Copy and repeated clicks return to the same immutable snapshot
+    /// instead of creating more folders, and a review can find its saved task before anything is
+    /// prepared (#377). `task` is the trimmed request.
+    static func identity(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
+                         review: SnapReviewContext?) throws -> (fingerprint: String, records: [HandoffInputRecord], files: [String: Data]) {
+        var files = skill.files
+        let records = inputRecords(sources)
+        for (source, record) in zip(sources, records) {
+            for (path, bytes) in zip(record.images, source.images) { files[path] = bytes }
+        }
+        var hash = SHA256()
+        hash.update(data: Data(task.utf8))
+        hash.update(data: try encode(records))
+        hash.update(data: try encode(skill.reference))
+        if let review { hash.update(data: try encode(review)) }
+        for key in files.keys.sorted() {
+            hash.update(data: Data(key.utf8)); hash.update(data: Data([0])); hash.update(data: files[key]!)
+        }
+        return (hash.finalize().map { String(format: "%02x", $0) }.joined(), records, files)
+    }
+
+    /// The saved task a selection with this identity reuses: the first with the same fingerprint,
+    /// while its folder still verifies. `prepare` and a review's lookup share it, so a damaged
+    /// folder means a fresh task for both (#377).
+    static func reusable(_ fingerprint: String, in jobs: [HandoffJob], root: URL) -> HandoffJob? {
+        guard let found = jobs.first(where: { $0.fingerprint == fingerprint }),
+              (try? verify(found, root: root.appendingPathComponent(found.id.uuidString))) != nil else { return nil }
+        return found
     }
 
     static func digest(_ files: [String: Data]) -> String {
@@ -605,11 +624,52 @@ final class HandoffJobsModel: ObservableObject {
     /// its instructions, and names the task it used. Identical inputs reuse an
     /// earlier task, so the caller learns that task's ID rather than assuming a
     /// new one; nothing is reported when the start or the copy failed.
+    ///
+    /// Start task never sends again work that may have reached the provider (#377). On a selection
+    /// whose task failed, the runner said so, and Start task runs that task again as a new attempt,
+    /// keeping the earlier one under Previous attempts, and says so. A task that was stopped or
+    /// interrupted may have completed: Start task sends nothing, and the review says why beside it
+    /// and offers Show in History…, where its receipt and Retry… are (`savedTask`, `mayHaveCompleted`).
+    /// Before, every press answered "Review this saved task in History" from inside the review.
     func handOff(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
                  review: SnapReviewContext? = nil, provider: SubscriptionProvider?, onPrepared: (UUID) -> Void) throws {
         let job = try prepare(sources: sources, task: task, skill: skill, review: review)
-        let accepted = provider.map { start(job, provider: $0) } ?? copy(job)
+        if provider != nil, let reason = Self.mayHaveCompleted(job.status) {
+            feedbackJobID = job.id; feedbackGeneration = UUID(); error = reason
+            return
+        }
+        let failedBefore = job.status == .failed
+        let accepted = provider.map { start(job, provider: $0, retry: failedBefore) } ?? copy(job)
+        if accepted, provider != nil, failedBefore { notice = Self.startedAgain }
         if accepted { onPrepared(job.id) }
+    }
+    /// The saved task this exact review would reuse, found before anything is prepared, so the
+    /// review can say beside Start task what pressing it would do (#377). Nil when there is none,
+    /// or when its folder no longer verifies, since Start task would then prepare a fresh task.
+    /// Hashing every image and reading the task's folder happen off the main actor; a cancelled
+    /// lookup stops there, and the answer is the task as it is now.
+    func savedTask(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
+                   review: SnapReviewContext? = nil) async -> HandoffJob? {
+        let task = task.trimmingCharacters(in: .whitespacesAndNewlines), saved = jobs, root = directory
+        let lookup = Task.detached(priority: .userInitiated) { () -> UUID? in
+            guard let identity = try? HandoffJobStore.identity(sources: sources, task: task, skill: skill, review: review),
+                  !Task.isCancelled else { return nil }
+            return HandoffJobStore.reusable(identity.fingerprint, in: saved, root: root)?.id
+        }
+        let id = await withTaskCancellationHandler { await lookup.value } onCancel: { lookup.cancel() }
+        guard !Task.isCancelled, let id else { return nil }
+        return jobs.first { $0.id == id }
+    }
+    /// What a review's Start task says when it ran a failed task again.
+    static let startedAgain = "Started this selection’s task again. Its earlier attempt failed and is kept under Previous attempts."
+    /// Why Start task will not send this selection again, in its receipt's own words, or nil when
+    /// it may: a stopped or interrupted task may have completed, so only Retry… in History sends it.
+    static func mayHaveCompleted(_ status: HandoffJobStatus) -> String? {
+        switch status {
+        case .cancelled: return "This selection’s earlier task was stopped, and what it sent may have been processed by the provider. Its receipt and Retry… are in History."
+        case .interrupted: return "This selection’s earlier task was interrupted and may have completed. Its receipt and Retry… are in History."
+        default: return nil
+        }
     }
     /// Reads, off the main thread, the folders of the tasks whose files changed
     /// since the last read, then publishes them together. Unchanged tasks cost
@@ -811,7 +871,7 @@ final class HandoffJobsModel: ObservableObject {
                 throw VoiceError.message("This skill needs companion files. Use Copy instructions and the complete selected work folder.")
             }
             let sizes = try images.map { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max }
-            if let problem = HandoffRunReadiness.inputProblem(provider: provider, prompt: prompt, imageBytes: sizes) {
+            if let problem = HandoffRunReadiness.inputProblem(provider: provider, prompt: prompt, imageBytes: sizes, items: snapshot.items.count) {
                 throw VoiceError.message(problem)
             }
             if let previousProvider = job.provider, job.attempts > 0 {

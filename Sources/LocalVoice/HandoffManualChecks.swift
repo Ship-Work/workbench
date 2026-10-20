@@ -74,10 +74,16 @@ enum HandoffManualChecks {
         let busy = HandoffRunReadiness.evaluate(provider: .codex, enabled: true, checking: false, connection: ready, busy: true, compatible: true, inputProblem: nil)
         let runnable = HandoffRunReadiness.evaluate(provider: .codex, enabled: true, checking: false, connection: ready, busy: false, compatible: true, inputProblem: nil)
         try check(off.state == .off && checking.state == .checking && busy.state == .busy && runnable.canStart, "off, checking and busy cannot borrow a cached ready connection")
-        try check(HandoffRunReadiness.inputProblem(provider: .codex, prompt: String(repeating: "a", count: 100_001), imageBytes: []) != nil, "the whole prompt text limit is checked")
-        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: Array(repeating: 1, count: 21)) != nil, "the selected provider's count limit is checked")
-        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: [4 * 1024 * 1024]) != nil, "the selected provider's per-image limit is checked")
-        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: Array(repeating: 3_000_000, count: 6)) != nil, "the selected provider's total-image limit is checked")
+        try check(HandoffRunReadiness.inputProblem(provider: .codex, prompt: String(repeating: "a", count: 100_001), imageBytes: [], items: 2) != nil, "the whole prompt text limit is checked")
+        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: Array(repeating: 1, count: 21), items: 2) != nil, "the selected provider's count limit is checked")
+        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: [4 * 1024 * 1024], items: 2) != nil, "the selected provider's per-image limit is checked")
+        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: Array(repeating: 3_000_000, count: 6), items: 2) != nil, "the selected provider's total-image limit is checked")
+        // One item past an image limit cannot be made fewer, and its images are attached, not pasted (#377).
+        let oneItemImages = [HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: Array(repeating: 1, count: 21), items: 1),
+                             HandoffRunReadiness.inputProblem(provider: .claude, prompt: "Request", imageBytes: [4 * 1024 * 1024], items: 1)]
+        try check(oneItemImages.allSatisfy { $0?.contains("Use Copy instructions") == true && $0?.contains("attach") == true
+                      && $0?.contains("paste the complete request") == false && $0?.contains("fewer items") == false },
+                  "one item past an image limit is pointed at Copy instructions, which names the images to attach")
         let imageFolder = root.appendingPathComponent("encoded")
         try HandoffJobStore.privateDirectory(imageFolder)
         for size in [1, 2, 3, 100] {
@@ -89,7 +95,7 @@ enum HandoffManualChecks {
                       "projected Claude request bytes equal actual serialized bytes across base64 padding")
         }
         let manyBytes = "a" + String(repeating: "\u{0301}", count: 3_000_000)
-        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: manyBytes, imageBytes: Array(repeating: 3_000_000, count: 5)) != nil,
+        try check(HandoffRunReadiness.inputProblem(provider: .claude, prompt: manyBytes, imageBytes: Array(repeating: 3_000_000, count: 5), items: 2) != nil,
                   "encoded byte limit catches large grapheme content even below the character and raw-image limits")
         var calls = 0, callbacks: [@Sendable (String) -> Void] = []
         model.runner = HandoffRunner(discover: { _ in ready }, run: { _, _, _, _, onSession in
@@ -106,10 +112,14 @@ enum HandoffManualChecks {
         while model.isBusy { await Task.yield() }
         let failed = model.jobs.first(where: { $0.id == job.id })!
         try check(failed.status == .failed && failed.detail.contains("unverified"), "dispatch failure stays on its originating attempt")
-        var prepared = false
-        try model.handOff(sources: [source], task: task, skill: skill, provider: .codex) { _ in prepared = true }
-        try check(!prepared && calls == 1 && model.error?.contains("Retry") == true, "reopening an identical review cannot silently retry a failed attempt")
-        try check(model.start(failed, provider: .codex, retry: true), "explicit retry starts a new attempt")
+        try check(!model.start(failed, provider: .codex) && calls == 1 && model.error?.contains("Retry") == true,
+                  "a start that is not a retry never runs a failed task again")
+        // Reopening the same review and choosing Start task is that explicit choice (#377): it runs the
+        // failed task again as a new attempt and says so, rather than answering with an error each time.
+        var prepared: UUID?
+        try model.handOff(sources: [source], task: task, skill: skill, provider: .codex) { prepared = $0 }
+        try check(prepared == job.id && model.error == nil && model.notice == HandoffJobsModel.startedAgain,
+                  "reopening an identical review and choosing Start task retries its failed task, and says so")
         for _ in 0..<100 where calls < 2 { await Task.yield() }
         callbacks[0]("late-prior-attempt")
         while model.isBusy { await Task.yield() }
@@ -202,9 +212,31 @@ enum HandoffManualChecks {
         _ = NSApplication.shared
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let history = WorkbenchHistoryModel(directory: output.appendingPathComponent("synthetic-library"))
-        for (name, providerOn) in [("ready", true), ("manual", false)] {
+        // One two-hour meeting past the connected limit: its reason names Copy instructions alone (#377).
+        var long = source
+        long.title = "Synthetic two-hour meeting"; long.originalText = ""; long.captureNotes = []; long.seconds = 7_200; long.role = .reference
+        long.text = (1...1_240).map { "Point \($0). Maya will review the proposal on Thursday and Sam will confirm the room." }.joined(separator: " ")
+        // A selection whose task was stopped: the review says so beside Start task and offers Show in History… (#377).
+        var stopped = source
+        stopped.reference = .init(kind: .transcript, id: UUID()); stopped.title = "Synthetic meeting, follow-up stopped"; stopped.role = .reference
+        model.runner = HandoffRunner(discover: { SubscriptionConnection(provider: $0, executable: URL(fileURLWithPath: "/usr/bin/false"), version: "synthetic",
+                                                                        ready: true, detail: "Synthetic fixture; no process or network.") },
+            run: { _, _, _, _, onSession in
+                onSession("synthetic-stopped")
+                try await Task.sleep(nanoseconds: 3_600 * 1_000_000_000)
+                return .init(providerSessionID: nil, text: "Never.")
+            })
+        model.setEnabled(.codex, true)
+        for _ in 0..<200 where model.connections[.codex]?.ready != true { try await Task.sleep(nanoseconds: 10_000_000) }
+        let stoppedJob = try model.prepare(sources: [stopped], task: "Prepare a follow-up from this meeting.", skill: TranscriptHandoffSkill.followUp.load())
+        guard model.start(stoppedJob, provider: .codex) else { throw VoiceError.message("The stopped-task render fixture did not start: \(model.error ?? "")") }
+        for _ in 0..<200 where model.jobs.first(where: { $0.id == stoppedJob.id })?.providerSessionID == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        model.cancel()
+        for _ in 0..<200 where model.isBusy { try await Task.sleep(nanoseconds: 10_000_000) }
+        guard model.jobs.first(where: { $0.id == stoppedJob.id })?.status == .cancelled else { throw VoiceError.message("The stopped-task render fixture did not stop.") }
+        for (name, providerOn, selected) in [("ready", true, source), ("manual", false, source), ("long-meeting", true, long), ("stopped-earlier", true, stopped)] {
             model.setEnabled(.codex, providerOn)
-            let view = HandoffReviewView(history: history, jobs: model, skills: [.followUp], initialTask: "Prepare a follow-up from this meeting.", resolveSources: { [source] })
+            let view = HandoffReviewView(history: history, jobs: model, skills: [.followUp], initialTask: "Prepare a follow-up from this meeting.", resolveSources: { [selected] })
             let host = NSHostingView(rootView: view.background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, .light))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 720), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false

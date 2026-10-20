@@ -2,21 +2,56 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// The meeting's row on the menu-bar panel and in Home's Current work: what it is doing now and
+/// its own controls, in the Meetings page's words (#377). A start reads as starting, with Cancel
+/// start; the call-audio countdown offers Keep recording beside Finish meeting; the two-hour
+/// limit's warning joins the recording's state.
 struct MeetingQuickStatus: View {
     @ObservedObject var model: MeetingModel
     var review: () -> Void
+
+    enum Control: Hashable { case keepRecording, finish, cancelStart, stopProcessing }
+
+    static func controls(starting: Bool, recording: Bool, countingDown: Bool) -> [Control] {
+        if recording { return countingDown ? [.keepRecording, .finish] : [.finish] }
+        return starting ? [.cancelStart] : [.stopProcessing]
+    }
+
+    static func title(starting: Bool, recording: Bool, phase: String, autoFinishSeconds: Int?, limitWarning: String?) -> String {
+        if recording, let seconds = autoFinishSeconds { return "Meetings · call audio ended · finishing in \(seconds)s" }
+        if recording { return "Meetings · " + phase.lowercased() + (limitWarning.map { " · " + $0.lowercased() } ?? "") }
+        return starting ? "Meetings · starting" : "Meetings · finishing"
+    }
+
     var body: some View {
         if model.isBusy {
-            HStack {
-                Button(model.isRecording ? "Meetings · " + model.voiceSession.recordingTitle.lowercased() : "Meetings · finishing", action: review)
-                    .buttonStyle(.plain).font(.caption)
-                Spacer()
-                if model.isRecording {
-                    Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red)
-                } else {
-                    Button("Stop processing") { Task { await model.cancel() } }.font(.caption)
-                }
+            // One line where it fits, as on Home; on the narrow panel two controls take a line of
+            // their own under the state, whole, rather than truncating it and themselves (Fit rule 4).
+            ViewThatFits(in: .horizontal) {
+                HStack { state; Spacer(); actions }
+                VStack(alignment: .leading, spacing: 6) { state; HStack { Spacer(); actions } }
             }.padding(.vertical, 4)
+        }
+    }
+
+    private var state: some View {
+        Button(Self.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
+                          autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning), action: review)
+            .buttonStyle(.plain).font(.caption).monospacedDigit()
+            .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var actions: some View {
+        ForEach(Self.controls(starting: model.isStarting, recording: model.isRecording,
+                              countingDown: model.autoFinishSeconds != nil), id: \.self) { control in
+            switch control {
+            case .keepRecording:
+                let shown = model.recordingIdentity
+                Button("Keep recording") { model.keepRecording(expected: shown) }.font(.caption).fixedSize()
+            case .finish: Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red).fixedSize()
+            case .cancelStart: Button("Cancel start") { Task { await model.cancel() } }.font(.caption).fixedSize()
+            case .stopProcessing: Button("Stop processing") { Task { await model.cancel() } }.font(.caption).fixedSize()
+            }
         }
     }
 }
@@ -28,6 +63,12 @@ struct MeetingDetectionSettings: View {
             Toggle("Detect Meetings & Calls", isOn: $model.detectionEnabled).toggleStyle(.switch)
             Text("Offer to transcribe when a supported call uses audio on this Mac. Detection checks activity only; you choose whether to record.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            // Snooze holds offers back for a while; the setting says until when, and drops the line once it ends (#377).
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                if let line = model.offerSnoozeLine {
+                    Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if #unavailable(macOS 14.2) {
                 Text("Meeting detection and app audio capture require macOS 14.2 or later. Dictate remains available.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -41,7 +82,7 @@ struct MeetingFinishSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle("Finish when call audio ends", isOn: $model.automaticallyFinishCalls).toggleStyle(.switch)
-            Text("After the selected call app stops using audio, a short countdown lets you keep recording. Silence, Pause and reconnecting audio never finish a session. Microphone-only recordings finish manually.")
+            Text(MeetingDetector.automaticFinishCaption)
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -233,12 +274,23 @@ struct MeetingWorkspaceView: View {
             }
     }
 
-    /// One caption under the status title, carrying the limit as Dictate's does.
+    /// One caption under the status title, carrying the limit as Dictate's does, and its warning
+    /// from five minutes before the recording finishes itself (#377).
     private var statusLine: String {
         if showsCompletedResult { return "Copy the complete transcript to use it in your next task." }
-        if model.isRecording { return time(model.elapsed) + " · Up to 2 hours" }
+        if model.isRecording {
+            return Self.clock(model.elapsed) + " · " + MeetingTimeLimit.caption(elapsed: model.elapsed,
+                paused: [.paused, .reconnecting].contains(model.voiceSession.phase))
+        }
         if model.isProcessing { return "Finishing your transcript." }
         return speechLine ?? "Start once and follow the words as they happen · Up to 2 hours"
+    }
+
+    /// A recording's elapsed time, with hours once it has any, so the limit's warning reads
+    /// "1:55:30 · Finishes at 2 hours in 5 min" rather than "115:30" (#377).
+    static func clock(_ seconds: Double) -> String {
+        let whole = max(0, Int(seconds))
+        return whole < 3_600 ? time(seconds) : String(format: "%d:%02d:%02d", whole / 3_600, whole % 3_600 / 60, whole % 60)
     }
 
     private var speechLine: String? { model.isBusy || showsCompletedResult ? nil : Self.speechCaption(model.admission) }
@@ -337,7 +389,7 @@ struct MeetingWorkspaceView: View {
     }
 
     private static func detail(_ manifest: MeetingManifest) -> String {
-        manifest.createdAt.formatted(date: .abbreviated, time: .shortened) + " · " + time(manifest.seconds)
+        manifest.createdAt.formatted(date: .abbreviated, time: .shortened) + " · " + clock(manifest.seconds)
     }
 
     @ViewBuilder private var transport: some View {

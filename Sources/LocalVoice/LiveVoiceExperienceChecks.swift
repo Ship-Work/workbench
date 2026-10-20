@@ -86,7 +86,57 @@ import SwiftUI
         let explainedHeight = NSHostingView(rootView: LiveVoiceSourcesView(sources: explained).frame(width: 420)).fittingSize.height
         try expect(explainedHeight > plainHeight + 8, "a source's explanation takes its own line under the source (\(Int(plainHeight)) → \(Int(explainedHeight)) pt)")
         try checkLongTranscriptLayout(expect)
+        try checkTranscriptUpdates(expect)
         print("Live voice experience: \(count) checks passed")
+    }
+
+    /// Live words rewrite only the end of the text (#377): a long call's transcript is not rebuilt
+    /// for every update, and an update that changes nothing shown leaves it alone. A speaker's
+    /// provisional words carry on their confirmed turn instead of opening a second speaker line.
+    private static func checkTranscriptUpdates(_ expect: (Bool, String) throws -> Void) throws {
+        _ = NSApplication.shared
+        let words = Array(repeating: "word", count: 13).joined(separator: " ")
+        var turns = (0..<1_200).map { index in
+            LiveVoiceSegment(source: index.isMultiple(of: 2) ? .app : .microphone, start: Double(index * 6),
+                             end: Double(index * 6 + 5), text: "Turn \(index) " + words, isFinal: true)
+        }
+        let id = UUID()
+        func probe(_ caption: String) -> TranscriptLayoutProbe {
+            TranscriptLayoutProbe(caption: caption, snapshot: LiveVoiceSnapshot(sessionID: id, phase: .listening, elapsed: 7_200, segments: turns), completedText: nil)
+        }
+        func text(of view: NSView) -> NSTextStorage? { (transcriptScroll(in: view)?.documentView as? NSTextView)?.textStorage }
+        let view = NSHostingView(rootView: probe("0:00"))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 948, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.isReleasedWhenClosed = false
+        defer { window.close() }
+        view.layoutSubtreeIfNeeded()
+        guard let storage = text(of: view) else { throw VoiceError.message("Live voice experience: the transcript text view is missing") }
+        final class Edits { var ranges: [NSRange] = [] }
+        let edits = Edits()
+        let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: storage, queue: nil) { note in
+            if let edited = note.object as? NSTextStorage { edits.ranges.append(edited.editedRange) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        view.rootView = probe("0:01"); view.layoutSubtreeIfNeeded()
+        try expect(edits.ranges.isEmpty, "a clock tick leaves a 1,200-turn transcript's text untouched")
+        let before = storage.length, last = turns[turns.count - 1]
+        turns.append(LiveVoiceSegment(source: last.source, start: last.end + 0.4, end: last.end + 1.4, text: "and still talking", isFinal: false))
+        view.rootView = probe("0:02"); view.layoutSubtreeIfNeeded()
+        try expect(edits.ranges.count == 1 && edits.ranges[0].location >= before,
+                   "new live words rewrite only the end of a 1,200-turn transcript (edited from \(edits.ranges.first?.location ?? -1) of \(before))")
+        try expect(storage.string.hasSuffix("Turn 1199 " + words + " and still talking") && storage.string.components(separatedBy: "\n\n").count == 1_200,
+                   "a speaker's provisional words continue their confirmed turn, with no second speaker line")
+        // A change further back (a turn that grew, the tail settling into its turn) reads exactly as a fresh view would.
+        turns[1_198].text += " more"
+        turns.removeLast(); turns[1_199].text += " and still talking"; turns[1_199].end += 1.4
+        view.rootView = probe("0:03"); view.layoutSubtreeIfNeeded()
+        let fresh = NSHostingView(rootView: probe("0:03"))
+        let freshWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 948, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        freshWindow.contentView = fresh; freshWindow.isReleasedWhenClosed = false
+        defer { freshWindow.close() }
+        fresh.layoutSubtreeIfNeeded()
+        try expect(edits.ranges.count == 2 && text(of: fresh).map { storage.isEqual(to: $0) } == true,
+                   "an update from an earlier turn matches a fresh rendering of the same turns, attributes included")
     }
 
     /// A two-hour call keeps the page responsive: the clock's once-a-second relayout must not
@@ -171,11 +221,14 @@ import SwiftUI
     static func render(to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         func state(_ phase: LiveVoicePhase, silentApp: Bool = false) -> LiveVoiceSnapshot {
-            let words = [
+            // Turns as the service publishes them: your second sentence, after a pause to think, is still
+            // being recognised and carries on your turn (#377).
+            let words = LiveVoiceTurns.group([
                 LiveVoiceSegment(source: .app, start: 12, end: 15, text: "Let's review the checklist before choosing a launch date.", isFinal: true),
-                LiveVoiceSegment(source: .microphone, start: 16, end: 20, text: "I'll update it tomorrow and send it for review.", isFinal: true),
-                LiveVoiceSegment(source: .app, start: 21, end: 25, text: "Great. We can decide on the date after that.", isFinal: phase == .completed)
-            ]
+                LiveVoiceSegment(source: .microphone, start: 16, end: 19.5, text: "I'll update it tomorrow and send it for review.", isFinal: true),
+                LiveVoiceSegment(source: .microphone, start: 20.7, end: 22.5, text: "Then we can pick the date.", isFinal: phase == .completed),
+                LiveVoiceSegment(source: .app, start: 23.5, end: 25, text: "Great, thank you.", isFinal: phase == .completed)
+            ])
             var app = LiveVoiceSourceStatus(source: .app, name: "Mac calling service", health: phase == .paused ? .paused : silentApp ? .quiet : .receiving)
             if silentApp { app.message = MeetingSilenceHint.message(appName: app.name, elapsed: 25, heard: false, activity: .active, settings: "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only") }
             return LiveVoiceSnapshot(sessionID: UUID(), phase: phase, elapsed: 25,

@@ -662,11 +662,27 @@
     "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
   },
   {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.runtime-c7b9c4bd1517",
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.cancel-start",
+    "surface": "quick panel status rows",
+    "label": "Cancel start",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#377): a meeting that is still starting offers the Meetings page's own Cancel start, where it read finishing with Stop processing. The same row shows in Home's Current work."
+  },
+  {
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.keep-recording",
+    "surface": "quick panel status rows",
+    "label": "Keep recording",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#377): during the call-audio countdown the row offers the page's and toolbar's Keep recording beside Finish meeting, so the automatic finish can be cancelled without opening Meetings. Never starts another capture. The same row shows in Home's Current work."
+  },
+  {
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.runtime-d6237faf6167",
     "surface": "quick panel status rows",
     "label": null,
-    "expression": "model . isRecording ? \"Meetings · \" + model . voiceSession . recordingTitle . lowercased ( ) : \"Meetings · finishing\"",
-    "note": "Quality: opens the same Meetings page and names its actual paused, reconnecting or finishing state.",
+    "expression": "Self . title ( starting : model . isStarting , recording : model . isRecording , phase : model . voiceSession . recordingTitle , autoFinishSeconds : model . autoFinishSeconds , limitWarning : model . timeLimitWarning )",
+    "note": "Quality: opens the same Meetings page and names its actual state: starting, recording, paused, reconnecting or finishing, the call-audio countdown, and the two-hour limit's warning from five minutes before it (#377).",
     "kind": "action",
     "belongsTo": "dictate"
   },
@@ -4562,6 +4578,14 @@
     "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner."
   },
   {
+    "id": "LocalVoice.HistorySelectionControls.HandoffReviewView.Button.show-in-history",
+    "surface": "handoff review",
+    "label": "Show in History…",
+    "kind": "action",
+    "belongsTo": "history",
+    "note": "Option of History (#377, lead decision 20 Oct): shown only when this exact selection's saved task was stopped or interrupted and may have completed, so Start task will not send it again. Opens History revealing that task's card, with its receipt and the explicit Retry…, through the review's existing reveal of the task it reused; nothing is sent."
+  },
+  {
     "id": "LocalVoice.HistorySelectionControls.HandoffReviewView.Button.start-task",
     "surface": "handoff review",
     "label": "Start task",
@@ -5496,7 +5520,7 @@
     "kind": "action",
     "belongsTo": "history",
     "aliasOf": "history",
-    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6)."
+    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6). Stays while the follow-up is only prepared with the door's own skill and request, so reopening reaches that same task and Start task can bring its result to the tile (#377)."
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-fe289c1404ed",
@@ -5661,7 +5685,7 @@
     "label": "Open follow-up",
     "kind": "action",
     "belongsTo": "history",
-    "note": "Option: once a follow-up was made from the newest meeting, opens that task in History, where Copy result copies it."
+    "note": "Option: once a follow-up from the newest meeting has run in Workbench (finished or not), or was prepared with another request or skill than the meeting's door, opens that task in History, where Copy result, Start task…, Retry… and its receipt are. A follow-up only prepared by the door, such as one copied to the person's own assistant, keeps Prepare follow-up… (#377)."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.review-transcript",

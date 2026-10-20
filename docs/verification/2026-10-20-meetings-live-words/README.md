@@ -1,0 +1,105 @@
+# Meetings: live words without the call's echo, whole turns, each speaker's words together, and publishing on change
+
+Branch `claude/meetings-live-words`, from the integrated release candidate (`main`, the 15 October train #353 and Meetings #374, head `2ff25df`). Refs #377, #280. Grammar: Quality for every change; no entry point, setting or saved format was added or changed. Synthetic data only: injected recognisers, fixture audio and a generated `say` fixture. No microphone, tap, call app, installed app or privacy setting was used.
+
+## What changed
+
+1. **P2 · A meeting saved from its live pass now drops the microphone's copy of the call.** On laptop speakers the microphone hears the other side. The saved-audio path dropped that echo; a meeting whose live pass completed saved it as You, interleaved word by word with the real words. Live words carry their times, so `LiveVoiceTurns.group` drops the echo word by word (`SpeakerEcho.echoed`). The lag between the two lanes is not assumed: for each ten seconds of microphone words, it is the offset that most pairs of the same word (its letters and digits) agree on, within 0.1 s, in the minute around them, anywhere from -1.0 to +2.5 s. The lanes count time from their own first sample with no drift correction, so a USB microphone's clock, Bluetooth or AirPlay output latency and slow drift all move it, and the estimate follows. Fewer than four agreeing words in that minute means no echo there, and nothing is dropped. A microphone word is an echo when the app said the same word at that lag, give or take 0.1 s, each app word accounting for one microphone word at most. Two passes then settle the edges: a match inside your own speech, with words of yours beside it and no echo word next to it, is a coincidence and stays; one or two words between echo words that are spelled like the one to three app words left unmatched there (one letter in three changed, a shared start, or joined: "contracts" for "contract", "Lego" for "legal", "Mon day" for "Monday") go with the echo, so a misheard word does not split their turn. Every other word is yours: a "Yes" that starts the moment they finish, a few words of your own inside their sentence, and, with headphones, talk over the other side. When unsure, the words stay; a leaked echo is better than a lost word. The echo goes however their pauses fall. The remaining words are cut into utterances as the saved-audio path cuts a track (0.6 s of silence, at most 25 s), and yours also where they move into or out of one of their utterances, by which one they fall in, so your words take their places around theirs. Every caller of `group` gets this: the saved conversation and original wording (`LiveVoiceCheckpoint`), the live snapshot, and the turns `MeetingModel` and `AppModel` show at finish. The live journal still keeps every recognised word; the echo drop is a projection, so an existing journal reads the same way.
+2. **P2 · Live snapshots publish on change, and the view rewrites only what changed.** The live loop passes ten times a second and published a snapshot on every pass. Each one rebuilt the turns and, on the main thread, built the whole transcript's attributed text and compared it with the text view's. `LiveVoiceService` now rebuilds turns only when words change and publishes when something a page shows changes (words, phase, a source's health or note, the delayed and incomplete flags), and the meter level and elapsed time at most once a second; no page shows either from the snapshot, since each model keeps its own clock. New words and the final state are published at once. `LiveTranscriptText.Coordinator` keeps the turns it shows and where each ends in the text, and rewrites only from the first turn that changed; an update that changes nothing (the page's clock ticks it twice a second, and Dictate's meter about twelve times) touches nothing. The turn rebuild on the service's thread is still a pass over the whole transcript, but only when words change, about once a second per source, never on the main thread. Making it incremental would not hold up: words settle only once both sources have committed past them, and a silent app track never commits.
+3. **P3 · A continuous speaker stays one turn.** Turns split at any same-source gap over 0.8 s, so a speaker who paused between sentences got a new "You:" paragraph each time, live and saved. A source's utterances now stay one turn until the other source speaks or it pauses for two seconds (`LiveVoiceTurns.pauseSeconds`). Why two seconds: people pause for a second or more inside one turn, two seconds is twice the silence a conversation usually leaves unremarked, and it is the saved-audio path's own join (`MeetingConversation.conversation`, which now uses the same constant), so a meeting reads the same whichever path saved it. A real turn change still splits at once, because the other source's words come between. In the live view a speaker's provisional words also continue their confirmed turn, quieter, instead of opening a second speaker line at every eight-second commit (`LiveTranscriptText.continues`).
+4. **P3 · The saved-audio echo drop catches a fragment inside a long remote utterance.** It compared word sets both ways (Jaccard), so "the budget needs to go" inside a 20-second remote utterance scored about 0.2 and was saved as You. `SpeakerEcho.isEcho` keeps that test unchanged and adds a containment test for the short side: a microphone utterance of three words or more, and no longer than the app's, is an echo when the app said at least three quarters of its words in the same order close to the same time. A saved clip has no word times, so the app's words are spread evenly over its utterance and only those within a second, or a tenth of the utterance if that is longer, count. A reply of one or two words is judged only by the unchanged test, so "Okay", "Friday?" or "Sam, yes" over the other side's long turn is kept even when they said that word nearby.
+5. **P3 · The format-2 original wording keeps each speaker's words together.** `LiveVoiceCheckpoint.text`, saved as a live meeting's original wording (`MeetingManifest.liveText`, the History record's `rawText`), sorted both speakers' words by start time, so two people talking at once came out zipped together ("Thanks so No much problem everyone"). It is now the conversation's words without labels, one turn at a time ("Thanks so much everyone No problem"). That also keeps `HandoffJobStore.originalAddsWording` true to its contract: a handoff carries a two-sided meeting once.
+
+Files: `LiveVoiceSession.swift` (`LiveVoiceCheckpoint.text`, `.turns`, `.conversation`; `LiveVoiceTurns`; new `SpeakerEcho`), `LiveVoiceService.swift` (the loop's rebuild and publish), `MeetingConversation.swift` (`withoutEchoes` through `SpeakerEcho`, the shared constants), `LiveVoiceTranscriptView.swift` (`LiveTranscriptText`). `SpeakerEcho` lives in `LiveVoiceSession.swift` because `scripts/test-capture-persistence.py` compiles that file on its own; it uses only Foundation. Outside those: one fixture line in `HandoffJobsChecks.swift` (below) and the live voice contract in `docs/live-voice.md`.
+
+## Checks
+
+Every check in the first table failed on the base sources and passes on this branch. To show that, the four source files were put back to `2ff25df` with this branch's checks, the three check files were changed to print a failure and carry on instead of stopping, and `--check-meetings` was run; the files were then restored from the branch.
+
+| Check (in `--check-meetings`) | On `2ff25df` | On this branch |
+| --- | --- | --- |
+| Meetings · "an echoed fragment of a long utterance is dropped and a reply the other side did not say then is kept" (#4) | Fails | Passes |
+| Meetings · "a live meeting on laptop speakers saves the other side once and your reply as You" (#1, through `MeetingProcessor` and a real live journal) | Fails | Passes |
+| Meetings · "its original wording keeps each speaker's words together, so a handoff carries the meeting once" (#5) | Fails | Passes |
+| Live voice · "a 1.2 s pause keeps one turn and a 2.6 s pause starts the next" (#3) | Fails | Passes |
+| Live voice · "overlapping speakers keep their own words together in the original wording and the conversation" (#5) | Fails | Passes |
+| Live voice · "the microphone's copy of the call is not saved as You, and your own words are" (#1, through the real service) | Fails | Passes |
+| Live voice · "the live transcript shows the call once and your own words as You" (#1) | Fails | Passes |
+| Live voice · "2.5 s of streamed audio publishes N snapshots, words among them, not one per 100 ms pass" (#2, at most 10) | Fails: 26 | Passes: 4, in each of three runs |
+| Experience · "new live words rewrite only the end of a 1,200-turn transcript" (#2) | Fails: edited from character 0 of 108,788 | Passes: edited from 108,788 |
+| Experience · "a speaker's provisional words continue their confirmed turn, with no second speaker line" (#3) | Fails | Passes |
+| Live voice · "the final state is published with every word"; Experience · "a clock tick leaves a 1,200-turn transcript's text untouched" and "an update from an earlier turn matches a fresh rendering of the same turns, attributes included" | Pass | Pass (guards on the new code) |
+
+An independent review of `8a3c7fa` found that its first echo rule, which judged live microphone utterances whole and allowed 0.3 s past the other side's speech, lost real words: a reply's first word joined the echo ("Yes" and "No" vanished, "yes I will" saved as "I will"), a word of theirs repeated with headphones was dropped on both paths, an echo leaked as You across a 0.65 to 0.8 s pause of theirs when the microphone's timing shifted by a frame, and an interjection inside an echo was lost. The live rule is now word-level and the saved-audio containment needs three words in a tighter window, as above. Each reproduction is a check; all five fail on `8a3c7fa`'s echo code with this branch's checks and pass now. On `2ff25df` the saved-audio headphone check passes, because the base kept those replies, and the four live ones fail, because the base interleaved the echo into the turns.
+
+| Check (in `--check-meetings`) | On `8a3c7fa` | On this branch |
+| --- | --- | --- |
+| Live voice · "a reply 0 to 0.15 s after the other side finishes is kept whole and their echo is not" ("Yes" at 0 and 0.05 s, "No not this week" at 0.1 s, "No" at 0.15 s) | Fails: all four lost or cut | Passes |
+| Live voice · "an "okay" 1.5 s after theirs and a "Friday" answering "Friday or Monday" are kept" | Fails | Passes |
+| Live voice · "an echo across a 0.65 or 0.8 s pause of theirs is dropped at any microphone timing" (shifts of 0, 0.08, 0.16 and 0.4 s) | Fails: leaked at four of eight | Passes |
+| Live voice · "an interjection inside the echo of their sentence is kept, and the echo around it is not" | Fails | Passes |
+| Meetings · "short replies over a long turn are kept when the other side said the same word nearby" (saved-audio, headphones) | Fails | Passes |
+
+A second review of `d340b84` found that a fixed 0 to 0.4 s band removed the echo only while the microphone's lane sat between -0.1 and +0.3 s from the app's; on real Parakeet output from a degraded copy of a synthetic call, offsets of -0.2 and +0.6 s saved 87 to 105 of 106 echo words as You. It also found that, with headphones, your common words vanished while both of you talked (3.2 to 8.4 % in its probes), and that a misheard echo word split the other side's turn ("Others: ... asked for a | You: Lego | Others: deposit ..."). The lag is now estimated as above, a lone match inside your speech is a coincidence, and a misheard word between echo words goes with the echo when it is spelled like theirs.
+
+| Check (in `--check-meetings`) | On `d340b84` | On this branch |
+| --- | --- | --- |
+| Live voice · "an echo whose lane sits -0.15, +0.5 or +1.0 s from the call's is dropped" | Fails at all three | Passes |
+| Live voice · "an echo whose lag drifts from 0 to 0.3 s over four minutes is dropped throughout" | Passes (inside its fixed band) | Passes; one lag for the whole call would have saved 66 of 198 echo words as You |
+| Live voice · "with headphones, talking over each other keeps every one of your words" (two review fixtures, 24 alignments each) | Fails: 103 of 1,776 dropped | Passes: 0 dropped (6 with a minimum of three agreeing words, which is why the minimum is four) |
+| Live voice · "a misheard word inside the echo does not split their turn" ("Lego"; "Mon day" before a pause of theirs) | Fails | Passes |
+| Live voice · "a word of your own inside the echo is kept" (one word, "wait") | Passes | Passes |
+
+The service fixture behind "the microphone's copy of the call is not saved as You" now carries five echo words instead of three, enough to agree on a lag; its assertions are otherwise the same. On the reviewer's real-model fixtures (mild, laptop and poor copies of a 33 s synthetic call, 106 words each), no echo word is saved as You at any microphone offset from -0.5 to +1.0 s, "Lego" included. Its other probes give the same answers: quick replies, headphone repeats, the interjection, an echo across a 1.0 s pause, an echoed stutter, your own stutter after their "I", and "yes" said together with headphones are all right. Echo words recognised in another written form ("three thirty" for "3:30") still stay as You. `group()` on a two-hour two-source call (36,000 words, every microphone word an echo) takes about 20 ms in an optimised build.
+
+The existing check "separate identical replies survive in their actual turn order" and the existing saved-audio echo check pass unchanged. One existing fixture changed: the hour-long call in `HandoffJobsChecks.swift` relied on the old 0.8 s split to repeat its labels (same-side segments one second apart). Its same-side gaps are now three seconds, so its labels still repeat and every assertion is unchanged.
+
+Commands, all on this branch's final source unless marked, through the shared build slot:
+
+| Command | Result |
+| --- | --- |
+| `swift build --disable-sandbox` | Passed |
+| `.build/debug/LocalVoice --check-meetings` | Meeting checks 386 (382 on `2ff25df`), removal 34, live voice 42 (27), live voice experience 31 (27). Each commit also built and passed `--check-meetings` on its own. |
+| `.build/debug/LocalVoice --check-handoff-jobs` | 223 checks |
+| `.build/debug/LocalVoice --check-transcript-handoff` | 54 checks |
+| `bash scripts/test.sh harnesses` | Exit 0; surface registry 688 entries; `CAPTURE_PERSISTENCE_CHECKS_OK: 231 checks` (it compiles `LiveVoiceSession.swift`) |
+| `WORKBENCH_MEETINGS_GALLERY_ONLY=1 .build/debug/LocalVoice --render-surfaces` | 18 renders, 0 flags |
+| `.build/debug/LocalVoice --render-live-voice` | 12 renders; before and after below |
+| `.build/debug/LocalVoice --check-live-voice-model FIXTURE` with the cached Parakeet v2 model and an 8.3 s `say` fixture | One lane: first words 2.33 s, Stop flush 0.18 s, complete, the fixture's words exactly. With `--two-sources` (the same audio on both lanes, a perfect echo): first words 2.35 s, flush 0.35 s, complete, the words once (similar timings with the earlier rules). On `2ff25df` the two-lane text repeated every word ("Let's Let's review review the the…"). CoreML printed its usual shape-inference diagnostic. |
+
+## Renders
+
+`--render-live-voice`, light and dark. The fixture changed with this branch so it shows the change: your second sentence follows a 1.2 s pause and is still provisional. `before/` is the base view and turn code with that fixture, `after/` is this branch.
+
+- `listening`: before, a second "You · 0:20" paragraph for the provisional sentence, and the four paragraphs push the page title out of the 470 pt frame. After, the provisional sentence continues your paragraph in the quieter colour.
+- `completed`: before, two "You" paragraphs 1.2 s apart. After, one.
+- `silent-app`: the same change on the microphone-only transcript under the silent-app hint.
+
+The paused, reconnecting and finishing renders differ from the base in the same way as `listening` and are not copied here.
+
+## Limits and what was not changed
+
+- Nothing knows whether the Mac is playing through speakers or headphones; the rule is the same either way, and the lag estimate stands in for it. Live, with headphones: if four or more of your words in a minute repeat theirs at one steady delay of up to 2.5 s (reading back a number as they say it), the run is taken for an echo and dropped. A word said together with theirs is kept: with no steady lag there is no echo, and inside your own speech a lone match is a coincidence. Only a word that stands alone, in a minute where four or more words happen to agree on its lag, is taken for the echo. On the saved-audio path a reply of three words or more that repeats the words the other side was saying at that moment can be dropped.
+- Live, on speakers: an echo of fewer than four words in a minute (a lone "Can we start?") stays as You, because too few words agree on a lag. A lone echoed word with your own words beside it also stays. A misheard echo word that is not spelled like theirs ("eagle" for "legal"), or one written in another form ("three thirty" for "3:30"), stays as You; one between echo words that is spelled like theirs goes with the echo.
+- Live: the lag is estimated per ten seconds from the surrounding minute, so a lag that jumps (an output device switched mid-call) is followed within about half a minute, and a drift faster than about 0.2 s a minute leaves some words outside the 0.1 s match (clocks drift by thousandths of a second a minute).
+- The saved-audio path has no word times, so it cannot cut a microphone utterance where the other side stops. A reply within 0.6 s of an echo still joins the echo's utterance there and can be dropped with it, as before. An echoed fragment of one or two words inside a long remote utterance is still saved as You there; only the unchanged word-overlap test sees it.
+- The thresholds (a lag from -1.0 to +2.5 s, 0.1 s either side, four agreeing words in a minute, and the spelling test for live words; half the utterance overlapping, word-set overlap of one half, or three quarters of three words or more in order for saved audio) are from synthetic fixtures and a synthetic call recognised by Parakeet, not a real call.
+- Overlapping speakers alternate by utterance, each utterance placed at its start, so an interjection can split the other speaker's longer turn around it. Words are never interleaved.
+- One long turn is still rewritten whole at each commit: the view rewrites from the first turn that changed, and while one speaker talks without a two-second pause that turn is the whole transcript (the review measured about 36 ms at 122,000 characters for the rewrite and layout). Turns with breaks between them are unaffected.
+
+## Needs a real call on the installed Preview
+
+- A two-sided call on laptop speakers, no headphones: the live transcript shows the other side once, the saved transcript has no echoed "You" lines, quick replies are kept, and Copy transcript's text matches.
+- The same call with headphones: nothing you said is missing, including words that repeat theirs.
+- A long call (30 minutes or more) with live words: the Meetings page stays responsive while words arrive; a `sample` of the app shows no whole-transcript text rebuild per update.
+- A speaker who talks for a minute with natural pauses reads as one paragraph; two people talking over each other read in a sensible order.
+
+## Third review and the lead's fix (20 October, on the integration branch)
+
+The final verification of `d13c756` found one more problem, which the author's record did not list. A one-word reply said over a short word of theirs was taken for a mishearing of that word and dropped with the echo: "No" over "not", "OK" over "on", "They" over "the". The release lead fixed it on `claude/meetings-377`:
+
+- **What counts as spelled alike.** `SpeakerEcho.resembles` now accepts only words of four or more letters (an exact match still counts) and never a common reply word (no, yes, ok, okay, oh, what, wait, sorry, sure, yeah, right, so).
+- **Coincidence rule.** A same-word match counts as a coincidence only when your own words are close on both sides of it. A match at the edge of your words is their echo: for example, their "Monday" just before their pause, right after your "OK".
+- **Check.** "a short reply of your own over a short word of theirs is kept, and their echo around it dropped" fails on `d13c756`.
+- **Reviewer's probes on the fixed code.** "No", "OK", "Oh" and "They" are kept. Cross-talk with headphones loses 0 of 888 of your words. Quick replies are kept at every gap from −0.1 to 0.3 s. A 2-hour call takes 10 ms in `group()`.
+- **Still a limit.** A word you ask back over their exact same word ("Late?" over "late") is taken for its echo.

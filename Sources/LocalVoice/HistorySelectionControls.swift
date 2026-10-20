@@ -437,7 +437,8 @@ struct HandoffReviewView: View {
     var resolveReviewContext: (() throws -> SnapReviewContext?)? = nil
     var resolveSources: () throws -> [HandoffSourceSnapshot]
     /// Receives the task this review actually prepared or reused, so the host
-    /// can reveal that task instead of assuming a new one.
+    /// can reveal that task instead of assuming a new one. Show in History… sends
+    /// the saved task it names the same way.
     var onPrepared: (UUID) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var task = ""
@@ -455,6 +456,12 @@ struct HandoffReviewView: View {
     /// Set once the person picks Run with themselves; until then it follows the set-up runner.
     @State private var providerChosen = false
     @State private var loadedSkill: ReadbackSkillPackSnapshot?
+    /// The saved task this review would reuse, looked up shortly after the review changes, so the
+    /// line beside Start task says what pressing it would do before it is pressed (#377).
+    @State private var savedTask: HandoffJob?
+    /// Counts each replacement of the selection's content, which can keep every reference while
+    /// its words or images change (a Snap edited while the review is open), so the lookup runs again.
+    @State private var selectionVersion = 0
     @State private var skillProblem: String?
     private var skill: TranscriptHandoffSkill { skills.first(where: { $0.id == skillID }) ?? .followUp }
     var body: some View {
@@ -549,6 +556,11 @@ struct HandoffReviewView: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Connections…") { showingConnections = true }
                 Spacer()
+                // A stopped or interrupted task may have completed, so it is sent again only by Retry…
+                // on its card in History, which this opens; Start task sends nothing (#377).
+                if let savedTask, HandoffJobsModel.mayHaveCompleted(savedTask.status) != nil {
+                    Button("Show in History…") { onPrepared(savedTask.id); dismiss() }
+                }
                 Button("Copy instructions") { submit(provider: nil) }.disabled(sources.isEmpty)
                 Button("Start task") { submit(provider: selectedProvider) }.disabled(!readiness.canStart)
             }
@@ -588,6 +600,14 @@ struct HandoffReviewView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task { await jobs.refresh() }
             }
+            .task(id: savedTaskKey) {
+                // A changed key cancels this lookup, and a stale answer is never applied.
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled else { return }
+                let found = await lookUpSavedTask()
+                guard !Task.isCancelled else { return }
+                savedTask = found
+            }
             .sheet(isPresented: $showingPreviousReview) {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Previous review · reference material").font(.title2)
@@ -603,7 +623,7 @@ struct HandoffReviewView: View {
             var latest = try currentSources()
             var latestReview = try resolveReviewContext?()
             guard latest == sources, latestReview == reviewContext else {
-                sources = latest; reviewContext = latestReview; roles = [:]
+                sources = latest; reviewContext = latestReview; roles = [:]; selectionChanged()
                 problem = "Selected content changed since this review opened. Check the refreshed items and roles, then try again."
                 return
             }
@@ -635,12 +655,45 @@ struct HandoffReviewView: View {
             let prompt = HandoffJobStore.prompt(snapshot: snapshot, skill: text,
                 folder: jobs.directory.appendingPathComponent(id.uuidString), manual: false)
             inputProblem = HandoffRunReadiness.inputProblem(provider: selectedProvider, prompt: prompt,
-                imageBytes: items.flatMap(\.images).map(\.count))
+                imageBytes: items.flatMap(\.images).map(\.count), items: items.count)
         }
         return HandoffRunReadiness.evaluate(provider: selectedProvider, enabled: jobs.enabled(selectedProvider),
             checking: jobs.refreshing, connection: jobs.connections[selectedProvider], busy: jobs.isBusy,
             compatible: loadedSkill.map { SkillMetadata(snapshot: $0).repliesInline && $0.files.count == 1 } ?? true,
-            inputProblem: inputProblem)
+            inputProblem: inputProblem, mayHaveCompleted: savedTask.flatMap { HandoffJobsModel.mayHaveCompleted($0.status) })
+    }
+    /// What the saved-task lookup follows: the request, skill, items and roles that make the
+    /// selection's identity, and each task's status. A brief pause lets typing settle first.
+    struct SavedTaskKey: Hashable {
+        var task: String, skill: String?, items: [WorkbenchItemReference], roles: [WorkbenchItemReference: HandoffInputRole]
+        var review: String?, previousReview: Bool, selection: Int, statuses: [String]
+        /// Cheap to build and compare on every redraw: references, not words or image bytes. The
+        /// selection's version stands for its content, so new content with the same references
+        /// (a Snap edited while the review is open) still changes the key (#377).
+        static func make(task: String, skill: String?, sources: [HandoffSourceSnapshot], roles: [WorkbenchItemReference: HandoffInputRole],
+                         review: String?, previousReview: Bool, selection: Int, jobs: [HandoffJob]) -> Self {
+            .init(task: task, skill: skill, items: sources.map(\.reference), roles: roles, review: review, previousReview: previousReview,
+                  selection: selection, statuses: jobs.map { $0.id.uuidString + $0.status.rawValue })
+        }
+    }
+    private var savedTaskKey: SavedTaskKey {
+        .make(task: task, skill: loadedSkill.map { _ in skillID }, sources: sources, roles: roles, review: reviewContext?.key,
+              previousReview: includePreviousReview, selection: selectionVersion, jobs: jobs.jobs)
+    }
+    /// New selection content: the earlier lookup no longer describes it, so it is dropped now and
+    /// looked up again, rather than leaving Start task held by a task this content does not reuse.
+    private func selectionChanged() {
+        selectionVersion += 1; savedTask = nil
+    }
+    /// The selection exactly as Start task would prepare it, looked up among the saved tasks off
+    /// the main actor.
+    private func lookUpSavedTask() async -> HandoffJob? {
+        guard let loadedSkill, !sources.isEmpty else { return nil }
+        var items = sources
+        for index in items.indices { items[index].role = roles[items[index].reference] ?? items[index].role }
+        var review = reviewContext
+        if !includePreviousReview { review?.previousDocument = nil }
+        return await jobs.savedTask(sources: items, task: task, skill: loadedSkill, review: review)
     }
     private func loadSkill() {
         do { loadedSkill = try skill.load(); skillProblem = nil }
@@ -652,7 +705,7 @@ struct HandoffReviewView: View {
         return result
     }
     private func refreshSources() {
-        do { sources = try currentSources(); reviewContext = try resolveReviewContext?(); roles = [:]; problem = nil }
+        do { sources = try currentSources(); reviewContext = try resolveReviewContext?(); roles = [:]; problem = nil; selectionChanged() }
         catch { problem = error.localizedDescription }
     }
     private func useEvidence(_ url: URL) {

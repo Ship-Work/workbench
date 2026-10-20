@@ -658,7 +658,9 @@ private struct HistoryNativeAcceptanceView: View {
             pages[history].shots += try renderTranscriptReviewStates(to: output)
         }
         let meetingReview = try renderMeetingReview(to: output)
-        if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) { pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] }
+        if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) {
+            pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
+        }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
         let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks + refusal
         // History's states render last, so the pages above show no Hand off task.
@@ -2055,6 +2057,110 @@ private struct HistoryNativeAcceptanceView: View {
         return (meeting, history, ["A real synthetic meeting commit published its exact transcript ID. History consumed that typed review door while preserving the draft, original, selection and the saved recording/journal bytes."])
     }
 
+    /// #377's states through the real owners, with synthetic capture, call metadata and a scripted
+    /// copy: Home's meeting tile with a follow-up only prepared; the meeting's row on the panel and
+    /// in Home while it starts, near the two-hour limit and in the call-audio countdown; the page's
+    /// caption near the limit; and the meeting Workbench finished at the limit, with its note.
+    func renderMeetingFollowUpAndLimits(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let kept = (meetings: model.meetings, history: model.history, page: model.page,
+                    metadata: model.historyLibrary.metadata(for: Self.meeting.id))
+        let folder = home.appendingPathComponent("Meeting follow-up and limits", isDirectory: true)
+        let board = NSPasteboard.withUniqueName()
+        let jobs = HandoffJobsModel(directory: folder.appendingPathComponent("Handoffs"), switches: ({ _ in false }, { _, _ in }), pasteboard: board)
+        let source = GalleryCallAudio(), capture = GalleryLongMeetingCapture()
+        let preferences = try SurfaceGallery.isolatedDefaults("Meeting limits", home: home)
+        let meetings = MeetingModel(directory: folder.appendingPathComponent("Meetings"), defaults: preferences,
+            processSource: source, transcribe: { _ in "Maya will send the revised agenda before Thursday. Sam will confirm the room." },
+            microphonePermission: { false }, captureFactory: { capture })
+        defer {
+            capture.release()
+            Task { await meetings.prepareForShutdown() }
+            model.meetings = kept.meetings; model.history = kept.history; model.page = kept.page
+            model.historyLibrary.setMetadata(kept.metadata, for: Self.meeting.id)
+            board.releaseGlobally()
+        }
+        meetings.watchIntervalNanoseconds = 20_000_000
+        // The app's ten-second countdown, without its twenty seconds of quiet first.
+        var guarded = MeetingAutoFinish(); guarded.inactivityDelay = 0
+        meetings.autoFinishGuard = guarded
+        meetings.saveTranscript = { [weak model] transcript, purpose in try model?.retainMeetingTranscript(transcript, purpose: purpose) }
+        meetings.loadSavedTranscript = { [weak model] id in try model?.savedMeetingTranscript(id) }
+        model.meetings = meetings; model.objectWillChange.send()
+        var shots: [SurfaceGallery.Shot] = []
+        let window = homeWindow(size: SurfaceGallery.sizes[1].size)
+        defer { window.contentViewController = nil; window.close() }
+        func page(_ route: String, _ id: String, _ title: String, _ detail: String) throws {
+            let (image, _) = try renderPage(route, in: window)
+            shots.append(try save(image, id: id, title: title, detail: detail, file: "meeting-limits-\(id)-\(theme).png", to: output))
+        }
+        func panel(_ id: String, _ title: String, _ detail: String) throws {
+            shots.append(try save(try renderPanel(readback), id: id, title: title, detail: detail, file: "meeting-limits-\(id)-\(theme).png", to: output))
+        }
+
+        // Your meetings with a follow-up copied to the person's own assistant: it stays Prepare follow-up….
+        model.history = [Self.meeting] + kept.history
+        model.historyLibrary.setMetadata(TranscriptMetadata(purpose: .meeting, person: "Sam Rivera", company: "Synthetic Orchard"), for: Self.meeting.id)
+        let meeting = HandoffSourceSnapshot(reference: .init(kind: .transcript, id: Self.meeting.id), title: "Meeting · Sam Rivera",
+            capturedAt: Self.meeting.date, text: Self.meeting.text, originalText: Self.meeting.text, role: .reference, seconds: Self.meeting.seconds)
+        // With the door's own skill and request, as Prepare follow-up… opens it, so the tile reopens it.
+        guard let doorSkill = TranscriptHandoffSkill.builtIns.first(where: { $0.id == MeetingFollowUp.skillID }), let doorTask = HomeMeetings.doorTask else {
+            throw VoiceError.message("The meeting door's skill is missing.")
+        }
+        var copied: UUID?
+        try jobs.handOff(sources: [meeting], task: doorTask, skill: doorSkill.load(), provider: nil) { copied = $0 }
+        guard let copied, jobs.jobs.first(where: { $0.id == copied })?.status == .ready else {
+            throw VoiceError.message("Copy instructions did not leave a prepared follow-up: \(jobs.error ?? "no task").")
+        }
+        let size = NSSize(width: SurfaceGallery.sizes[0].size.width - 216, height: SurfaceGallery.sizes[0].size.height)
+        model.page = "home"
+        let tile = NSHostingView(rootView: WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
+                                                             jobs: jobs, meetings: model.meetings, keyboard: keyboard)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(Workbench.background).tint(Workbench.accent).workbenchTheme())
+        let tileWindow = offscreenWindow(size: size, styleMask: [.borderless])
+        tileWindow.contentView = tile
+        settle(tile, seconds: 1)
+        shots.append(try save(try snapshot(tile), id: "home-copied-follow-up", title: "Your meetings, a follow-up copied to your own assistant",
+            detail: "Copy instructions left the follow-up prepared: the tile says it has no result yet and keeps Prepare follow-up…, which reopens the same task so Start task can run it here (#377).",
+            file: "meeting-limits-home-copied-follow-up-\(theme).png", to: output))
+        tileWindow.contentView = nil; tileWindow.close()
+        model.history = kept.history
+
+        // The meeting's row while it starts: starting, with Cancel start.
+        meetings.refreshApps(); meetings.selectAudioSource(41_001); meetings.includeMicrophone = false
+        capture.holdStart = true
+        Task { await meetings.start() }
+        try wait("a meeting that is starting") { meetings.isStarting && capture.isHeld }
+        try panel("panel-starting", "Menu-bar panel, a meeting starting", "The meeting's row reads Meetings · starting with Cancel start, where it read finishing with Stop processing (#377).")
+        try page("home", "home-starting", "Home, a meeting starting", "Current work shows the same row as the panel: starting, with Cancel start.")
+        capture.release()
+        try wait("the synthetic recording") { meetings.isRecording }
+
+        // 1 h 55 min in: the caption, the panel and Home say when Workbench will finish it.
+        capture.elapsed = 6_930
+        try wait("the recording near its limit") { meetings.timeLimitWarning != nil }
+        try page("meeting", "page-near-limit", "Meetings, five minutes before the two-hour limit",
+                 "The caption beside the elapsed time says when Workbench will finish the recording; paused time counts, as on this clock.")
+        try panel("panel-near-limit", "Menu-bar panel, near the two-hour limit", "The meeting's row adds the limit's warning to the recording's state.")
+
+        // The call app stopped using audio: the countdown, with Keep recording on the panel and Home.
+        source.callAudio = false
+        try wait("the call-audio countdown") { meetings.autoFinishSeconds != nil }
+        try panel("panel-countdown", "Menu-bar panel, call audio ended", "The countdown's own words, with Keep recording beside Finish meeting (#377).")
+        try page("home", "home-countdown", "Home, call audio ended", "Current work offers Keep recording beside Finish meeting during the countdown.")
+        meetings.keepRecording()
+
+        // At the limit Workbench finishes the meeting, and the saved notes say so and why.
+        capture.elapsed = MeetingSegmentPlan.maximumMeetingSeconds
+        try wait("the meeting finished at the limit") { !meetings.isBusy && meetings.completedTranscriptID != nil }
+        guard meetings.pendingTranscriptNotes.first == MeetingSelfFinish.note("The two-hour recording limit was reached.") else {
+            throw VoiceError.message("The meeting finished at the limit without its note: \(meetings.pendingTranscriptNotes).")
+        }
+        try page("meeting", "page-finished-at-limit", "Meetings, finished at the two-hour limit",
+                 "The saved notes begin with “Workbench finished this recording itself.” and why (#377).")
+        return shots
+    }
+
     /// Meetings holding one recording kept for later and one that heard no speech. The real owner
     /// settles the silent one, which is shown once and never offered for retry, and lists the kept
     /// one with its own Transcribe, Show in Finder and Move to Trash.
@@ -2186,6 +2292,7 @@ private struct HistoryNativeAcceptanceView: View {
         try shot("saved-without-audio", "Saved text with playback and retranscription unavailable")
         let completed = try renderMeetingReview(to: output)
         shots.append(completed.meeting)
+        shots += try renderMeetingFollowUpAndLimits(to: output)
         print("MEETINGS_PRODUCTION_OWNER_CHECKS_OK: passive admission; explicit alternative; complete-text save; same-UUID durable History preservation")
         return SurfaceGallery.Pass(theme: theme, panels: [], toolbar: [], host: [], pickers: [], pickerHost: [],
             pages: [.init(route: "meeting", title: "Meetings admission and recovery", fallsThrough: false, shots: shots)],
@@ -4736,7 +4843,7 @@ private struct HistoryNativeAcceptanceView: View {
                  action(home, "Your meetings · Copy transcript", "Copies the newest meeting's complete current text"),
                  E(surface: home, label: "Your meetings · Review transcript, or an earlier meeting", leads: "Page: history, showing that transcript", route: "history"),
                  action(home, "Your meetings · Prepare follow-up…", "Opens the reviewed follow-up handoff for that transcript"),
-                 E(surface: home, label: "Your meetings · Open follow-up, once one was made", leads: "Page: history, revealing that task", route: "history"),
+                 E(surface: home, label: "Your meetings · Open follow-up, once one has run", leads: "Page: history, revealing that task", route: "history"),
                  page(home, "Your meetings · Open Meetings", "meeting"),
                  action(home, "Your decks · Open deck", "Opens the newest deck file in its app"),
                  page(home, "Your decks · Open in Snap & Talk, or an earlier session", "readback"),
@@ -5075,6 +5182,62 @@ private final class SyntheticAudioApps: MeetingProcessSource {
         return [.init(pid: 41_001, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true, name: "Zoom"),
          .init(pid: 41_002, bundleID: "com.microsoft.teams2", isRunningInput: false, isRunningOutput: true, name: "Microsoft Teams")]
     }
+}
+
+/// Zoom using audio until the gallery says its call audio ended. Metadata only, no CoreAudio.
+private final class GalleryCallAudio: MeetingProcessSource {
+    var callAudio = true
+    var isAvailable: Bool { true }
+    var unavailableReason: String { "" }
+    func snapshot() throws -> [MeetingProcessSnapshot] {
+        [.init(pid: 41_001, bundleID: "us.zoom.xos", isRunningInput: callAudio, isRunningOutput: callAudio, name: "Zoom")]
+    }
+}
+
+/// A capture whose start can be held, as macOS holding a permission answer would hold it, and
+/// whose clock the gallery sets. It writes one second of synthetic audio so the meeting can save;
+/// no device, tap or permission is touched.
+private final class GalleryLongMeetingCapture: MeetingCapture, @unchecked Sendable {
+    private let lock = NSLock()
+    private var held: CheckedContinuation<Void, Never>?
+    private var report = MeetingCaptureReport()
+    private var clock = 0.0
+    var holdStart = false
+    var isHeld: Bool { lock.lock(); defer { lock.unlock() }; return held != nil }
+    var elapsed: Double {
+        get { lock.lock(); defer { lock.unlock() }; return clock }
+        set { lock.lock(); clock = newValue; lock.unlock() }
+    }
+    var elapsedSeconds: Double { elapsed }
+    var stopReason: String? { nil }
+    func release() {
+        lock.lock(); let waiting = held; held = nil; holdStart = false; lock.unlock()
+        waiting?.resume()
+    }
+    func start(_ request: MeetingCaptureRequest) async throws {
+        if holdStart { await withCheckedContinuation { continuation in lock.lock(); held = continuation; lock.unlock() } }
+        // The call is heard, so the page shows no silent-app hint.
+        request.onAudio?(MeetingAudioChunk(source: .remote, samples: [Float](repeating: 0.2, count: 160), sampleRate: 16_000, startSeconds: 0))
+        try MeetingStore.createPrivateDirectory(request.tracksDirectory)
+        let url = request.tracksDirectory.appendingPathComponent("remote.caf")
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false]
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 16_000)!
+            buffer.frameLength = 16_000
+            for index in 0..<16_000 { buffer.floatChannelData![0][index] = 0.2 }
+            try file.write(from: buffer)
+        }
+        try MeetingStore.writePrivate(JSONEncoder().encode(MeetingTrackTiming(source: .remote, startSeconds: 0, sampleRate: 16_000)),
+                                      to: url.deletingPathExtension().appendingPathExtension("json"))
+        lock.lock()
+        report = MeetingCaptureReport(tracks: [MeetingTrack(source: .remote, file: MeetingStore.tracksDirectory + "/remote.caf", startSeconds: 0,
+                                                            seconds: 1, sampleRate: 16_000, peak: 0.2, droppedSeconds: 0)], seconds: 1)
+        lock.unlock()
+    }
+    func finish() async -> MeetingCaptureReport { lock.lock(); defer { lock.unlock() }; return report }
+    func requestStop() { release() }
 }
 
 /// Reports a started capture and records nothing: no device, tap or permission is touched.

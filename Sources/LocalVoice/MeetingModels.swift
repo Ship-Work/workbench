@@ -4,10 +4,17 @@ import Foundation
 /// One audio-producing application the person can explicitly choose. A browser
 /// entry covers that browser's whole audio output, including every tab in it.
 struct MeetingAudioApp: Identifiable, Hashable {
-    /// The process identifier. It is stable only while the app keeps running.
+    /// The process identifier the app was first listed with. Detection keeps it while any of the
+    /// app's audio processes is listed, so a helper restarting never reads as the app having gone
+    /// (#377). It can name a process that has since ended, or be the negated identifier when
+    /// another listed app already holds that number; capture finds the app's current processes
+    /// by bundle either way (MeetingSystemCapture.currentApp).
     var id: Int32
     var name: String
     var bundleID: String
+    /// Why recording this source now would hold silence, which Meetings' admission says in place
+    /// of Start; nil for every source that can be recorded (#377).
+    var unavailableReason: String? = nil
 }
 
 enum MeetingAppKind: String, Codable {
@@ -23,6 +30,16 @@ struct MeetingKnownApp {
     /// The app's own audio processes that are not named `<bundle>.helper`, such
     /// as new Teams' module host.
     var audioProcesses: [String] = []
+    /// Shared helpers that play this app's sound for it: Safari's page and call audio plays in
+    /// WebKit's media process, not in Safari. A helper belongs to the app only when macOS holds
+    /// the app responsible for it (MeetingResponsibleApp), so Mail's or another app's WebKit
+    /// audio never reads as Safari's. Safari is offered when macOS attributes the WebKit helper
+    /// to Safari; this is not yet observed on a real Safari call (#377).
+    var hostedHelpers: [String] = []
+    /// The system service that plays this app's call audio: FaceTime and Phone calls play in the
+    /// Mac calling service. Recording the app taps that service too. It carries any call on this
+    /// Mac, so it is never merged into the app and stays its own source in the picker (#377).
+    var callAudioServices: [String] = []
 
     /// Bundle identifiers compare without case: macOS reports each app's
     /// declared spelling, and the Phone app declares `com.apple.mobilephone`.
@@ -51,10 +68,13 @@ enum MeetingAppCatalogue {
         MeetingKnownApp(bundleID: "com.skype.skype", name: "Skype", kind: .communication),
         MeetingKnownApp(bundleID: "com.ringcentral.glip", name: "RingCentral", kind: .communication),
         MeetingKnownApp(bundleID: "com.gotomeeting.GoToMeeting", name: "GoTo Meeting", kind: .communication),
-        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication),
-        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication),
+        MeetingKnownApp(bundleID: "com.apple.FaceTime", name: "FaceTime", kind: .communication,
+                        callAudioServices: ["com.apple.avconferenced"]),
+        MeetingKnownApp(bundleID: "com.apple.mobilephone", name: "Phone", kind: .communication,
+                        callAudioServices: ["com.apple.avconferenced"]),
         MeetingKnownApp(bundleID: "com.google.Chrome", name: "Google Chrome", kind: .browser),
-        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser),
+        MeetingKnownApp(bundleID: "com.apple.Safari", name: "Safari", kind: .browser,
+                        hostedHelpers: ["com.apple.WebKit.GPU", "com.apple.WebKit.WebContent"]),
         MeetingKnownApp(bundleID: "com.microsoft.edgemac", name: "Microsoft Edge", kind: .browser),
         MeetingKnownApp(bundleID: "company.thebrowser.Browser", name: "Arc", kind: .browser),
         MeetingKnownApp(bundleID: "org.mozilla.firefox", name: "Firefox", kind: .browser),
@@ -70,8 +90,11 @@ enum MeetingAppCatalogue {
     ]
 
     /// Existing Mac audio-service sources stay manually selectable by their own
-    /// PID and bundle. These labels neither enable detection nor merge their
-    /// capture scope into FaceTime/Phone/Safari. Receiver support needs testing.
+    /// PID and bundle. These labels never enable detection or become an app's
+    /// choice. FaceTime and Phone also tap the calling service, where their calls
+    /// play; Safari takes only the WebKit helpers macOS holds it responsible for,
+    /// and every other app's WebKit audio stays here as the shared service (#377).
+    /// Receiver support needs testing.
     static let manualServiceNames = [
         "com.apple.avconferenced": "Mac calling service",
         "com.apple.TelephonyUtilities": "Mac telephony service",
@@ -87,9 +110,60 @@ enum MeetingAppCatalogue {
         supported.first { $0.owns(bundleID) }
     }
 
+    /// The catalogue app a process belongs to: its own process or helper, or a shared helper
+    /// macOS holds that app responsible for. Without a responsible app a shared helper belongs
+    /// to no app, so the honest result when attribution is unavailable is the shared service.
+    static func known(_ bundleID: String, responsibleBundleID: String?) -> MeetingKnownApp? {
+        if let app = known(bundleID) { return app }
+        guard let responsibleBundleID, let host = known(responsibleBundleID),
+              host.hostedHelpers.contains(where: { $0.caseInsensitiveCompare(bundleID) == .orderedSame }) else { return nil }
+        return host
+    }
+
+    /// The source a process is listed, offered and captured under: its app, else its own bundle.
+    static func owner(_ bundleID: String, responsibleBundleID: String?) -> String {
+        known(bundleID, responsibleBundleID: responsibleBundleID)?.bundleID ?? bundleID
+    }
+
+    /// Only these processes need their responsible app read; every other process costs nothing more.
+    static func isHostedHelper(_ bundleID: String) -> Bool {
+        supported.contains { $0.hostedHelpers.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame } }
+    }
+
+    /// Whether this process is a shared helper macOS attributes to the app, rather than one of
+    /// the app's own processes.
+    static func isAttributedHelper(_ bundleID: String, responsibleBundleID: String?, to appBundleID: String) -> Bool {
+        known(bundleID) == nil && known(bundleID, responsibleBundleID: responsibleBundleID)?.bundleID == appBundleID
+    }
+
+    /// An app whose sound plays only in shared helpers records silence unless the same read
+    /// attributes at least one of them to it, whether the lookup is missing or the helper is not
+    /// attributed. Its picker entry then says so, it is never offered, and admission refuses Start
+    /// with this reason (#377). Nil for every other app, and for that app once a helper is its.
+    static func unavailableReason(_ bundleID: String, attributedHelper: Bool) -> String? {
+        guard !attributedHelper, let app = known(bundleID), !app.hostedHelpers.isEmpty else { return nil }
+        return "Workbench can't find \(app.name)'s call audio right now: macOS hasn't said which web audio is \(app.name)'s, so a recording would be silent. Start the call in \(app.name), then refresh audio apps, or choose another browser or Microphone only."
+    }
+
+    static func unavailableName(_ app: MeetingKnownApp) -> String { app.name + " (its call audio isn't available to Workbench right now)" }
+
+    /// Whether recording `appBundleID` taps this process: everything listed under that source,
+    /// and the service that plays its calls (#377). FaceTime and Phone tapped only their own
+    /// processes before, which hold none of a call's audio.
+    static func taps(_ bundleID: String, responsibleBundleID: String?, for appBundleID: String) -> Bool {
+        if owner(bundleID, responsibleBundleID: responsibleBundleID) == appBundleID { return true }
+        return known(appBundleID)?.callAudioServices.contains(bundleID) == true
+    }
+
     static func isExcluded(_ bundleID: String) -> Bool {
         if excludedBundleIDs.contains(bundleID) { return true }
         return bundleID == Bundle.main.bundleIdentifier || excludedBundleIDs.contains(where: { bundleID.hasPrefix($0 + ".") })
+    }
+
+    /// A shared helper working for Workbench, such as the WebKit process behind its own web views,
+    /// is Workbench's too: never listed, offered or tapped, even as the shared WebKit service.
+    static func isExcluded(_ bundleID: String, responsibleBundleID: String?) -> Bool {
+        isExcluded(bundleID) || responsibleBundleID.map(isExcluded) == true
     }
 }
 
@@ -270,13 +344,57 @@ enum MeetingSegmentPlan {
     }
 }
 
-/// Space checks are deliberately blunt: they refuse to start a long recording on
-/// a nearly full disk and stop safely rather than corrupt an original track.
+/// Space checks are deliberately blunt: they refuse to start a meeting this disk could not hold
+/// to the two-hour limit, and stop safely rather than corrupt an original track.
 enum MeetingDiskBudget {
-    static let requiredStartBytes: Int64 = 512 * 1024 * 1024
+    /// Each original track is 16-bit mono PCM at the rate its device ran at when it started, kept
+    /// for the whole recording (MeetingTrackRecorder). An unreadable rate counts as 48 kHz, the
+    /// Mac's usual rate.
+    static let fallbackSampleRate = 48_000.0
+    static let trackBytesPerSample = 2
     static let stopFloorBytes: Int64 = 192 * 1024 * 1024
+    /// Dictate's live capture shares this check and keeps what it had.
+    static let otherCaptureStartBytes: Int64 = 512 * 1024 * 1024
     /// The bounded live buffer each track keeps before it reports dropped audio.
     static let captureBufferSeconds = 8.0
+
+    static func trackBytesPerSecond(sampleRate: Double?) -> Int64 {
+        let rate = sampleRate.flatMap { $0.isFinite && (8_000...192_000).contains($0) ? $0 : nil } ?? fallbackSampleRate
+        return Int64(rate.rounded()) * Int64(trackBytesPerSample)
+    }
+
+    /// The originals a meeting with these sources writes, for MeetingCaptureRequest.meetingTracks.
+    static func tracks(app: Bool, microphone: Bool) -> [MeetingTrackSource] {
+        (app ? [.remote] : []) + (microphone ? [.local] : [])
+    }
+
+    /// Each track at its device's rate for two hours, the 16 kHz segments their transcription
+    /// writes, and the stop floor beneath them, so an admitted meeting reaches the low-disk stop
+    /// only if something else fills the disk (#377). The 512 MB this replaced held two 48 kHz
+    /// tracks for about half an hour.
+    static func meetingStartBytes(sampleRates: [Double?]) -> Int64 {
+        let seconds = Int64(MeetingSegmentPlan.maximumMeetingSeconds)
+        let tracks = (sampleRates.isEmpty ? [nil] : sampleRates).reduce(Int64(0)) { $0 + trackBytesPerSecond(sampleRate: $1) * seconds }
+        return tracks + Int64(MeetingSegmentPlan.bytesPerSecond) * seconds + stopFloorBytes
+    }
+
+    /// What a capture needs to start. A meeting names its tracks; nil, Dictate's live capture,
+    /// keeps the earlier floor. The app track records at the output device's rate and the
+    /// microphone at the input device's.
+    static func requiredStartBytes(meetingTracks: [MeetingTrackSource]?,
+                                   sampleRate: (MeetingTrackSource) -> Double? = deviceSampleRate) -> Int64 {
+        guard let meetingTracks else { return otherCaptureStartBytes }
+        return meetingStartBytes(sampleRates: meetingTracks.map(sampleRate))
+    }
+
+    static func deviceSampleRate(_ source: MeetingTrackSource) -> Double? {
+        MeetingCoreAudio.defaultNominalSampleRate(input: source == .local)
+    }
+
+    /// A size as Finder counts it, rounded up to a tenth of a gigabyte.
+    static func description(_ bytes: Int64) -> String {
+        String(format: "%.1f GB", (Double(bytes) / 100_000_000).rounded(.up) / 10)
+    }
 
     static func availableBytes(at url: URL) -> Int64? {
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -286,11 +404,21 @@ enum MeetingDiskBudget {
         return free.int64Value
     }
 
-    static func checkStartSpace(at url: URL) throws {
-        guard let available = availableBytes(at: url) else { return }
-        guard available >= requiredStartBytes else {
-            throw MeetingError.message("There is not enough free disk space to record a meeting safely. Free about 500 MB and try again.")
+    /// The refusal for this much free space, or nil when the capture fits. A meeting names what
+    /// two hours of its sources need; it said "Free about 500 MB" whatever the meeting held.
+    static func startRefusal(available: Int64, meetingTracks: [MeetingTrackSource]?,
+                             sampleRate: (MeetingTrackSource) -> Double? = deviceSampleRate) -> String? {
+        let required = requiredStartBytes(meetingTracks: meetingTracks, sampleRate: sampleRate)
+        guard available < required else { return nil }
+        guard meetingTracks != nil else {
+            return "There is not enough free disk space to record a meeting safely. Free about 500 MB and try again."
         }
+        return "There is not enough free disk space to record this meeting safely. Two hours with these sources needs about \(description(required)) free; free some space and try again."
+    }
+
+    static func checkStartSpace(at url: URL, meetingTracks: [MeetingTrackSource]?) throws {
+        guard let available = availableBytes(at: url) else { return }
+        if let refusal = startRefusal(available: available, meetingTracks: meetingTracks) { throw MeetingError.message(refusal) }
     }
 }
 

@@ -103,8 +103,8 @@ enum MeetingChecks {
         try expect(detector.evaluate(now: now)?.id == 810,
                    "helper microphone activity offers the same app identifier as the manual picker")
         source.values.removeAll { $0.pid == 810 }
-        try expect(detector.availableApps().first(where: { $0.bundleID == "com.google.Chrome" })?.id == 811,
-                   "known audio helpers remain available when the main process has no CoreAudio object")
+        try expect(detector.availableApps().first(where: { $0.bundleID == "com.google.Chrome" })?.id == 810,
+                   "a browser whose main process leaves Core Audio's list stays available through its audio helper, as the same choice (#377)")
         source.values.removeAll { $0.bundleID.hasPrefix("com.google.Chrome") }
         detector.forgetObservations()
         _ = detector.evaluate(now: now); _ = detector.evaluate(now: now)
@@ -302,6 +302,27 @@ enum MeetingChecks {
             .init(speaker: .others, start: 5, end: 6, text: "Thanks")]
         try expect(MeetingConversation.conversation(heard) == "Others: Can you send the draft by Friday\n\nYou: Yes I will and copy Sam\n\nOthers: Thanks",
                    "speaker turns are chronological, a speaker echo is dropped and a reply is kept")
+        // A fragment of three words or more inside a long remote utterance, where the other side said
+        // those words, is the same echo (#377). A one-word reply is kept, even "Yes" when they said it
+        // at the start of their turn.
+        let longTurn = "Yes we need to agree the plan today so first the budget needs to go to finance by Friday and then the slides go to Sam next week"
+        let fragments: [MeetingConversation.Utterance] = [
+            .init(speaker: .others, start: 0, end: 20, text: longTurn),
+            .init(speaker: .you, start: 7.6, end: 10.9, text: "the budget needs to go"),
+            .init(speaker: .you, start: 18.5, end: 18.9, text: "Yes")]
+        try expect(MeetingConversation.conversation(fragments) == "Others: \(longTurn)\n\nYou: Yes",
+                   "an echoed fragment of a long utterance is dropped and a reply the other side did not say then is kept")
+        // With headphones the microphone hears only you: one- and two-word replies over their long turn
+        // are kept, even when they said that word nearby (#377).
+        let planTurn = "so the plan is that we finish the draft this week okay and then if Friday works we send it to legal and Sam reviews the numbers on Monday"
+        let headphoneReplies: [MeetingConversation.Utterance] = [
+            .init(speaker: .others, start: 0, end: 20, text: planTurn),
+            .init(speaker: .you, start: 3.0, end: 3.5, text: "Right"),
+            .init(speaker: .you, start: 9.0, end: 9.5, text: "Okay"),
+            .init(speaker: .you, start: 12.0, end: 12.6, text: "Friday?"),
+            .init(speaker: .you, start: 16.0, end: 16.6, text: "Sam, yes")]
+        try expect(MeetingConversation.conversation(headphoneReplies) == "Others: \(planTurn)\n\nYou: Right\n\nYou: Okay\n\nYou: Friday?\n\nYou: Sam, yes",
+                   "short replies over a long turn are kept when the other side said the same word nearby")
 
         var talk = manifest()
         let talkSession = try MeetingStore.create(root: storeRoot, manifest: talk)
@@ -356,6 +377,7 @@ enum MeetingChecks {
         try await phaseRecoveryChecks(root: root.appendingPathComponent("phase-recovery"), expect: expect)
         try await captureNoteChecks(root: root.appendingPathComponent("capture-notes"), expect: expect)
         try await selfEndChecks(root: root.appendingPathComponent("self-end"), expect: expect)
+        try await limitAndCallEndChecks(root: root.appendingPathComponent("limits"), expect: expect)
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
@@ -367,6 +389,7 @@ enum MeetingChecks {
         try routeRecoveryChecks(expect: expect)
         try await callOfferEndChecks(root: root, expect: expect)
         checks += try MeetingRemovalChecks.run(root: root.appendingPathComponent("removal-checks"))
+        checks += try await MeetingDetectionChecks.run(root: root.appendingPathComponent("detection-checks"))
         checks += try MeetingCompletionChecks.run()
         // Quit while a meeting records asks first (#280): Finish meeting saves, then quits; Keep
         // recording cancels the quit; Quit and keep for later is what Quit always did. Nothing else asks.
@@ -437,6 +460,37 @@ enum MeetingChecks {
         try MeetingStore.save(stopped, at: session, replacing: result.manifest)
         _ = try await processor.run()
         try expect(recognitionCalls == 1 && saved.last?.text == "Batch words", "incomplete live checkpoint falls back to original audio")
+
+        // A two-sided live meeting heard on laptop speakers (#377): the microphone's copy of the other side
+        // is not saved as You, a quick reply after it is, and the original wording is the conversation's
+        // words a turn at a time, not two speakers zipped together word by word.
+        func spoken(_ source: LiveVoiceSource, _ words: String, at start: Double) -> [LiveVoiceSegment] {
+            words.split(separator: " ").enumerated().map { offset, word in
+                LiveVoiceSegment(source: source, start: start + Double(offset) * 0.3, end: start + Double(offset) * 0.3 + 0.25,
+                                 text: String(word), isFinal: true)
+            }
+        }
+        let call = manifest(state: .stopped)
+        let callSession = try MeetingStore.create(root: root.appendingPathComponent("live-call"), manifest: call)
+        var stoppedCall = call; stoppedCall.seconds = 6
+        stoppedCall.tracks = [try audio(source: .remote, seconds: 6, rate: 16_000, value: 0.2, offset: 0, session: callSession),
+                              try audio(source: .local, seconds: 6, rate: 16_000, value: 0.2, offset: 0, session: callSession)]
+        try MeetingStore.save(stoppedCall, at: callSession, replacing: call)
+        let liveCall = LiveVoiceCheckpoint(sessionID: call.id,
+            segments: spoken(.app, "Can you send the draft by Friday", at: 0) + spoken(.microphone, "can you send the draft by Friday", at: 0.05)
+                + spoken(.microphone, "Yes I will", at: 2.5) + spoken(.app, "Thanks so much everyone", at: 4) + spoken(.microphone, "No problem", at: 4.35),
+            completedThrough: ["microphone": 6, "app": 6], complete: true)
+        try LiveVoiceJournal.save(liveCall, to: callSession.appendingPathComponent("live-transcript.json"))
+        var callSaved: [Transcript] = []
+        let callResult = try await MeetingProcessor(session: callSession, transcribe: { _ in "Batch words" },
+                                                    commit: { transcript, _, _ in callSaved.append(transcript) }).run()
+        let callWording = "Can you send the draft by Friday Yes I will Thanks so much everyone No problem"
+        try expect(callResult.committed && callSaved.count == 1
+                   && callSaved[0].text == "Others: Can you send the draft by Friday\n\nYou: Yes I will\n\nOthers: Thanks so much everyone\n\nYou: No problem",
+                   "a live meeting on laptop speakers saves the other side once and your reply as You")
+        try expect(callSaved.first?.rawText == callWording && (try MeetingStore.load(from: callSession)).recognizedText == callWording
+                   && !HandoffJobStore.originalAddsWording(text: callSaved[0].text, original: callWording),
+                   "its original wording keeps each speaker's words together, so a handoff carries the meeting once")
     }
 
     /// A refused System Audio Recording tap delivers silence, not an error. Fifteen seconds into a call
@@ -784,9 +838,13 @@ enum MeetingChecks {
         try expect(visible == [4] && created == 4 && closed == 3,
                    "absent activity permits a new offer with the same PID and invalidates its old timer")
         source.values[0].pid = 91_004; model.refreshDetection()
+        try expect(visible == [4] && created == 4 && model.offer?.id == 91_003,
+                   "the same app's process changing keeps its offer and panel (#377)")
+        source.values = [.init(pid: 91_005, bundleID: "com.apple.FaceTime", isRunningInput: true, isRunningOutput: true)]
+        for _ in 0..<3 { model.refreshDetection() }
         timers[3]()
-        try expect(visible == [5] && offers.last?.id == 91_004 && closed == 4,
-                   "a changed process replaces the panel and its predecessor cannot dismiss it")
+        try expect(visible == [5] && offers.last?.id == 91_005 && closed == 4,
+                   "a changed offer replaces the panel and its predecessor cannot dismiss it")
         controller.close()
         timers[4](); model.refreshDetection()
         try expect(visible.isEmpty && closed == 5 && created == 5,
@@ -836,7 +894,23 @@ enum MeetingChecks {
         for _ in 0..<5 { model.refreshDetection() }
         try expect(publishes == 3 && model.problem == .unknown("Audio activity could not be checked. Synthetic metadata failure"),
                    "a metadata failure that persists publishes its problem once, not once per poll")
-        source.failure = false
+        // That one raise is all it gets (#377): put away with its ×, it stays away while the failure
+        // persists; it never covers another problem; a successful read takes back the one it raised.
+        let failure = MeetingProblem.unknown("Audio activity could not be checked. Synthetic metadata failure")
+        model.dismissError()
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(model.problem == nil, "a metadata failure put away with its × is not raised again while it persists")
+        model.openPrivacyPane = { _ in false }
+        model.openMicrophoneSettings()
+        let other = model.problem
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(other != nil && other != failure && model.problem == other, "a metadata failure that persists never replaces another problem")
+        model.dismissError()
+        source.failure = false; model.refreshDetection()
+        source.failure = true; model.refreshDetection()
+        try expect(model.problem == failure, "a failure that returns after a successful read is raised again")
+        source.failure = false; model.refreshDetection()
+        try expect(model.problem == nil, "a successful read takes back the metadata failure it raised")
         model.detectionEnabled = false
         let afterOff = publishes
         model.refreshDetection(); model.refreshDetection()
@@ -930,7 +1004,7 @@ enum MeetingChecks {
         try expect(offered.last?.id == 870, "Phone's lowercase identifier is offered")
         source.values[5].pid = 871
         try poll("Phone process changed")
-        try expect(offered.last?.id == 871, "a changed process is offered by its new PID")
+        try expect(offered.last?.id == 870, "a changed process keeps the app's offer and choice (#377)")
         filtered.disable(offered.last!); reference.disable(offered.last!)
         try poll("Phone turned off")
         filtered.snooze(now: now); reference.snooze(now: now)
@@ -943,7 +1017,7 @@ enum MeetingChecks {
         try expect(offered.last?.id == 810, "the browser returns after its cooldown by its main process")
         source.values.remove(at: 0)
         try poll("browser main process gone", polls: 2)
-        try expect(offered.last?.id == 811, "a browser without its main process is offered by its audio helper")
+        try expect(offered.last?.id == 810, "a browser whose main process goes is still offered as the same choice, through its audio helper")
         source.failure = true
         try poll("metadata failure")
         source.failure = false
@@ -1665,15 +1739,15 @@ enum MeetingChecks {
         capture.stopReason = lost
         await waitUntil { !model.isBusy }
         try expect(model.completedTranscriptID != nil && history.map(\.id) == [model.completedTranscriptID!]
-                   && model.pendingTranscriptNotes.contains(lost) && model.recoveries.isEmpty && capture.finished == 1,
-                   "a source that could not reconnect ends with a saved transcript noting why")
+                   && model.pendingTranscriptNotes.first == MeetingSelfFinish.note(lost) && model.recoveries.isEmpty && capture.finished == 1,
+                   "a source that could not reconnect ends with a saved transcript noting that Workbench finished it, and why")
 
         capture = CaptureFixture(); capture.elapsedSeconds = MeetingSegmentPlan.maximumMeetingSeconds
         await model.start()
         await waitUntil { !model.isBusy }
         try expect(model.completedTranscriptID != nil && history.count == 2 && model.recoveries.isEmpty
-                   && model.pendingTranscriptNotes.contains("The two-hour recording limit was reached."),
-                   "reaching the two-hour limit ends with a saved transcript noting the limit")
+                   && model.pendingTranscriptNotes.first == MeetingSelfFinish.note("The two-hour recording limit was reached."),
+                   "reaching the two-hour limit ends with a saved transcript noting that Workbench finished it at the limit")
 
         capture = CaptureFixture()
         await model.start(); await model.cancel()
@@ -1697,8 +1771,99 @@ enum MeetingChecks {
         await model.prepareForShutdown()
     }
 
+    /// What the meeting's row on the panel and Home says while it starts, near the two-hour limit
+    /// and during the call-audio countdown, and the note a call Workbench finished keeps (#377).
+    /// Synthetic capture and metadata; the watcher and the guarded finish run with short delays.
+    private static func limitAndCallEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingLimits-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try expect(MeetingTimeLimit.warning(elapsed: 6_899) == nil && MeetingTimeLimit.warning(elapsed: 6_900) == "Finishes at 2 hours in 5 min"
+                   && MeetingTimeLimit.warning(elapsed: 6_930) == "Finishes at 2 hours in 4 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_080) == "Finishes at 2 hours in 2 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_079) == "Finishes at 2 hours in 2 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_139.5) == "Finishes at 2 hours in 1 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_140) == "Finishes at 2 hours in 1 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_141) == "Finishes at 2 hours in under a minute"
+                   && MeetingTimeLimit.warning(elapsed: 7_170) == "Finishes at 2 hours in under a minute"
+                   && MeetingTimeLimit.caption(elapsed: 3_600, paused: false) == "Up to 2 hours"
+                   && MeetingTimeLimit.caption(elapsed: 3_600, paused: true) == "Up to 2 hours, pauses included"
+                   && MeetingTimeLimit.caption(elapsed: 6_960, paused: true) == "Finishes at 2 hours in 4 min",
+                   "the two-hour limit warns from five minutes before it in whole minutes left, and says that pauses count while paused")
+        try expect(MeetingWorkspaceView.clock(75) == "1:15" && MeetingWorkspaceView.clock(3_599) == "59:59"
+                   && MeetingWorkspaceView.clock(6_930) == "1:55:30" && MeetingWorkspaceView.clock(7_200) == "2:00:00",
+                   "the page's elapsed time shows hours once a recording has them, beside the limit's warning")
+        let source = ProcessFixture()
+        source.values = [.init(pid: 93_001, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true, name: "Zoom")]
+        var capture = CaptureFixture()
+        let model = MeetingModel(directory: root, defaults: defaults, processSource: source,
+            transcribe: { _ in "Synthetic words heard before the call ended" }, microphonePermission: { true }, captureFactory: { capture })
+        model.saveTranscript = { _, _ in }
+        model.watchIntervalNanoseconds = 5_000_000
+        var guarded = MeetingAutoFinish(); guarded.inactivityDelay = 0; guarded.grace = 600
+        model.autoFinishGuard = guarded
+        func row() -> (title: String, controls: [MeetingQuickStatus.Control]) {
+            (MeetingQuickStatus.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
+                                      autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning),
+             MeetingQuickStatus.controls(starting: model.isStarting, recording: model.isRecording, countingDown: model.autoFinishSeconds != nil))
+        }
+        func callAudio(_ running: Bool) { source.values[0].isRunningInput = running; source.values[0].isRunningOutput = running }
+        model.refreshApps(); model.selectAudioSource(93_001); model.includeMicrophone = false
+
+        let gate = Gate<Bool>(); capture.startGate = gate
+        let starting = Task { await model.start() }
+        await waitUntil { gate.isWaiting }
+        try expect(model.isStarting && row().title == "Meetings · starting" && row().controls == [.cancelStart],
+                   "a meeting still starting reads as starting, with Cancel start, never finishing with Stop processing")
+        gate.resume(true); await starting.value
+        try expect(model.isRecording && row().title == "Meetings · recording" && row().controls == [.finish] && model.timeLimitWarning == nil,
+                   "a recording well inside the limit reads as recording, with Finish meeting")
+
+        capture.elapsedSeconds = 6_900
+        await waitUntil { model.elapsed == 6_900 }
+        try expect(model.timeLimitWarning == "Finishes at 2 hours in 5 min" && row().title == "Meetings · recording · finishes at 2 hours in 5 min",
+                   "five minutes before the two-hour limit the recording's row says when Workbench will finish it")
+
+        // A Keep recording click that lands with no countdown showing, as a late click from the panel or
+        // Home would, changes nothing: the countdown still comes when call audio ends (#377).
+        model.keepRecording()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        callAudio(false)
+        await waitUntil(seconds: 20) { model.autoFinishSeconds != nil }
+        try expect(row().title.hasPrefix("Meetings · call audio ended · finishing in ") && row().controls == [.keepRecording, .finish],
+                   "a Keep recording click with no countdown does not switch automatic finish off, and the countdown offers Keep recording on the panel and Home")
+        model.keepRecording(expected: UUID())
+        try expect(model.autoFinishSeconds != nil, "a Keep recording click shown for another recording does not end this one's countdown")
+        model.keepRecording(expected: model.recordingIdentity)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try expect(model.isRecording && model.autoFinishSeconds == nil && row().controls == [.finish],
+                   "Keep recording ends the countdown and the same recording continues")
+        await model.stop()
+
+        // A call whose audio ends finishes itself, and its saved notes say Workbench did and why.
+        guarded.grace = 0; model.autoFinishGuard = guarded
+        capture = CaptureFixture(); callAudio(true)
+        await model.start()
+        // The watcher reads call activity every fourth tick; a shared CI runner can take far longer
+        // than a desk Mac to see it active, so it gets a second, and the finish a bounded 20 s.
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        callAudio(false)
+        await waitUntil(seconds: 20) { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && model.pendingTranscriptNotes.first == MeetingSelfFinish.note(MeetingSelfFinish.callAudioEnded)
+                   && model.pendingTranscriptNotes.first == "Workbench finished this recording itself. The call app stopped using audio.",
+                   "a call that Workbench finished when its audio ended is saved with a note saying so")
+        await model.prepareForShutdown()
+    }
+
     private static func waitUntil(_ condition: () -> Bool) async {
         for _ in 0..<5_000 { if condition() { return }; try? await Task.sleep(nanoseconds: 1_000_000) }
+    }
+
+    /// The same wait, bounded by the clock rather than a count of short sleeps, for a step that can
+    /// take seconds on a busy CI runner.
+    private static func waitUntil(seconds: TimeInterval, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { if condition() { return }; try? await Task.sleep(nanoseconds: 5_000_000) }
     }
 
     private static func manifest(state: MeetingState = .stopped) -> MeetingManifest {

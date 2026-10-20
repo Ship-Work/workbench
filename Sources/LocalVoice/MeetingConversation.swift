@@ -26,8 +26,9 @@ enum MeetingConversation {
 
     static let frameSeconds = 0.03
     static let minimumSpeechSeconds = 0.4
-    static let joinSilenceSeconds = 0.6
-    static let maximumUtteranceSeconds = 25.0
+    /// Live words are cut into utterances by the same two values, so both paths order turns alike.
+    static let joinSilenceSeconds = SpeakerEcho.pauseSeconds
+    static let maximumUtteranceSeconds = SpeakerEcho.longestSeconds
     static let maximumUtterances = 2_000
     static let preRollFrames = 8
     /// Short utterances are padded so every recogniser gets a usable clip.
@@ -111,38 +112,26 @@ enum MeetingConversation {
         try file.write(from: buffer)
     }
 
-    /// Word overlap between two recognised texts, from 0 to 1.
-    static func similarity(_ first: String, _ second: String) -> Double {
-        func words(_ text: String) -> Set<String> {
-            Set(text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
-        }
-        let a = words(first), b = words(second)
-        guard !a.isEmpty, !b.isEmpty else { return 0 }
-        return Double(a.intersection(b).count) / Double(a.union(b).count)
-    }
-
-    /// On laptop speakers the microphone also hears the other side. Drop a "You"
-    /// utterance that mostly overlaps an "Others" utterance and repeats its words.
+    /// On laptop speakers the microphone also hears the other side. Drop a "You" utterance
+    /// that mostly overlaps an "Others" utterance and repeats its words (SpeakerEcho.isEcho):
+    /// a fragment of three words or more inside a long utterance is dropped as well (#377).
     static func withoutEchoes(_ utterances: [Utterance]) -> [Utterance] {
-        let others = utterances.filter { $0.speaker == .others }
-        return utterances.filter { mine in
-            guard mine.speaker == .you else { return true }
-            let length = max(mine.end - mine.start, 0.001)
-            return !others.contains { theirs in
-                min(mine.end, theirs.end) - max(mine.start, theirs.start) >= 0.5 * length
-                    && similarity(mine.text, theirs.text) >= 0.5
-            }
-        }
+        func heard(_ utterance: Utterance) -> SpeakerEcho.Utterance { .init(start: utterance.start, end: utterance.end, text: utterance.text) }
+        let mine = utterances.indices.filter { utterances[$0].speaker == .you }
+        let echoes = SpeakerEcho.echoes(mine.map { heard(utterances[$0]) }, of: utterances.filter { $0.speaker == .others }.map(heard))
+        let dropped = Set(zip(mine, echoes).compactMap { $1 ? $0 : nil })
+        return utterances.indices.filter { !dropped.contains($0) }.map { utterances[$0] }
     }
 
-    /// Chronological turns; a speaker's consecutive utterances join into one turn.
+    /// Chronological turns; a speaker's consecutive utterances join into one turn across any
+    /// pause shorter than the one live turns use (LiveVoiceTurns.pauseSeconds).
     static func conversation(_ utterances: [Utterance]) -> String {
         var turns: [(speaker: Speaker, text: String, end: Double)] = []
         let ordered = withoutEchoes(utterances).sorted { ($0.start, $0.speaker.rawValue) < ($1.start, $1.speaker.rawValue) }
         for utterance in ordered {
             let text = utterance.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            if let last = turns.last, last.speaker == utterance.speaker, utterance.start - last.end < 2 {
+            if let last = turns.last, last.speaker == utterance.speaker, utterance.start - last.end < LiveVoiceTurns.pauseSeconds {
                 turns[turns.count - 1] = (last.speaker, last.text + " " + text, utterance.end)
             } else {
                 turns.append((utterance.speaker, text, utterance.end))

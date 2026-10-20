@@ -376,6 +376,13 @@ enum HomeJourneyChecks {
         try check(HomeMeetings.newest([dictation]) { _ in TranscriptMetadata() }.isEmpty, "no meeting shows the empty tile")
         let noted = HomeMeetings.newest([latestMeeting]) { _ in .init(purpose: .meeting, captureNotes: ["No audio was received from Zoom."]) }
         try check(noted.first?.note == "No audio was received from Zoom.", "a recording's first note, such as missing audio, travels with the meeting")
+        // A meeting Workbench finished keeps that note first; the tile shows what the recording lost (#377).
+        let silent = "No sound arrived from Zoom. If the others were audible, Workbench may not have been allowed to record system audio (Privacy & Security › Screen & System Audio Recording › System Audio Recording Only)."
+        let finishNote = MeetingSelfFinish.note(MeetingSelfFinish.callAudioEnded)
+        let selfFinished = HomeMeetings.newest([latestMeeting]) { _ in .init(purpose: .meeting, captureNotes: [finishNote, silent]) }
+        let onlyFinished = HomeMeetings.newest([latestMeeting]) { _ in .init(purpose: .meeting, captureNotes: [finishNote]) }
+        try check(finishNote.hasPrefix(MeetingSelfFinish.prefix) && selfFinished.first?.note == silent && onlyFinished.first?.note == finishNote,
+                  "a self-finished meeting's tile shows its silent-app note, and the finish note only when it is the only one")
         try check(HomeMeetings.recap("# Follow-up for Sam\n\n- Maya sends the agenda.\n**Decision:** launch Friday.") == "Follow-up for Sam · Maya sends the agenda. · Decision: launch Friday.",
                   "a follow-up's opening lines read as plain sentences")
         let many = (0..<6).map { Transcript(date: Date(timeIntervalSince1970: Double($0)), text: "m", seconds: 60) }
@@ -405,6 +412,26 @@ enum HomeJourneyChecks {
                   && HomeMeetings.followUpState(.completed) == "Follow-up completed" && HomeMeetings.followUpState(.failed) == "Follow-up failed"
                   && HomeMeetings.followUpState(.cancelled) == "Follow-up cancelled",
                   "a prepared follow-up never reads as ready; the others read as History's badges")
+        // A follow-up only prepared, as Copy instructions leaves one, has no way back but Start task. When
+        // it is exactly what the meeting's door prepares, its door stays Prepare follow-up…, which
+        // reopens it; prepared another way, or once it ran, it opens in History (#377).
+        var prepared = newerFollowUp
+        prepared.status = .ready; prepared.attempts = 0
+        let doorItem = HandoffInputRecord(reference: .init(kind: .transcript, id: latestMeeting.id), title: "Meeting · Sam",
+                                          capturedAt: latestMeeting.date, text: latestMeeting.text, originalText: latestMeeting.text, role: .reference, images: [])
+        let fromDoor = HandoffJobInputs(task: HomeMeetings.doorTask ?? "", items: [doorItem], skillID: MeetingFollowUp.skillID)
+        var edited = fromDoor; edited.task = "Draft a thank-you note."
+        var otherSkill = fromDoor; otherSkill.skillID = TranscriptHandoffSkills.followUpReference.id
+        var adopted = fromDoor; adopted.items[0].role = .instructions
+        var twoItems = fromDoor; twoItems.items.append(doorItem); twoItems.items[1].reference = .init(kind: .snap, id: UUID())
+        try check(HomeMeetings.doorTask?.isEmpty == false && !HomeMeetings.opensFollowUp(prepared, inputs: fromDoor, meeting: latestMeeting.id)
+                  && !HomeMeetings.opensFollowUp(nil, inputs: nil, meeting: latestMeeting.id)
+                  && [edited, otherSkill, adopted, twoItems].allSatisfy { HomeMeetings.opensFollowUp(prepared, inputs: $0, meeting: latestMeeting.id) }
+                  && HomeMeetings.opensFollowUp(prepared, inputs: fromDoor, meeting: earlierCall.id),
+                  "a follow-up the meeting's door prepared keeps Prepare follow-up…, which reopens it; one with another request, skill, role or item opens in History")
+        try check([HandoffJobStatus.running, .completed, .failed, .cancelled, .interrupted].allSatisfy { status in
+                      var ran = newerFollowUp; ran.status = status; return HomeMeetings.opensFollowUp(ran, inputs: fromDoor, meeting: latestMeeting.id) },
+                  "a follow-up that ran, finished or not, becomes Open follow-up")
         var finished = newerFollowUp
         finished.updatedAt = newerFollowUp.updatedAt.addingTimeInterval(30); finished.status = .completed
         try check(HomeMeetings.taskStamps([unrelated, newerFollowUp]) != HomeMeetings.taskStamps([unrelated, finished])

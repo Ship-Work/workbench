@@ -46,7 +46,19 @@ final class MeetingModel: ObservableObject {
         }
     }
     private var autoFinish = MeetingAutoFinish()
+    /// The guarded finish each recording starts with. Checks and the surface gallery shorten its
+    /// delays so a countdown arrives in seconds; the app keeps the defaults.
+    var autoFinishGuard = MeetingAutoFinish()
+    /// How often a recording's watcher reads its capture, half a second in the app. The guarded
+    /// finish and the call's activity are read every fourth tick.
+    var watchIntervalNanoseconds: UInt64 = 500_000_000
     private var recordingApp: MeetingAudioApp?
+    /// The detection failure last raised as the page's problem, so a failure that persists is
+    /// raised once rather than on every poll (#377).
+    private var detectionIssue: String?
+    /// The two-hour limit's warning while this recording is within five minutes of it
+    /// (MeetingTimeLimit), for the page's caption and every row that shows the recording live.
+    var timeLimitWarning: String? { isRecording ? MeetingTimeLimit.warning(elapsed: elapsed) : nil }
     /// The history writer reads these during saveTranscript; originals stay unchanged.
     @Published private(set) var pendingTranscriptNotes: [String] = []
     @Published var detectionEnabled: Bool {
@@ -155,6 +167,7 @@ final class MeetingModel: ObservableObject {
     /// objectWillChange read. It requests neither permission nor capture.
     func refreshAdmission() {
         if let hostAdmission { host = hostAdmission() }
+        let previousRefusal = admission.captureProblem
         let microphone = microphoneStatus()
         let speech = host.recognition.canTranscribe ? nil : MeetingProblem.speech(host.recognition.line)
         var refusal: MeetingProblem? = shuttingDown || host.closing ? .closing : speech
@@ -165,7 +178,9 @@ final class MeetingModel: ObservableObject {
             case .unavailable(let detail): refusal = .appAudioUnavailable(detail)
             case .unchecked: refusal = .sourceProbe("Refresh audio apps to check the selected source.")
             case .available:
-                if !apps.contains(where: { $0.id == selectedAppID }) { refusal = .sourceDisappeared }
+                if let app = apps.first(where: { $0.id == selectedAppID }) {
+                    if let reason = app.unavailableReason { refusal = .appAudioUnavailable(reason) }
+                } else { refusal = .sourceDisappeared }
             }
         }
         if refusal == nil, includeMicrophone {
@@ -179,6 +194,14 @@ final class MeetingModel: ObservableObject {
         if let problem, [.microphoneDenied, .microphoneRestricted, .microphoneUnconfirmed].contains(problem), microphone == .authorized { setProblem(nil) }
         // A start refused while speech was not ready is settled once it is.
         if case .speech? = problem, host.recognition.canTranscribe { setProblem(nil) }
+        // So is a start refused for its source (an app's call audio not available, a source gone)
+        // once admission no longer refuses it, as after refreshing the audio apps (#377).
+        if let problem, problem == previousRefusal, next.captureProblem != problem {
+            switch problem {
+            case .appAudioUnavailable, .sourceDisappeared, .sourceProbe, .noSource: setProblem(nil)
+            default: break
+            }
+        }
     }
 
     func updateHostAdmission(_ value: MeetingHostAdmission) { host = value; refreshAdmission() }
@@ -284,7 +307,7 @@ final class MeetingModel: ObservableObject {
         let token = UUID(); generation = token
         let microphone = includeMicrophone, kind = purpose == "call" ? "call" : "meeting"
         setProblem(nil); offer = nil; elapsed = 0; pendingTranscriptNotes = []; completedTranscriptID = nil; completedTranscriptText = nil; keptWithoutSpeech = nil; receipt = nil
-        autoFinish = MeetingAutoFinish(); autoFinishSeconds = nil; recordingApp = app; silenceHint = nil
+        autoFinish = autoFinishGuard; autoFinishSeconds = nil; recordingApp = app; silenceHint = nil
         notice = microphone ? "Waiting for microphone access…" : "Starting app audio… macOS may ask for Audio Recording access."
         phase(starting: true)
         voiceSession = LiveVoiceSnapshot(phase: .preparing)
@@ -380,7 +403,7 @@ final class MeetingModel: ObservableObject {
                     if audio.source != .local { evidence?.hear(audio.samples) }
                     input?.append(LiveVoiceAudio(source: audio.source == .local ? .microphone : .app,
                         samples: audio.samples, sampleRate: audio.sampleRate, start: audio.startSeconds))
-                }))
+                }, meetingTracks: MeetingDiskBudget.tracks(app: app != nil, microphone: microphone)))
             try check(token)
             notice = "Recording. Your original audio is being saved."
             voiceSession.phase = .listening
@@ -424,7 +447,11 @@ final class MeetingModel: ObservableObject {
         await finishCapture(process: true)
     }
 
-    func keepRecording() {
+    /// Cancels the automatic finish for this recording, during its countdown only. A click that
+    /// lands after the countdown ended, or on a later recording than the one it was shown for, does
+    /// nothing, so it cannot quietly switch automatic finish off for the rest of a call (#377).
+    func keepRecording(expected: UUID? = nil) {
+        guard isRecording, autoFinishSeconds != nil, expected == nil || recordingIdentity == expected else { return }
         autoFinish.keepRecording(); autoFinishSeconds = nil
     }
 
@@ -466,7 +493,9 @@ final class MeetingModel: ObservableObject {
         }
     }
 
-    private func finishCapture(process: Bool, reason: String? = nil) async {
+    /// `reason` is why the recording stopped and becomes its failure and first note; `note` is a
+    /// note alone, such as Workbench finishing a call whose audio ended, which is not a failure.
+    private func finishCapture(process: Bool, reason: String? = nil, note: String? = nil) async {
         guard let capture = activeCapture, let session = activeSession, let manifest = activeManifest else { return }
         watcher?.cancel(); watcher = nil
         autoFinishSeconds = nil
@@ -493,7 +522,7 @@ final class MeetingModel: ObservableObject {
                     checkpoint!.complete = false
                     try LiveVoiceJournal.save(checkpoint!, to: session.appendingPathComponent("live-transcript.json"))
                 }
-                try await self.persistStopped(report, session: session, previous: manifest, reason: reason ?? report.failure)
+                try await self.persistStopped(report, session: session, previous: manifest, reason: reason ?? report.failure, note: note)
                 self.activeCapture = nil; self.activeSession = nil; self.activeManifest = nil
                 self.elapsed = report.seconds
                 try self.check(token)
@@ -520,10 +549,11 @@ final class MeetingModel: ObservableObject {
     }
 
     private func persistStopped(_ report: MeetingCaptureReport, session: URL,
-                                previous: MeetingManifest, reason: String?) async throws {
+                                previous: MeetingManifest, reason: String?, note: String? = nil) async throws {
         var next = previous
         next.state = .stopped; next.tracks = report.tracks; next.seconds = report.seconds
         next.failure = reason
+        if let note { next.gaps.append(note) }
         if let reason, !reason.isEmpty { next.gaps.append(reason) }
         next.gaps += report.gaps
         // Cancellation never cancels the small atomic finalisation write.
@@ -644,10 +674,11 @@ final class MeetingModel: ObservableObject {
 
     private func watch(_ capture: MeetingCapture, token: UUID) {
         watcher?.cancel()
+        let interval = watchIntervalNanoseconds
         watcher = Task { [weak self] in
             var ticks = 0
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+                do { try await Task.sleep(nanoseconds: interval) } catch { return }
                 guard let self, self.generation == token, self.isRecording else { return }
                 self.elapsed = capture.elapsedSeconds
                 self.voiceSession.elapsed = self.elapsed
@@ -678,9 +709,10 @@ final class MeetingModel: ObservableObject {
                 // A meeting that ends itself (the time limit, a source that could not reconnect, microphone
                 // access removed) finishes like Finish meeting, with the reason as a note. Low disk keeps
                 // the recording for later, and if processing fails it falls back to Kept for later as before.
-                if let reason { await self.finishCapture(process: !lowDisk, reason: reason); return }
+                // Every note says Workbench finished it, the call whose audio ended too (#377).
+                if let reason { await self.finishCapture(process: !lowDisk, reason: MeetingSelfFinish.note(reason)); return }
                 if self.autoFinishSeconds == 0 {
-                    await self.finishCapture(process: true); return
+                    await self.finishCapture(process: true, note: MeetingSelfFinish.note(MeetingSelfFinish.callAudioEnded)); return
                 }
             }
         }
@@ -739,7 +771,15 @@ final class MeetingModel: ObservableObject {
             || host.captureProblem != nil || mayStart?() != nil
         let next = detector.evaluate()
         if next != offer { offer = next }
-        if let issue = detector.lastError, !isBusy, problem != .unknown(issue) { error = issue }
+        // A metadata failure becomes the page's problem once, when it appears, and only while no
+        // other problem shows; a later successful read takes back the one it raised (#377). Before,
+        // the same message came back every three seconds, over any other problem and after its ×,
+        // and kept coming while no poll read anything new (snoozed or suppressed detection).
+        let issue = detector.lastError
+        guard issue != detectionIssue, !isBusy else { return }
+        if let raised = detectionIssue, problem == .unknown(raised) { setProblem(nil) }
+        detectionIssue = issue
+        if let issue, problem == nil { setProblem(.unknown(issue)) }
     }
 
     /// Chooses the offered source for review. A call on this Mac is saved as a Call; a later
@@ -791,6 +831,8 @@ final class MeetingModel: ObservableObject {
 
     func dismissOffer() { if let offer { detector.dismiss(offer) }; offer = nil }
     func snoozeOffers() { detector.snooze(); offer = nil }
+    /// When call offers are snoozed, the line the detection setting shows until the snooze ends (#377).
+    var offerSnoozeLine: String? { detector.snoozeLine() }
 
     /// The app's terminateLater hook awaits this before replying to macOS.
     func prepareForShutdown() async {
@@ -809,6 +851,39 @@ final class MeetingModel: ObservableObject {
         detectionTask?.cancel(); watcher?.cancel()
         Task { await prepareForShutdown() }
     }
+}
+
+/// The two-hour limit as the person sees it coming (#377). The warning starts five minutes before
+/// Workbench finishes the recording itself. Paused and reconnecting time count, as they do on the
+/// clock the page shows: a recording keeps one timeline, and a pause is written into both tracks as
+/// silence once audio returns, so it costs the disk and the recognition the limit protects. The
+/// writer, the segment plan and recovery all bound that same timeline (MeetingSegmentPlan).
+enum MeetingTimeLimit {
+    static let warningSeconds = 300.0
+
+    /// "Finishes at 2 hours in 5 min" from five minutes before the limit; nil before then. Whole
+    /// minutes count down, so "in 1 min" means at least a minute is left, and below that it says
+    /// "under a minute".
+    static func warning(elapsed: Double) -> String? {
+        let remaining = MeetingSegmentPlan.maximumMeetingSeconds - elapsed
+        guard remaining <= warningSeconds else { return nil }
+        return "Finishes at 2 hours in " + (remaining < 60 ? "under a minute" : "\(max(1, Int(remaining / 60))) min")
+    }
+
+    /// The words beside a recording's elapsed time: the warning, else the limit, which says that
+    /// pauses count while the recording is paused or reconnecting.
+    static func caption(elapsed: Double, paused: Bool) -> String {
+        warning(elapsed: elapsed) ?? (paused ? "Up to 2 hours, pauses included" : "Up to 2 hours")
+    }
+}
+
+/// The saved note for a recording that Workbench finished rather than the person (#377): that it
+/// did, then why, so the transcript read later in History says why its words end there.
+enum MeetingSelfFinish {
+    /// How every such note begins, so Home can rank it after a note about what the recording lost.
+    static let prefix = "Workbench finished this recording itself."
+    static let callAudioEnded = "The call app stopped using audio."
+    static func note(_ why: String) -> String { prefix + " " + why }
 }
 
 /// Writes call audio's record once, from the first app samples that carry sound. A refused tap

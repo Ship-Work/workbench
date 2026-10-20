@@ -156,24 +156,23 @@ struct LiveTranscriptText: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let text = scroll.documentView as? NSTextView else { return }
+        guard let text = scroll.documentView as? NSTextView, let storage = text.textStorage else { return }
         context.coordinator.reportLatest = { value in
             DispatchQueue.main.async { if atLatest != value { atLatest = value } }
         }
-        let follow = text.string.isEmpty || Self.isAtLatest(scroll)
+        let follow = storage.length == 0 || Self.isAtLatest(scroll)
         let selected = text.selectedRange(), position = scroll.contentView.bounds.origin
-        let value = attributedText().text
-        if !text.attributedString().isEqual(to: value) {
-            text.textStorage?.setAttributedString(value)
-            text.setSelectedRange(NSRange(location: min(selected.location, value.length),
-                                          length: min(selected.length, max(0, value.length - selected.location))))
+        if context.coordinator.show(segments: segments, conversation: conversation, completedText: completedText, in: storage) {
+            let length = storage.length
+            text.setSelectedRange(NSRange(location: min(selected.location, length),
+                                          length: min(selected.length, max(0, length - selected.location))))
             text.layoutManager?.ensureLayout(for: text.textContainer!)
             if follow && selected.length == 0 { text.scrollToEndOfDocument(nil) }
             else { scroll.contentView.scroll(to: position); scroll.reflectScrolledClipView(scroll.contentView) }
         }
         if context.coordinator.latestRequest != latestRequest {
             context.coordinator.latestRequest = latestRequest
-            text.setSelectedRange(NSRange(location: value.length, length: 0))
+            text.setSelectedRange(NSRange(location: storage.length, length: 0))
             text.scrollToEndOfDocument(nil)
         }
     }
@@ -200,39 +199,94 @@ struct LiveTranscriptText: NSViewRepresentable {
         guard let document = scroll.documentView else { return true }
         return document.bounds.height - scroll.contentView.bounds.maxY < 30
     }
-    private func attributedText() -> (text: NSAttributedString, whole: Bool) {
-        Self.attributedText(segments: segments, conversation: conversation, completedText: completedText, limit: .max)
-    }
     /// The first `limit` turns, or about `limit` turns' worth of a saved transcript, and whether that was all of it.
-    private static func attributedText(segments: [LiveVoiceSegment], conversation: Bool, completedText: String?,
-                                       limit: Int) -> (text: NSAttributedString, whole: Bool) {
-        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 5; paragraph.paragraphSpacing = 12
-        // Dictate's editor reads at the title 3 size (15 pt standard); both grow with larger text.
-        let body: [NSAttributedString.Key: Any] = [.font: NSFont.preferredFont(forTextStyle: .title3), .foregroundColor: NSColor.labelColor,
-                                                   .paragraphStyle: paragraph]
+    fileprivate static func attributedText(segments: [LiveVoiceSegment], conversation: Bool, completedText: String?,
+                                           limit: Int) -> (text: NSAttributedString, whole: Bool) {
+        let style = TurnStyle()
         if let completedText {
             let prefix = completedText.prefix(limit > Int.max / 200 ? Int.max : limit * 200)
-            return (NSAttributedString(string: String(prefix), attributes: body), prefix.endIndex == completedText.endIndex)
+            return (NSAttributedString(string: String(prefix), attributes: style.body), prefix.endIndex == completedText.endIndex)
         }
         let result = NSMutableAttributedString()
-        for (index, segment) in segments.prefix(limit).enumerated() {
-            if index > 0 { result.append(NSAttributedString(string: conversation ? "\n\n" : " ", attributes: body)) }
-            if conversation {
-                let minutes = max(0, Int(segment.start)) / 60, seconds = max(0, Int(segment.start)) % 60
-                result.append(NSAttributedString(string: "\(segment.source.label)  ·  \(minutes):\(String(format: "%02d", seconds))\n",
-                    attributes: [.font: NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .medium),
-                                 .foregroundColor: NSColor.secondaryLabelColor]))
-            }
-            var style = body
-            if !segment.isFinal { style[.foregroundColor] = NSColor.secondaryLabelColor }
-            result.append(NSAttributedString(string: segment.text, attributes: style))
-        }
+        for index in segments.indices.prefix(limit) { append(index, of: segments, conversation: conversation, style: style, to: result) }
         return (result, limit >= segments.count)
     }
+
+    fileprivate struct TurnStyle {
+        let body: [NSAttributedString.Key: Any]
+        let label: [NSAttributedString.Key: Any]
+        init() {
+            let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 5; paragraph.paragraphSpacing = 12
+            // Dictate's editor reads at the title 3 size (15 pt standard); both grow with larger text.
+            body = [.font: NSFont.preferredFont(forTextStyle: .title3), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+            label = [.font: NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize, weight: .medium),
+                     .foregroundColor: NSColor.secondaryLabelColor]
+        }
+    }
+
+    /// The words a speaker has not yet confirmed carry on their confirmed turn (#377): the same
+    /// paragraph, quieter, rather than a second speaker line at every commit while they talk.
+    static func continues(_ turn: LiveVoiceSegment, with next: LiveVoiceSegment) -> Bool {
+        turn.source == next.source && turn.isFinal && !next.isFinal && next.start - turn.end < LiveVoiceTurns.pauseSeconds
+    }
+
+    /// One turn after its separator from the turn before; in a conversation, under its speaker line.
+    fileprivate static func append(_ index: Int, of segments: [LiveVoiceSegment], conversation: Bool,
+                                   style: TurnStyle, to result: NSMutableAttributedString) {
+        let segment = segments[index]
+        let paragraph = conversation && !(index > 0 && continues(segments[index - 1], with: segment))
+        if index > 0 { result.append(NSAttributedString(string: paragraph ? "\n\n" : " ", attributes: style.body)) }
+        if paragraph {
+            // With hours once the meeting has any, as the page's clock reads (#377).
+            let whole = max(0, Int(segment.start))
+            let at = whole < 3_600 ? "\(whole / 60):\(String(format: "%02d", whole % 60))"
+                : String(format: "%d:%02d:%02d", whole / 3_600, whole % 3_600 / 60, whole % 60)
+            result.append(NSAttributedString(string: "\(segment.source.label)  ·  \(at)\n", attributes: style.label))
+        }
+        var body = style.body
+        if !segment.isFinal { body[.foregroundColor] = NSColor.secondaryLabelColor }
+        result.append(NSAttributedString(string: segment.text, attributes: body))
+    }
+
     final class Coordinator {
         var latestRequest = 0
         var reportLatest: ((Bool) -> Void)?
         var observation: NSObjectProtocol?
+        /// The turns the text holds and where each one ends, so an update rewrites only from the
+        /// first turn that changed (#377). Live words change at the end several times a second;
+        /// rebuilding and comparing a two-hour transcript for each change held the main thread.
+        private var shown: [LiveVoiceSegment] = []
+        private var ends: [Int] = []
+        private var shownConversation = false
+        private var shownCompleted: String?
         deinit { if let observation { NotificationCenter.default.removeObserver(observation) } }
+
+        /// Brings the text to these turns, or to the saved transcript; false when it already shows them.
+        func show(segments: [LiveVoiceSegment], conversation: Bool, completedText: String?, in storage: NSTextStorage) -> Bool {
+            if let completedText {
+                guard completedText != shownCompleted else { return false }
+                storage.setAttributedString(LiveTranscriptText.attributedText(segments: [], conversation: conversation,
+                                                                              completedText: completedText, limit: .max).text)
+                shown = []; ends = []; shownCompleted = completedText
+                return true
+            }
+            var first = 0
+            if shownCompleted == nil, shownConversation == conversation, ends.count == shown.count, (ends.last ?? 0) == storage.length {
+                let common = min(shown.count, segments.count)
+                while first < common, shown[first] == segments[first] { first += 1 }
+                if first == shown.count, first == segments.count { return false }
+            }
+            // A turn's separator depends on the turn before it, which is unchanged here.
+            let keep = first == 0 ? 0 : ends[first - 1], style = TurnStyle()
+            let changed = NSMutableAttributedString()
+            var next = Array(ends.prefix(first))
+            for index in first..<segments.count {
+                LiveTranscriptText.append(index, of: segments, conversation: conversation, style: style, to: changed)
+                next.append(keep + changed.length)
+            }
+            storage.replaceCharacters(in: NSRange(location: keep, length: storage.length - keep), with: changed)
+            shown = segments; ends = next; shownConversation = conversation; shownCompleted = nil
+            return true
+        }
     }
 }
