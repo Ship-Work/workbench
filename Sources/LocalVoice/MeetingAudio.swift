@@ -590,14 +590,12 @@ final class MeetingProcessTap: @unchecked Sendable {
     init(app: MeetingAudioApp) throws {
         guard let selected = MeetingCoreAudio.processObject(for: pid_t(app.id)),
               let bundle = MeetingCoreAudio.bundleID(of: selected),
-              (MeetingAppCatalogue.known(bundle)?.bundleID ?? bundle) == app.bundleID,
+              MeetingCoreAudio.owner(of: selected) == app.bundleID,
               !MeetingAppCatalogue.isExcluded(bundle), app.id != ProcessInfo.processInfo.processIdentifier else {
             throw MeetingError.message("That app is not producing audio on this Mac right now. Start its call, then choose it again.")
         }
-        let processes = try MeetingCoreAudio.processObjectsChecked().filter { object in
-            guard let bundle = MeetingCoreAudio.bundleID(of: object) else { return false }
-            return (MeetingAppCatalogue.known(bundle)?.bundleID ?? bundle) == app.bundleID
-        }
+        // The app's own processes and attributed helpers, and the service that plays its calls (#377).
+        let processes = try MeetingCoreAudio.processObjectsChecked().filter { MeetingCoreAudio.isTapped($0, for: app.bundleID) }
         guard processes.contains(selected) else {
             throw MeetingError.message("The selected audio process changed before recording. Choose it again.")
         }
@@ -935,7 +933,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
     private func currentApp(_ original: MeetingAudioApp) throws -> MeetingAudioApp {
         func matches(_ object: AudioObjectID) -> Bool {
             guard let bundle = MeetingCoreAudio.bundleID(of: object), !MeetingAppCatalogue.isExcluded(bundle) else { return false }
-            return (MeetingAppCatalogue.known(bundle)?.bundleID ?? bundle) == original.bundleID
+            return MeetingCoreAudio.owner(of: object) == original.bundleID
         }
         if let object = MeetingCoreAudio.processObject(for: original.id), matches(object) { return original }
         for object in try MeetingCoreAudio.processObjectsChecked() where matches(object) {
