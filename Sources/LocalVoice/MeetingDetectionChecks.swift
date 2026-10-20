@@ -1,10 +1,12 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 
 /// The detection and admission defects of #377, each held where it was wrong. Synthetic process
-/// metadata and a synthetic capture only: nothing here reads a real process, asks a permission,
-/// opens a tap or microphone, or plays a sound. The disk check writes a few seconds of synthetic
-/// PCM through the real track writer in a temporary folder.
+/// metadata and a synthetic capture only: nothing here lists audio processes, asks a permission,
+/// opens a tap or microphone, or plays a sound. One check resolves the responsible-app lookup
+/// and asks it about launchd (docs/desktop.md, Decisions), and the disk check writes a few
+/// seconds of synthetic PCM through the real track writer in a temporary folder.
 @MainActor
 enum MeetingDetectionChecks {
     static func run(root: URL) async throws -> Int {
@@ -14,6 +16,8 @@ enum MeetingDetectionChecks {
             checks += 1
         }
         try safariChecks(expect: expect)
+        try attributionChecks(expect: expect)
+        try tapScopeChecks(expect: expect)
         try callServiceChecks(expect: expect)
         try await snoozeChecks(root: root, expect: expect)
         try await representativeChecks(root: root, expect: expect)
@@ -81,6 +85,60 @@ enum MeetingDetectionChecks {
         for _ in 0..<4 { _ = helperOnly.evaluate() }
         try expect(helperOnly.evaluate() == nil && helperOnly.availableApps().map(\.bundleID) == [gpu],
                    "without attribution the same process is the shared WebKit service and nothing is offered as Safari")
+    }
+
+    /// The responsible-app lookup resolves here and fails closed; without it Safari is never
+    /// offered and its picker entry says its calls are not supported, rather than recording silence.
+    private static func attributionChecks(expect: (Bool, String) throws -> Void) throws {
+        try expect(MeetingResponsibleApp.isAvailable, "the responsible-app lookup resolves from libSystem on this macOS (docs/desktop.md, Decisions)")
+        try expect(MeetingResponsibleApp.bundleID(for: 1) == nil && MeetingResponsibleApp.bundleID(for: -5) == nil,
+                   "launchd, responsible for itself, and a process that does not exist attribute to no app")
+        let safari = "com.apple.Safari"
+        try expect(MeetingAppCatalogue.unsupportedReason(safari, attributesHelpers: true) == nil
+                   && MeetingAppCatalogue.unsupportedReason(safari, attributesHelpers: false)?.hasPrefix("Safari calls can't be recorded on this Mac") == true
+                   && MeetingAppCatalogue.unsupportedReason("com.google.Chrome", attributesHelpers: false) == nil,
+                   "only an app whose calls play in shared helpers depends on attribution")
+        let source = Fixture()
+        source.attributesHelpers = false
+        source.values = [.init(pid: 760, bundleID: safari, isRunningInput: true, isRunningOutput: true),
+                         .init(pid: 761, bundleID: "com.apple.WebKit.GPU", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        let detector = MeetingDetector(source: source)
+        detector.isEnabled = true
+        for _ in 0..<4 { _ = detector.evaluate() }
+        let safariChoice = detector.availableApps().first { $0.bundleID == safari }
+        try expect(detector.evaluate() == nil && safariChoice?.name == "Safari (calls not supported on this Mac)",
+                   "without attribution Safari is never offered, and its picker entry says its calls are not supported here")
+    }
+
+    /// Capture binds to and taps processes by the same ownership the picker lists, as a pure rule.
+    private static func tapScopeChecks(expect: (Bool, String) throws -> Void) throws {
+        let safari = "com.apple.Safari", gpu = "com.apple.WebKit.GPU"
+        let processes: [MeetingTapScope.Process] = [
+            .init(object: 11, pid: 770, bundleID: safari),
+            .init(object: 12, pid: 771, bundleID: gpu, responsibleBundleID: safari),
+            .init(object: 13, pid: 772, bundleID: gpu, responsibleBundleID: "com.apple.mail"),
+            .init(object: 14, pid: 773, bundleID: gpu),
+            .init(object: 15, pid: 774, bundleID: "com.apple.avconferenced"),
+            .init(object: 16, pid: 775, bundleID: "com.apple.FaceTime"),
+            .init(object: 17, pid: 776, bundleID: "com.google.Chrome.helper"),
+            .init(object: 18, pid: 777, bundleID: "com.google.Chrome"),
+            .init(object: 19, pid: 778, bundleID: "com.ethdawg.workbench.preview")
+        ]
+        func tapped(_ bundle: String) -> [AudioObjectID] { MeetingTapScope.tapped(for: bundle, among: processes).map(\.object) }
+        try expect(tapped(safari) == [11, 12] && tapped(gpu) == [13, 14] && tapped("com.apple.FaceTime") == [15, 16]
+                   && tapped("com.apple.avconferenced") == [15] && tapped("com.google.Chrome") == [17, 18],
+                   "Safari taps itself and its own WebKit helper, the shared WebKit source every other app's, FaceTime itself and the calling service")
+        func bound(_ id: Int32, _ bundle: String, own: Int32 = 1) -> Int32? {
+            MeetingTapScope.representative(of: MeetingAudioApp(id: id, name: "", bundleID: bundle), among: processes, own: own)?.pid
+        }
+        try expect(bound(771, safari) == 771 && bound(999, safari) == 770 && bound(741, "com.google.Chrome") == 776,
+                   "a recording binds to its listed process while it is the app's, and otherwise finds the app's current process by bundle")
+        try expect(bound(774, "com.apple.FaceTime") == 775 && bound(772, safari) == 770
+                   && MeetingTapScope.representative(of: MeetingAudioApp(id: 775, name: "", bundleID: "com.apple.FaceTime"),
+                                                     among: processes.filter { $0.pid != 775 }, own: 1) == nil,
+                   "a call service or another app's helper is never an app's own process, so FaceTime without its process cannot bind")
+        try expect(bound(778, "com.ethdawg.workbench.preview") == nil && bound(777, "com.google.Chrome", own: 777) == 776,
+                   "Workbench and its own process never bind")
     }
 
     /// FaceTime and Phone calls play in the Mac calling service, which their own processes never hold.
@@ -187,14 +245,40 @@ enum MeetingDetectionChecks {
         source.values = []
         model.refreshApps()
         try expect(model.admission.captureProblem == .sourceDisappeared, "an app that quit still reads as no longer available")
+        source.uptime += 10
         source.values = [.init(pid: 750, bundleID: chrome, isRunningInput: false, isRunningOutput: false)]
         model.refreshApps()
-        try expect(model.apps.first { $0.bundleID == chrome }?.id == 750, "a relaunched app is listed by its new process")
-        source.failure = true; model.refreshApps(); source.failure = false
-        source.values = [.init(pid: 751, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 741 && model.admission.canStart,
+                   "the same app back within 30 seconds is the chosen source again")
+        source.values = []
+        model.refreshApps(); source.uptime += 31; model.refreshApps()
+        source.values = [.init(pid: 752, bundleID: chrome, isRunningInput: false, isRunningOutput: false)]
         model.refreshApps()
-        try expect(model.apps.first { $0.bundleID == chrome }?.id == 750, "a failed read forgets nothing it could not see")
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 752 && model.admission.captureProblem == .sourceDisappeared,
+                   "an app gone for over 30 seconds is listed afresh, and the old choice is not quietly revived")
+        source.failure = true; source.uptime += 60; model.refreshApps(); source.failure = false
+        source.values = [.init(pid: 753, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        model.refreshApps()
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 752, "a failed read forgets nothing it could not see")
         await model.prepareForShutdown()
+
+        // The review's case: a source listed only through a helper that is gone for more than one
+        // three-second poll. Polls and the picker both read during the gap.
+        let gap = Fixture()
+        let polls = MeetingModel(directory: root.appendingPathComponent("helper-gap"), defaults: defaults, processSource: gap,
+                                 transcribe: { _ in "unused" }, microphonePermission: { true }, captureFactory: { capture })
+        polls.detectionEnabled = true
+        gap.values = [.init(pid: 790, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        polls.refreshApps(); polls.selectAudioSource(790)
+        gap.values = []
+        for _ in 0..<3 { gap.uptime += 3; polls.refreshDetection(); polls.refreshApps() }
+        try expect(polls.admission.captureProblem == .sourceDisappeared, "while no Chrome process is listed the choice says so")
+        gap.values = [.init(pid: 791, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        gap.uptime += 1; polls.refreshDetection(); polls.refreshApps()
+        try expect(polls.admission.canStart && polls.apps.first { $0.bundleID == chrome }?.id == 790,
+                   "a helper gone for ten seconds, across several polls, comes back as the chosen source (#377)")
+        polls.detectionEnabled = false
+        await polls.prepareForShutdown()
     }
 
     /// Finish when call audio ends reads activity only for catalogue apps and the calling service.
@@ -271,6 +355,8 @@ enum MeetingDetectionChecks {
         var unavailableReason = "Synthetic unavailable metadata"
         var values: [MeetingProcessSnapshot] = []
         var failure = false
+        var attributesHelpers = true
+        var uptime: TimeInterval = 1_000
         func snapshot() throws -> [MeetingProcessSnapshot] {
             if failure { throw MeetingError.message("Synthetic metadata failure") }
             return values

@@ -588,17 +588,13 @@ final class MeetingProcessTap: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.ethdawg.workbench.meeting.tap", qos: .userInitiated)
 
     init(app: MeetingAudioApp) throws {
-        guard let selected = MeetingCoreAudio.processObject(for: pid_t(app.id)),
-              let bundle = MeetingCoreAudio.bundleID(of: selected),
-              MeetingCoreAudio.owner(of: selected) == app.bundleID,
-              !MeetingAppCatalogue.isExcluded(bundle), app.id != ProcessInfo.processInfo.processIdentifier else {
+        // One read of the process list: the bound process, and every process the app's tap takes
+        // (its own processes and attributed helpers, and the service that plays its calls, #377).
+        let current = try MeetingCoreAudio.tapProcesses()
+        guard let selected = MeetingTapScope.representative(of: app, among: current), selected.pid == app.id else {
             throw MeetingError.message("That app is not producing audio on this Mac right now. Start its call, then choose it again.")
         }
-        // The app's own processes and attributed helpers, and the service that plays its calls (#377).
-        let processes = try MeetingCoreAudio.processObjectsChecked().filter { MeetingCoreAudio.isTapped($0, for: app.bundleID) }
-        guard processes.contains(selected) else {
-            throw MeetingError.message("The selected audio process changed before recording. Choose it again.")
-        }
+        let processes = MeetingTapScope.tapped(for: app.bundleID, among: current).map(\.object)
         let description = CATapDescription(monoMixdownOfProcesses: processes)
         description.name = "Workbench meeting capture"
         description.uuid = UUID()
@@ -931,17 +927,13 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
     /// Only the explicitly chosen app's bundle may be rebound. A restarted
     /// process never broadens capture to all Mac audio or a different app.
     private func currentApp(_ original: MeetingAudioApp) throws -> MeetingAudioApp {
-        func matches(_ object: AudioObjectID) -> Bool {
-            guard let bundle = MeetingCoreAudio.bundleID(of: object), !MeetingAppCatalogue.isExcluded(bundle) else { return false }
-            return MeetingCoreAudio.owner(of: object) == original.bundleID
+        if let reason = MeetingAppCatalogue.unsupportedReason(original.bundleID, attributesHelpers: MeetingResponsibleApp.isAvailable) {
+            throw MeetingError.message(reason)
         }
-        if let object = MeetingCoreAudio.processObject(for: original.id), matches(object) { return original }
-        for object in try MeetingCoreAudio.processObjectsChecked() where matches(object) {
-            if let pid = MeetingCoreAudio.processID(of: object), pid != ProcessInfo.processInfo.processIdentifier {
-                return MeetingAudioApp(id: pid, name: original.name, bundleID: original.bundleID)
-            }
+        guard let process = MeetingTapScope.representative(of: original, among: try MeetingCoreAudio.tapProcesses()) else {
+            throw MeetingError.message("The selected app is not supplying audio on this Mac.")
         }
-        throw MeetingError.message("The selected app is not supplying audio on this Mac.")
+        return process.pid == original.id ? original : MeetingAudioApp(id: process.pid, name: original.name, bundleID: original.bundleID)
     }
 
     /// Starts, or rebuilds, only the given routes; the other's tap or engine and token are untouched.
