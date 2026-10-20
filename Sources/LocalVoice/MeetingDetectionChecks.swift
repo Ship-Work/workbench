@@ -14,6 +14,7 @@ enum MeetingDetectionChecks {
         }
         try safariChecks(expect: expect)
         try callServiceChecks(expect: expect)
+        try await snoozeChecks(root: root, expect: expect)
         try await representativeChecks(root: root, expect: expect)
         return checks
     }
@@ -105,6 +106,48 @@ enum MeetingDetectionChecks {
                    "the calling service's audio is offered as a call on this Mac, never as FaceTime")
         source.values[1].isRunningInput = false; source.values[1].isRunningOutput = false
         try expect(detector.activity(for: faceTime) == .inactive, "the call service going quiet reads as FaceTime's call ending")
+    }
+
+    /// Snooze hid offers with nothing on screen, and outlived turning detection off and on.
+    private static func snoozeChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let source = Fixture()
+        let detector = MeetingDetector(source: source)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        detector.isEnabled = true
+        detector.snooze(now: now)
+        let until = now.addingTimeInterval(2 * 60 * 60)
+        try expect(detector.snoozeLine(now: now.addingTimeInterval(60)) == "Call offers are snoozed until \(until.formatted(date: .omitted, time: .shortened)).",
+                   "the Meetings page can say offers are snoozed and when that ends (#377)")
+        try expect(detector.snoozeLine(now: until) == nil, "the line goes when the snooze ends")
+        source.values = [.init(pid: 730, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true)]
+        _ = detector.evaluate(now: until); _ = detector.evaluate(now: until)
+        try expect(detector.evaluate(now: until)?.id == 730 && detector.snoozedUntil == nil, "an ended snooze is cleared, not kept")
+        detector.snooze(now: now)
+        detector.isEnabled = false
+        try expect(detector.snoozeLine(now: now) == nil && detector.snoozedUntil == nil, "turning detection off clears the snooze and its line")
+
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingSnooze-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = MeetingModel(directory: root.appendingPathComponent("snooze"), defaults: defaults, processSource: source,
+                                 transcribe: { _ in "unused" }, microphonePermission: { true }, captureFactory: { Capture() })
+        model.detectionEnabled = true
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(model.offer?.id == 730, "a sustained call is offered")
+        model.snoozeOffers()
+        for _ in 0..<4 { model.refreshDetection() }
+        try expect(model.offer == nil, "Snooze holds offers")
+        model.detectionEnabled = false; model.detectionEnabled = true
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(model.offer?.id == 730, "turning detection off and on clears a snooze, so the call is offered again (#377)")
+        model.dismissOffer()
+        for _ in 0..<4 { model.refreshDetection() }
+        try expect(model.offer == nil, "Not now holds this app's offers")
+        model.detectionEnabled = false; model.detectionEnabled = true
+        for _ in 0..<3 { model.refreshDetection() }
+        try expect(model.offer?.id == 730, "turning detection off and on also clears Not now")
+        model.detectionEnabled = false
+        await model.prepareForShutdown()
     }
 
     /// The chosen app is held by one process number; a running app read as no longer available

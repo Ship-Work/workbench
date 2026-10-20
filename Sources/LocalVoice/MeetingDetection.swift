@@ -129,8 +129,12 @@ final class MeetingDetector {
     /// nothing persists them.
     var disabledBundleIDs: Set<String> = []
     var snoozedUntil: Date?
-    /// Detection stays off until the person turns it on.
-    var isEnabled = false { didSet { if !isEnabled { forgetObservations() } } }
+    /// Detection stays off until the person turns it on. Turning it off also forgets Snooze and
+    /// every Not now, so turning it on again offers afresh; before, a snooze outlived the switch
+    /// and kept every offer away with nothing on screen (#377).
+    var isEnabled = false {
+        didSet { if !isEnabled { forgetObservations(); snoozedUntil = nil; cooldowns.removeAll() } }
+    }
     /// Suppresses offers while a recording or transcription is already running.
     var isSuppressed = false { didSet { if isSuppressed { forgetObservations() } } }
     private(set) var lastError: String?
@@ -237,7 +241,10 @@ final class MeetingDetector {
     /// been running audio input for several consecutive steps.
     func evaluate(now: Date = Date()) -> MeetingAudioApp? {
         guard isEnabled, !isSuppressed, source.isAvailable else { return nil }
-        if let snoozedUntil, snoozedUntil > now { streaks.removeAll(); return nil }
+        if let until = snoozedUntil {
+            if until > now { streaks.removeAll(); return nil }
+            snoozedUntil = nil
+        }
         var candidates: [String: MeetingAudioApp] = [:]
         // A failed read forgets the streaks but keeps the listed numbers: nothing was seen to go.
         guard let processes = read() else { return nil }
@@ -293,6 +300,17 @@ final class MeetingDetector {
     func snooze(now: Date = Date()) {
         snoozedUntil = now.addingTimeInterval(options.snoozeDuration)
         streaks.removeAll()
+    }
+
+    /// The Meetings page's one line while Snooze holds every offer, with the time it ends (#377).
+    /// Nil while detection is off and once the snooze is over.
+    func snoozeLine(now: Date = Date()) -> String? {
+        guard isEnabled, let until = snoozedUntil, until > now else { return nil }
+        return Self.snoozeLine(until: until)
+    }
+
+    static func snoozeLine(until: Date) -> String {
+        "Call offers are snoozed until \(until.formatted(date: .omitted, time: .shortened))."
     }
 
     func disable(_ app: MeetingAudioApp) {
