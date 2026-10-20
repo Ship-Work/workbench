@@ -302,6 +302,15 @@ enum MeetingChecks {
             .init(speaker: .others, start: 5, end: 6, text: "Thanks")]
         try expect(MeetingConversation.conversation(heard) == "Others: Can you send the draft by Friday\n\nYou: Yes I will and copy Sam\n\nOthers: Thanks",
                    "speaker turns are chronological, a speaker echo is dropped and a reply is kept")
+        // A short microphone fragment inside a long remote utterance is the same echo (#377). A reply the
+        // other side did not say then is kept, even "Yes" when they said it at the start of their turn.
+        let longTurn = "Yes we need to agree the plan today so first the budget needs to go to finance by Friday and then the slides go to Sam next week"
+        let fragments: [MeetingConversation.Utterance] = [
+            .init(speaker: .others, start: 0, end: 20, text: longTurn),
+            .init(speaker: .you, start: 6.8, end: 8.4, text: "the budget needs to go"),
+            .init(speaker: .you, start: 18.5, end: 18.9, text: "Yes")]
+        try expect(MeetingConversation.conversation(fragments) == "Others: \(longTurn)\n\nYou: Yes",
+                   "an echoed fragment of a long utterance is dropped and a reply the other side did not say then is kept")
 
         var talk = manifest()
         let talkSession = try MeetingStore.create(root: storeRoot, manifest: talk)
