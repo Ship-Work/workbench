@@ -437,7 +437,8 @@ struct HandoffReviewView: View {
     var resolveReviewContext: (() throws -> SnapReviewContext?)? = nil
     var resolveSources: () throws -> [HandoffSourceSnapshot]
     /// Receives the task this review actually prepared or reused, so the host
-    /// can reveal that task instead of assuming a new one.
+    /// can reveal that task instead of assuming a new one. Show in History… sends
+    /// the saved task it names the same way.
     var onPrepared: (UUID) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var task = ""
@@ -455,6 +456,9 @@ struct HandoffReviewView: View {
     /// Set once the person picks Run with themselves; until then it follows the set-up runner.
     @State private var providerChosen = false
     @State private var loadedSkill: ReadbackSkillPackSnapshot?
+    /// The saved task this review would reuse, looked up shortly after the review changes, so the
+    /// line beside Start task says what pressing it would do before it is pressed (#377).
+    @State private var savedTask: HandoffJob?
     @State private var skillProblem: String?
     private var skill: TranscriptHandoffSkill { skills.first(where: { $0.id == skillID }) ?? .followUp }
     var body: some View {
@@ -549,6 +553,11 @@ struct HandoffReviewView: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Connections…") { showingConnections = true }
                 Spacer()
+                // A stopped or interrupted task may have completed, so it is sent again only by Retry…
+                // on its card in History, which this opens; Start task sends nothing (#377).
+                if let savedTask, HandoffJobsModel.mayHaveCompleted(savedTask.status) != nil {
+                    Button("Show in History…") { onPrepared(savedTask.id); dismiss() }
+                }
                 Button("Copy instructions") { submit(provider: nil) }.disabled(sources.isEmpty)
                 Button("Start task") { submit(provider: selectedProvider) }.disabled(!readiness.canStart)
             }
@@ -587,6 +596,11 @@ struct HandoffReviewView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task { await jobs.refresh() }
+            }
+            .task(id: savedTaskKey) {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled else { return }
+                savedTask = lookUpSavedTask()
             }
             .sheet(isPresented: $showingPreviousReview) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -640,7 +654,27 @@ struct HandoffReviewView: View {
         return HandoffRunReadiness.evaluate(provider: selectedProvider, enabled: jobs.enabled(selectedProvider),
             checking: jobs.refreshing, connection: jobs.connections[selectedProvider], busy: jobs.isBusy,
             compatible: loadedSkill.map { SkillMetadata(snapshot: $0).repliesInline && $0.files.count == 1 } ?? true,
-            inputProblem: inputProblem)
+            inputProblem: inputProblem, mayHaveCompleted: savedTask.flatMap { HandoffJobsModel.mayHaveCompleted($0.status) })
+    }
+    /// What the saved-task lookup follows: the request, skill, items and roles that make the
+    /// selection's identity, and each task's status. A brief pause lets typing settle first.
+    private struct SavedTaskKey: Hashable {
+        var task: String, skill: String?, items: [WorkbenchItemReference], roles: [WorkbenchItemReference: HandoffInputRole]
+        var review: String?, previousReview: Bool, statuses: [String]
+    }
+    private var savedTaskKey: SavedTaskKey {
+        SavedTaskKey(task: task, skill: loadedSkill.map { _ in skillID }, items: sources.map(\.reference), roles: roles,
+                     review: reviewContext?.key, previousReview: includePreviousReview,
+                     statuses: jobs.jobs.map { $0.id.uuidString + $0.status.rawValue })
+    }
+    /// The selection exactly as Start task would prepare it, looked up among the saved tasks.
+    private func lookUpSavedTask() -> HandoffJob? {
+        guard let loadedSkill, !sources.isEmpty else { return nil }
+        var items = sources
+        for index in items.indices { items[index].role = roles[items[index].reference] ?? items[index].role }
+        var review = reviewContext
+        if !includePreviousReview { review?.previousDocument = nil }
+        return jobs.savedTask(sources: items, task: task, skill: loadedSkill, review: review)
     }
     private func loadSkill() {
         do { loadedSkill = try skill.load(); skillProblem = nil }
