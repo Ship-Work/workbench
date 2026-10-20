@@ -28,8 +28,9 @@ struct MeetingProcessSnapshot: Equatable {
 /// macOS offers this only as a libSystem export without a public header, so it is looked up by
 /// name and read as metadata, like the rest of the snapshot (the decision and its revisit triggers
 /// are in docs/desktop.md, Decisions). It fails closed: when the export is missing, or the lookup
-/// fails, no helper is attributed, so Safari is never offered from WebKit audio and its picker
-/// entry says its calls are not supported here (#377).
+/// fails for a helper, that helper is attributed to no app. Safari is a call source only in a
+/// read that attributes one of its WebKit helpers to it (MeetingAppCatalogue.unavailableReason),
+/// so a missing export and an unattributed helper read the same way (#377).
 enum MeetingResponsibleApp {
     private typealias Lookup = @convention(c) (pid_t) -> pid_t
     /// Resolved from libSystem, which every process has loaded, so the result never depends on
@@ -70,14 +71,27 @@ enum MeetingTapScope {
     /// process never broadens capture to another app.
     static func representative(of app: MeetingAudioApp, among processes: [Process],
                                own: Int32 = ProcessInfo.processInfo.processIdentifier) -> Process? {
-        let eligible = processes.filter { $0.pid != own && !MeetingAppCatalogue.isExcluded($0.bundleID) && $0.owner == app.bundleID }
+        let eligible = processes.filter {
+            $0.pid != own && !MeetingAppCatalogue.isExcluded($0.bundleID, responsibleBundleID: $0.responsibleBundleID) && $0.owner == app.bundleID
+        }
         return eligible.first { $0.pid == app.id } ?? eligible.first
     }
 
     /// Every process a recording of the app taps: its own processes and attributed helpers, and
-    /// the service that plays its calls.
+    /// the service that plays its calls. A helper working for Workbench is never tapped.
     static func tapped(for appBundleID: String, among processes: [Process]) -> [Process] {
-        processes.filter { MeetingAppCatalogue.taps($0.bundleID, responsibleBundleID: $0.responsibleBundleID, for: appBundleID) }
+        processes.filter {
+            !MeetingAppCatalogue.isExcluded($0.bundleID, responsibleBundleID: $0.responsibleBundleID)
+                && MeetingAppCatalogue.taps($0.bundleID, responsibleBundleID: $0.responsibleBundleID, for: appBundleID)
+        }
+    }
+
+    /// Why recording the app from these processes would hold silence: capture's own copy of the
+    /// rule the picker and admission read, so a stale choice still refuses.
+    static func unavailableReason(for appBundleID: String, among processes: [Process]) -> String? {
+        MeetingAppCatalogue.unavailableReason(appBundleID, attributedHelper: processes.contains {
+            MeetingAppCatalogue.isAttributedHelper($0.bundleID, responsibleBundleID: $0.responsibleBundleID, to: appBundleID)
+        })
     }
 }
 
@@ -117,8 +131,6 @@ protocol MeetingProcessSource: AnyObject {
     /// Only the processes detection can act on: catalogue apps and the calling
     /// service. Polls read this; the picker reads the whole snapshot.
     func detectionSnapshot() throws -> [MeetingProcessSnapshot]
-    /// Whether a shared helper can be attributed to the app it works for (MeetingResponsibleApp).
-    var attributesHelpers: Bool { get }
     /// When this source reads, on a clock that never goes back.
     var uptime: TimeInterval { get }
 }
@@ -127,7 +139,6 @@ extension MeetingProcessSource {
     func detectionSnapshot() throws -> [MeetingProcessSnapshot] {
         try snapshot().filter { MeetingDetector.considers($0.bundleID) }
     }
-    var attributesHelpers: Bool { true }
     var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 }
 
@@ -137,7 +148,6 @@ extension MeetingProcessSource {
 final class MeetingSystemProcessSource: MeetingProcessSource {
     var isAvailable: Bool { MeetingCoreAudio.isProcessMetadataAvailable }
     var unavailableReason: String { MeetingCoreAudio.unavailableReason }
-    var attributesHelpers: Bool { MeetingResponsibleApp.isAvailable }
 
     func snapshot() throws -> [MeetingProcessSnapshot] { try snapshot(including: { _ in true }) }
 
@@ -153,6 +163,9 @@ final class MeetingSystemProcessSource: MeetingProcessSource {
             guard let bundleID = MeetingCoreAudio.bundleID(of: object),
                   !MeetingAppCatalogue.isExcluded(bundleID), including(bundleID),
                   let pid = MeetingCoreAudio.processID(of: object), pid != own else { continue }
+            let responsible = MeetingAppCatalogue.isHostedHelper(bundleID) ? MeetingResponsibleApp.bundleID(for: pid) : nil
+            // Workbench's own web views have a WebKit helper too; it is Workbench's, never a source.
+            guard !MeetingAppCatalogue.isExcluded(bundleID, responsibleBundleID: responsible) else { continue }
             let application = NSRunningApplication(processIdentifier: pid)
             result.append(MeetingProcessSnapshot(pid: Int32(pid), bundleID: bundleID,
                                                  isRunningInput: try MeetingCoreAudio.activity(object, input: true),
@@ -160,8 +173,7 @@ final class MeetingSystemProcessSource: MeetingProcessSource {
                                                  name: application?.localizedName,
                                                  isUserFacingApp: application?.bundleURL?.pathExtension.lowercased() == "app"
                                                     && application?.activationPolicy != .prohibited,
-                                                 responsibleBundleID: MeetingAppCatalogue.isHostedHelper(bundleID)
-                                                    ? MeetingResponsibleApp.bundleID(for: pid) : nil))
+                                                 responsibleBundleID: responsible))
         }
         return result
     }
@@ -278,12 +290,18 @@ final class MeetingDetector {
         // a chosen source is never silently replaced by another app; capture finds either by bundle.
         var taken = Set(representatives.values.map(\.id))
         let now = source.uptime
+        // Apps this read attributes a shared helper to; Safari is a call source only then.
+        let attributed = Set(processes.compactMap { process in
+            process.knownApp.flatMap { app in
+                MeetingAppCatalogue.isAttributedHelper(process.bundleID, responsibleBundleID: process.responsibleBundleID, to: app.bundleID) ? app.bundleID : nil
+            }
+        })
         for process in ordered {
             let known = process.knownApp
             let serviceName = MeetingAppCatalogue.manualServiceNames[process.bundleID]
             let bundleID = process.owner
             guard process.pid != ProcessInfo.processInfo.processIdentifier,
-                  !MeetingAppCatalogue.isExcluded(process.bundleID),
+                  !MeetingAppCatalogue.isExcluded(process.bundleID, responsibleBundleID: process.responsibleBundleID),
                   process.isUserFacingApp || known != nil || serviceName != nil,
                   seen.insert(bundleID).inserted else { continue }
             var id = process.pid
@@ -292,10 +310,11 @@ final class MeetingDetector {
                 while taken.contains(id) { id = id > 0 ? -id : id &- 1 }
                 taken.insert(id)
             }
-            // Safari's calls play only in WebKit helpers; unattributed, its tap would hold silence.
-            let name = known.map { MeetingAppCatalogue.unsupportedReason($0.bundleID, attributesHelpers: source.attributesHelpers) == nil
-                ? $0.name : MeetingAppCatalogue.unsupportedName($0) }
-            apps.append(MeetingAudioApp(id: id, name: name ?? serviceName ?? process.name ?? process.bundleID, bundleID: bundleID))
+            // Safari's calls play only in WebKit helpers; with none attributed, its tap would hold silence.
+            let unavailable = known.flatMap { MeetingAppCatalogue.unavailableReason($0.bundleID, attributedHelper: attributed.contains($0.bundleID)) }
+            let name = known.map { unavailable == nil ? $0.name : MeetingAppCatalogue.unavailableName($0) }
+            apps.append(MeetingAudioApp(id: id, name: name ?? serviceName ?? process.name ?? process.bundleID, bundleID: bundleID,
+                                        unavailableReason: unavailable))
         }
         for (bundleID, kept) in representatives where covers(bundleID) && !seen.contains(bundleID)
             && now - kept.listed > options.keepAbsentSeconds {
@@ -325,10 +344,10 @@ final class MeetingDetector {
         let choices = Dictionary(uniqueKeysWithValues: availableApps(in: processes, covering: Self.considers).map { ($0.bundleID, $0) })
         for process in processes {
             guard process.pid != ProcessInfo.processInfo.processIdentifier,
-                  !MeetingAppCatalogue.isExcluded(process.bundleID),
+                  !MeetingAppCatalogue.isExcluded(process.bundleID, responsibleBundleID: process.responsibleBundleID),
                   let known = process.knownApp,
                   !disabledBundleIDs.contains(known.bundleID),
-                  MeetingAppCatalogue.unsupportedReason(known.bundleID, attributesHelpers: source.attributesHelpers) == nil,
+                  choices[known.bundleID]?.unavailableReason == nil,
                   // Playing sound alone is not a call. Something must be using
                   // the microphone through that app.
                   process.isRunningInput else { continue }

@@ -17,6 +17,7 @@ enum MeetingDetectionChecks {
         }
         try safariChecks(expect: expect)
         try attributionChecks(expect: expect)
+        try await unavailableAdmissionChecks(root: root, expect: expect)
         try tapScopeChecks(expect: expect)
         try callServiceChecks(expect: expect)
         try await snoozeChecks(root: root, expect: expect)
@@ -93,21 +94,58 @@ enum MeetingDetectionChecks {
         try expect(MeetingResponsibleApp.isAvailable, "the responsible-app lookup resolves from libSystem on this macOS (docs/desktop.md, Decisions)")
         try expect(MeetingResponsibleApp.bundleID(for: 1) == nil && MeetingResponsibleApp.bundleID(for: -5) == nil,
                    "launchd, responsible for itself, and a process that does not exist attribute to no app")
-        let safari = "com.apple.Safari"
-        try expect(MeetingAppCatalogue.unsupportedReason(safari, attributesHelpers: true) == nil
-                   && MeetingAppCatalogue.unsupportedReason(safari, attributesHelpers: false)?.hasPrefix("Safari calls can't be recorded on this Mac") == true
-                   && MeetingAppCatalogue.unsupportedReason("com.google.Chrome", attributesHelpers: false) == nil,
+        let safari = "com.apple.Safari", gpu = "com.apple.WebKit.GPU"
+        try expect(MeetingAppCatalogue.unavailableReason(safari, attributedHelper: true) == nil
+                   && MeetingAppCatalogue.unavailableReason(safari, attributedHelper: false)?.hasPrefix("Workbench can't find Safari's call audio right now") == true
+                   && MeetingAppCatalogue.unavailableReason("com.google.Chrome", attributedHelper: false) == nil,
                    "only an app whose calls play in shared helpers depends on attribution")
+        // A missing lookup and a helper the lookup does not attribute (it answers -1 or itself)
+        // both reach the snapshot as no responsible app; support is decided by each read.
         let source = Fixture()
-        source.attributesHelpers = false
         source.values = [.init(pid: 760, bundleID: safari, isRunningInput: true, isRunningOutput: true),
-                         .init(pid: 761, bundleID: "com.apple.WebKit.GPU", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+                         .init(pid: 761, bundleID: gpu, isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
         let detector = MeetingDetector(source: source)
         detector.isEnabled = true
         for _ in 0..<4 { _ = detector.evaluate() }
-        let safariChoice = detector.availableApps().first { $0.bundleID == safari }
-        try expect(detector.evaluate() == nil && safariChoice?.name == "Safari (calls not supported on this Mac)",
-                   "without attribution Safari is never offered, and its picker entry says its calls are not supported here")
+        let unattributed = detector.availableApps().first { $0.bundleID == safari }
+        try expect(detector.evaluate() == nil && unattributed?.name == "Safari (its call audio isn't available to Workbench right now)"
+                   && unattributed?.unavailableReason != nil,
+                   "a read that attributes no WebKit helper to Safari never offers it, and its entry says its call audio isn't available (#377)")
+        source.values[1].responsibleBundleID = safari
+        let attributed = detector.availableApps().first { $0.bundleID == safari }
+        _ = detector.evaluate(); _ = detector.evaluate()
+        try expect(attributed?.name == "Safari" && attributed?.unavailableReason == nil && detector.evaluate()?.bundleID == safari,
+                   "the next read that attributes one of its helpers makes Safari a call source again")
+        source.values[1].responsibleBundleID = "com.ethdawg.workbench.preview"
+        try expect(detector.availableApps().first { $0.bundleID == safari }?.unavailableReason != nil
+                   && !detector.availableApps().contains { $0.bundleID == gpu },
+                   "Workbench's own WebKit helper is never Safari's and never the shared WebKit service")
+    }
+
+    /// Start used to run the microphone prompt, the speech check and a session before capture
+    /// refused an unattributed Safari; admission now refuses with the reason first.
+    private static func unavailableAdmissionChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingUnavailable-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = Fixture(), store = root.appendingPathComponent("unavailable")
+        var permissions = 0, captures = 0
+        let model = MeetingModel(directory: store, defaults: defaults, processSource: source, transcribe: { _ in "unused" },
+                                 microphonePermission: { permissions += 1; return true },
+                                 captureFactory: { captures += 1; return Capture() }, microphoneStatus: { .notDetermined })
+        source.values = [.init(pid: 765, bundleID: "com.apple.Safari", isRunningInput: false, isRunningOutput: true)]
+        model.refreshApps(); model.selectAudioSource(765)
+        let reason = model.apps.first?.unavailableReason
+        try expect(reason != nil && model.admission.captureProblem == .appAudioUnavailable(reason!) && !model.admission.canStart,
+                   "an unattributed Safari choice is refused by admission, with the reason, before Start (#377)")
+        await model.start()
+        try expect(model.problem == .appAudioUnavailable(reason!) && permissions == 0 && captures == 0 && MeetingStore.sessions(in: store).isEmpty,
+                   "Start asks for no microphone, runs no capture and creates no session")
+        source.values.append(.init(pid: 766, bundleID: "com.apple.WebKit.GPU", isRunningInput: true, isRunningOutput: true,
+                                   isUserFacingApp: false, responsibleBundleID: "com.apple.Safari"))
+        model.refreshApps()
+        try expect(model.admission.captureProblem == nil && model.admission.canStart, "a read that attributes Safari's helper admits it")
+        await model.prepareForShutdown()
     }
 
     /// Capture binds to and taps processes by the same ownership the picker lists, as a pure rule.
@@ -122,7 +160,8 @@ enum MeetingDetectionChecks {
             .init(object: 16, pid: 775, bundleID: "com.apple.FaceTime"),
             .init(object: 17, pid: 776, bundleID: "com.google.Chrome.helper"),
             .init(object: 18, pid: 777, bundleID: "com.google.Chrome"),
-            .init(object: 19, pid: 778, bundleID: "com.ethdawg.workbench.preview")
+            .init(object: 19, pid: 778, bundleID: "com.ethdawg.workbench.preview"),
+            .init(object: 20, pid: 779, bundleID: gpu, responsibleBundleID: "com.ethdawg.workbench.preview")
         ]
         func tapped(_ bundle: String) -> [AudioObjectID] { MeetingTapScope.tapped(for: bundle, among: processes).map(\.object) }
         try expect(tapped(safari) == [11, 12] && tapped(gpu) == [13, 14] && tapped("com.apple.FaceTime") == [15, 16]
@@ -137,8 +176,13 @@ enum MeetingDetectionChecks {
                    && MeetingTapScope.representative(of: MeetingAudioApp(id: 775, name: "", bundleID: "com.apple.FaceTime"),
                                                      among: processes.filter { $0.pid != 775 }, own: 1) == nil,
                    "a call service or another app's helper is never an app's own process, so FaceTime without its process cannot bind")
-        try expect(bound(778, "com.ethdawg.workbench.preview") == nil && bound(777, "com.google.Chrome", own: 777) == 776,
-                   "Workbench and its own process never bind")
+        try expect(bound(778, "com.ethdawg.workbench.preview") == nil && bound(777, "com.google.Chrome", own: 777) == 776
+                   && bound(779, gpu) == 772,
+                   "Workbench, its own process and the WebKit helper behind its own web views never bind")
+        try expect(MeetingTapScope.unavailableReason(for: safari, among: processes) == nil
+                   && MeetingTapScope.unavailableReason(for: safari, among: processes.filter { $0.object != 12 }) != nil
+                   && MeetingTapScope.unavailableReason(for: "com.google.Chrome", among: []) == nil,
+                   "capture refuses Safari itself when the processes it reads attribute no helper to Safari")
     }
 
     /// FaceTime and Phone calls play in the Mac calling service, which their own processes never hold.
@@ -358,7 +402,6 @@ enum MeetingDetectionChecks {
         var unavailableReason = "Synthetic unavailable metadata"
         var values: [MeetingProcessSnapshot] = []
         var failure = false
-        var attributesHelpers = true
         var uptime: TimeInterval = 1_000
         func snapshot() throws -> [MeetingProcessSnapshot] {
             if failure { throw MeetingError.message("Synthetic metadata failure") }

@@ -177,7 +177,9 @@ final class MeetingModel: ObservableObject {
             case .unavailable(let detail): refusal = .appAudioUnavailable(detail)
             case .unchecked: refusal = .sourceProbe("Refresh audio apps to check the selected source.")
             case .available:
-                if !apps.contains(where: { $0.id == selectedAppID }) { refusal = .sourceDisappeared }
+                if let app = apps.first(where: { $0.id == selectedAppID }) {
+                    if let reason = app.unavailableReason { refusal = .appAudioUnavailable(reason) }
+                } else { refusal = .sourceDisappeared }
             }
         }
         if refusal == nil, includeMicrophone {

@@ -12,6 +12,9 @@ struct MeetingAudioApp: Identifiable, Hashable {
     var id: Int32
     var name: String
     var bundleID: String
+    /// Why recording this source now would hold silence, which Meetings' admission says in place
+    /// of Start; nil for every source that can be recorded (#377).
+    var unavailableReason: String? = nil
 }
 
 enum MeetingAppKind: String, Codable {
@@ -127,14 +130,22 @@ enum MeetingAppCatalogue {
         supported.contains { $0.hostedHelpers.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame } }
     }
 
-    /// An app whose sound plays only in shared helpers records silence when macOS cannot say which
-    /// helper is its own. Its picker entry says so, it is never offered, and Start refuses (#377).
-    static func unsupportedReason(_ bundleID: String, attributesHelpers: Bool) -> String? {
-        guard !attributesHelpers, let app = known(bundleID), !app.hostedHelpers.isEmpty else { return nil }
-        return "\(app.name) calls can't be recorded on this Mac: macOS doesn't say which web audio is \(app.name)'s, so the recording would be silent. Choose another browser or Microphone only."
+    /// Whether this process is a shared helper macOS attributes to the app, rather than one of
+    /// the app's own processes.
+    static func isAttributedHelper(_ bundleID: String, responsibleBundleID: String?, to appBundleID: String) -> Bool {
+        known(bundleID) == nil && known(bundleID, responsibleBundleID: responsibleBundleID)?.bundleID == appBundleID
     }
 
-    static func unsupportedName(_ app: MeetingKnownApp) -> String { app.name + " (calls not supported on this Mac)" }
+    /// An app whose sound plays only in shared helpers records silence unless the same read
+    /// attributes at least one of them to it, whether the lookup is missing or the helper is not
+    /// attributed. Its picker entry then says so, it is never offered, and admission refuses Start
+    /// with this reason (#377). Nil for every other app, and for that app once a helper is its.
+    static func unavailableReason(_ bundleID: String, attributedHelper: Bool) -> String? {
+        guard !attributedHelper, let app = known(bundleID), !app.hostedHelpers.isEmpty else { return nil }
+        return "Workbench can't find \(app.name)'s call audio right now: macOS hasn't said which web audio is \(app.name)'s, so a recording would be silent. Start the call in \(app.name), then refresh audio apps, or choose another browser or Microphone only."
+    }
+
+    static func unavailableName(_ app: MeetingKnownApp) -> String { app.name + " (its call audio isn't available to Workbench right now)" }
 
     /// Whether recording `appBundleID` taps this process: everything listed under that source,
     /// and the service that plays its calls (#377). FaceTime and Phone tapped only their own
@@ -147,6 +158,12 @@ enum MeetingAppCatalogue {
     static func isExcluded(_ bundleID: String) -> Bool {
         if excludedBundleIDs.contains(bundleID) { return true }
         return bundleID == Bundle.main.bundleIdentifier || excludedBundleIDs.contains(where: { bundleID.hasPrefix($0 + ".") })
+    }
+
+    /// A shared helper working for Workbench, such as the WebKit process behind its own web views,
+    /// is Workbench's too: never listed, offered or tapped, even as the shared WebKit service.
+    static func isExcluded(_ bundleID: String, responsibleBundleID: String?) -> Bool {
+        isExcluded(bundleID) || responsibleBundleID.map(isExcluded) == true
     }
 }
 
