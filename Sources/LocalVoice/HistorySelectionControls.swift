@@ -459,6 +459,9 @@ struct HandoffReviewView: View {
     /// The saved task this review would reuse, looked up shortly after the review changes, so the
     /// line beside Start task says what pressing it would do before it is pressed (#377).
     @State private var savedTask: HandoffJob?
+    /// Counts each replacement of the selection's content, which can keep every reference while
+    /// its words or images change (a Snap edited while the review is open), so the lookup runs again.
+    @State private var selectionVersion = 0
     @State private var skillProblem: String?
     private var skill: TranscriptHandoffSkill { skills.first(where: { $0.id == skillID }) ?? .followUp }
     var body: some View {
@@ -617,7 +620,7 @@ struct HandoffReviewView: View {
             var latest = try currentSources()
             var latestReview = try resolveReviewContext?()
             guard latest == sources, latestReview == reviewContext else {
-                sources = latest; reviewContext = latestReview; roles = [:]
+                sources = latest; reviewContext = latestReview; roles = [:]; selectionChanged()
                 problem = "Selected content changed since this review opened. Check the refreshed items and roles, then try again."
                 return
             }
@@ -658,14 +661,26 @@ struct HandoffReviewView: View {
     }
     /// What the saved-task lookup follows: the request, skill, items and roles that make the
     /// selection's identity, and each task's status. A brief pause lets typing settle first.
-    private struct SavedTaskKey: Hashable {
+    struct SavedTaskKey: Hashable {
         var task: String, skill: String?, items: [WorkbenchItemReference], roles: [WorkbenchItemReference: HandoffInputRole]
-        var review: String?, previousReview: Bool, statuses: [String]
+        var review: String?, previousReview: Bool, selection: Int, statuses: [String]
+        /// Cheap to build and compare on every redraw: references, not words or image bytes. The
+        /// selection's version stands for its content, so new content with the same references
+        /// (a Snap edited while the review is open) still changes the key (#377).
+        static func make(task: String, skill: String?, sources: [HandoffSourceSnapshot], roles: [WorkbenchItemReference: HandoffInputRole],
+                         review: String?, previousReview: Bool, selection: Int, jobs: [HandoffJob]) -> Self {
+            .init(task: task, skill: skill, items: sources.map(\.reference), roles: roles, review: review, previousReview: previousReview,
+                  selection: selection, statuses: jobs.map { $0.id.uuidString + $0.status.rawValue })
+        }
     }
     private var savedTaskKey: SavedTaskKey {
-        SavedTaskKey(task: task, skill: loadedSkill.map { _ in skillID }, items: sources.map(\.reference), roles: roles,
-                     review: reviewContext?.key, previousReview: includePreviousReview,
-                     statuses: jobs.jobs.map { $0.id.uuidString + $0.status.rawValue })
+        .make(task: task, skill: loadedSkill.map { _ in skillID }, sources: sources, roles: roles, review: reviewContext?.key,
+              previousReview: includePreviousReview, selection: selectionVersion, jobs: jobs.jobs)
+    }
+    /// New selection content: the earlier lookup no longer describes it, so it is dropped now and
+    /// looked up again, rather than leaving Start task held by a task this content does not reuse.
+    private func selectionChanged() {
+        selectionVersion += 1; savedTask = nil
     }
     /// The selection exactly as Start task would prepare it, looked up among the saved tasks.
     private func lookUpSavedTask() -> HandoffJob? {
@@ -686,7 +701,7 @@ struct HandoffReviewView: View {
         return result
     }
     private func refreshSources() {
-        do { sources = try currentSources(); reviewContext = try resolveReviewContext?(); roles = [:]; problem = nil }
+        do { sources = try currentSources(); reviewContext = try resolveReviewContext?(); roles = [:]; problem = nil; selectionChanged() }
         catch { problem = error.localizedDescription }
     }
     private func useEvidence(_ url: URL) {

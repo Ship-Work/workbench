@@ -278,8 +278,7 @@ enum HandoffJobStore {
         let frozen = try identity(sources: sources, task: task, skill: skill, review: review)
         let fingerprint = frozen.fingerprint, records = frozen.records
         var files = frozen.files
-        if let found = existing.first(where: { $0.fingerprint == fingerprint }),
-           (try? verify(found, root: root.appendingPathComponent(found.id.uuidString))) != nil { return found }
+        if let found = reusable(fingerprint, in: existing, root: root) { return found }
         try privateDirectory(root)
         let id = UUID()
         let staging = root.appendingPathComponent(".staging-" + id.uuidString)
@@ -345,6 +344,15 @@ enum HandoffJobStore {
             hash.update(data: Data(key.utf8)); hash.update(data: Data([0])); hash.update(data: files[key]!)
         }
         return (hash.finalize().map { String(format: "%02x", $0) }.joined(), records, files)
+    }
+
+    /// The saved task a selection with this identity reuses: the first with the same fingerprint,
+    /// while its folder still verifies. `prepare` and a review's lookup share it, so a damaged
+    /// folder means a fresh task for both (#377).
+    static func reusable(_ fingerprint: String, in jobs: [HandoffJob], root: URL) -> HandoffJob? {
+        guard let found = jobs.first(where: { $0.fingerprint == fingerprint }),
+              (try? verify(found, root: root.appendingPathComponent(found.id.uuidString))) != nil else { return nil }
+        return found
     }
 
     static func digest(_ files: [String: Data]) -> String {
@@ -636,12 +644,13 @@ final class HandoffJobsModel: ObservableObject {
         if accepted { onPrepared(job.id) }
     }
     /// The saved task this exact review would reuse, found before anything is prepared, so the
-    /// review can say beside Start task what pressing it would do (#377). Nil when there is none.
+    /// review can say beside Start task what pressing it would do (#377). Nil when there is none,
+    /// or when its folder no longer verifies, since Start task would then prepare a fresh task.
     func savedTask(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
                    review: SnapReviewContext? = nil) -> HandoffJob? {
         let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let identity = try? HandoffJobStore.identity(sources: sources, task: task, skill: skill, review: review) else { return nil }
-        return jobs.first { $0.fingerprint == identity.fingerprint }
+        return HandoffJobStore.reusable(identity.fingerprint, in: jobs, root: directory)
     }
     /// What a review's Start task says when it ran a failed task again.
     static let startedAgain = "Started this selection’s task again. Its earlier attempt failed and is kept under Previous attempts."
