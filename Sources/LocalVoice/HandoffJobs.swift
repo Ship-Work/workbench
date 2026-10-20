@@ -605,11 +605,31 @@ final class HandoffJobsModel: ObservableObject {
     /// its instructions, and names the task it used. Identical inputs reuse an
     /// earlier task, so the caller learns that task's ID rather than assuming a
     /// new one; nothing is reported when the start or the copy failed.
+    ///
+    /// Start task on a selection whose task failed, was stopped or was interrupted runs that same
+    /// task again as a new attempt, and the notice says so (#377). Choosing Start task in the review
+    /// is the explicit choice History's Retry… is; the earlier attempt and its provider receipt stay
+    /// under Previous attempts. Before, every press answered "Review this saved task in History"
+    /// from inside the review, so a meeting's own Prepare follow-up… could never run it again.
     func handOff(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
                  review: SnapReviewContext? = nil, provider: SubscriptionProvider?, onPrepared: (UUID) -> Void) throws {
         let job = try prepare(sources: sources, task: task, skill: skill, review: review)
-        let accepted = provider.map { start(job, provider: $0) } ?? copy(job)
+        let earlier = Self.startsAgain.contains(job.status) ? job.status : nil
+        let accepted = provider.map { start(job, provider: $0, retry: earlier != nil) } ?? copy(job)
+        if accepted, provider != nil, let earlier { notice = Self.startedAgain(after: earlier) }
         if accepted { onPrepared(job.id) }
+    }
+    /// The ends a review's Start task runs again as a new attempt, as History's Retry… does.
+    static let startsAgain: Set<HandoffJobStatus> = [.failed, .cancelled, .interrupted]
+    /// What a review's Start task says when it ran a saved task again: that it did, and where the
+    /// earlier attempt is. An interrupted one may have finished with the provider, so it says that too.
+    static func startedAgain(after status: HandoffJobStatus) -> String {
+        switch status {
+        case .interrupted:
+            return "Started this selection's task again. Its earlier attempt was interrupted and may have completed with the provider; its receipt is kept under Previous attempts."
+        case .cancelled: return "Started this selection's task again. Its earlier attempt was stopped and is kept under Previous attempts."
+        default: return "Started this selection's task again. Its earlier attempt failed and is kept under Previous attempts."
+        }
     }
     /// Reads, off the main thread, the folders of the tasks whose files changed
     /// since the last read, then publishes them together. Unchanged tasks cost

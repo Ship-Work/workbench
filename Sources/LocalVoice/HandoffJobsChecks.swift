@@ -694,6 +694,91 @@ enum HandoffJobsChecks {
                   && statuses == [completes.id: .completed, fails.id: .completed, empty.id: .failed, stopped.id: .cancelled, waiting.id: .cancelled, unconnected.id: .ready],
                   "every receipt survives a relaunch with the status its run ended in")
 
+        // A meeting's follow-up door end to end (#377), through the review's own owner with a
+        // scripted runner. Copy instructions leaves a follow-up only prepared, whose Home door stays
+        // Prepare follow-up…; reopening it and choosing Start task runs that same task and its result
+        // reaches the tile. Start task in a new review then runs a failed, stopped or interrupted task
+        // again as a new attempt and says so, where every press used to answer with the same error.
+        final class ReplyMode: @unchecked Sendable { var value = "result" }
+        let mode = ReplyMode()
+        let doorReply: @Sendable () async throws -> SubscriptionCLIResult = {
+            switch mode.value {
+            case "fail": throw SubscriptionCLIError.failed("The scripted provider stopped before it finished.")
+            case "hold": try await Task.sleep(nanoseconds: 3_600 * 1_000_000_000); return SubscriptionCLIResult(providerSessionID: nil, text: "Never.")
+            default: return SubscriptionCLIResult(providerSessionID: nil, text: "# Follow-up for Alex\n\nAlex Example sends the pilot plan on Friday.")
+            }
+        }
+        let doorSwitches = ({ (provider: SubscriptionProvider) in switches.on.contains(provider) },
+                            { (provider: SubscriptionProvider, on: Bool) in if on { _ = switches.on.insert(provider) } else { _ = switches.on.remove(provider) } })
+        let door = HandoffJobsModel(directory: root.appendingPathComponent("meeting-door"), switches: doorSwitches, pasteboard: pasteboard)
+        door.clock = { now }
+        door.runner = scripted(doorReply)
+        door.setEnabled(.claude, true)
+        try await settle("the meeting door's connection") { door.connections[.claude]?.ready == true }
+        let meeting = [sources[0]]
+        func doorFollowUp() async -> HandoffJob? {
+            await door.loadTaskFiles(door.visibleJobs)
+            return HomeMeetings.followUp(for: id, in: door.visibleJobs, inputs: { door.files($0)?.inputs.items.map(\.reference) ?? [] },
+                                         excluding: { door.isMetadataSuggestion($0) })
+        }
+        var revealed: [UUID] = []
+        try door.handOff(sources: meeting, task: meetingTask, skill: skill, provider: nil) { revealed.append($0) }
+        let copied = await doorFollowUp()
+        try check(copied != nil && revealed == [copied!.id] && copied?.status == .ready && copied?.attempts == 0
+                  && !HomeMeetings.opensFollowUp(copied) && HomeMeetings.followUpState(copied!.status) == "Follow-up prepared, no result yet",
+                  "a follow-up copied to the person's own assistant keeps Prepare follow-up… on Home, saying it has no result yet")
+        let runsBefore = script.runs
+        try door.handOff(sources: meeting, task: meetingTask, skill: skill, provider: .claude) { revealed.append($0) }
+        try check(revealed == [copied!.id, copied!.id] && door.activeID == copied!.id && door.error == nil,
+                  "reopening the meeting's review and choosing Start task runs the same prepared task")
+        try await settle("the copied follow-up's run") { !door.isBusy }
+        let returned = await doorFollowUp()
+        try check(returned?.id == copied!.id && returned?.status == .completed && script.runs == runsBefore + 1 && HomeMeetings.opensFollowUp(returned)
+                  && returned.flatMap { door.files($0)?.resultText }.map { HomeMeetings.recap($0) } == "Follow-up for Alex · Alex Example sends the pilot plan on Friday.",
+                  "its result returns to the tile as the recap, and the door becomes Open follow-up")
+
+        for (task, ending) in [("Draft the thank-you note.", HandoffJobStatus.failed), ("List the open questions.", .cancelled)] {
+            mode.value = ending == .failed ? "fail" : "hold"
+            var started: [UUID] = []
+            try door.handOff(sources: meeting, task: task, skill: skill, provider: .claude) { started.append($0) }
+            if ending == .cancelled {
+                try await settle("the held run's session") { door.jobs.first { started.contains($0.id) }?.providerSessionID != nil }
+                door.cancel()
+            }
+            try await settle("the \(ending.rawValue) run") { !door.isBusy }
+            let ended = door.jobs.first { started.contains($0.id) && $0.status == ending }
+            mode.value = "result"
+            var again: [UUID] = []
+            try door.handOff(sources: meeting, task: task, skill: skill, provider: .claude) { again.append($0) }
+            try check(ended != nil && again == [ended!.id] && door.activeID == ended!.id && door.error == nil
+                      && door.notice == HandoffJobsModel.startedAgain(after: ending),
+                      "Start task in a new review of a \(ending.rawValue) selection runs its task again and says so")
+            try await settle("the second attempt") { !door.isBusy }
+            let second = door.jobs.first { $0.id == ended!.id }
+            try check(second?.status == .completed && second?.attempts == 2 && second?.previousAttempts.map(\.status) == [ending]
+                      && second.flatMap { door.result($0) } == "# Follow-up for Alex\n\nAlex Example sends the pilot plan on Friday.",
+                      "the \(ending.rawValue) attempt stays under Previous attempts beside the new result")
+        }
+        // An interrupted run, as a relaunch finds one: Workbench quit while it was running.
+        var unsure = try door.prepare(sources: meeting, task: "Name the decisions.", skill: skill)
+        unsure.status = .running; unsure.attempts = 1; unsure.provider = .claude; unsure.providerSessionID = "scripted-unsure"
+        try HandoffJobStore.write(HandoffJobStore.encode(unsure), to: door.folder(unsure).appendingPathComponent("receipt.json"))
+        let relaunchedDoor = HandoffJobsModel(directory: door.directory, switches: doorSwitches, pasteboard: pasteboard)
+        relaunchedDoor.clock = { now }
+        relaunchedDoor.runner = scripted(doorReply)
+        await relaunchedDoor.refresh()
+        var resumed: [UUID] = []
+        try relaunchedDoor.handOff(sources: meeting, task: "Name the decisions.", skill: skill, provider: .claude) { resumed.append($0) }
+        try check(resumed == [unsure.id] && relaunchedDoor.error == nil && relaunchedDoor.notice == HandoffJobsModel.startedAgain(after: .interrupted)
+                  && relaunchedDoor.notice?.contains("may have completed") == true,
+                  "Start task in a new review runs an interrupted task again and says its earlier attempt may have completed")
+        try await settle("the interrupted task's new attempt") { !relaunchedDoor.isBusy }
+        let resumedJob = relaunchedDoor.jobs.first { $0.id == unsure.id }
+        try check(resumedJob?.status == .completed && resumedJob?.previousAttempts.map(\.status) == [.interrupted]
+                  && resumedJob?.previousAttempts.first?.providerSessionID == "scripted-unsure",
+                  "the interrupted attempt keeps its provider receipt under Previous attempts")
+        door.setEnabled(.claude, false)
+
         try check(doors.files(madeFrom) == nil, "nothing is read from a task folder on the main thread before it is asked for")
         await doors.loadTaskFiles(doors.jobs)
         let inputs = try doors.files(madeFrom).map(\.inputs) ?? { throw VoiceError.message("HANDOFF_JOBS_CHECK_FAILED: task files not loaded") }()
