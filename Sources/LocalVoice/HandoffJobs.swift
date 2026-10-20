@@ -646,11 +646,19 @@ final class HandoffJobsModel: ObservableObject {
     /// The saved task this exact review would reuse, found before anything is prepared, so the
     /// review can say beside Start task what pressing it would do (#377). Nil when there is none,
     /// or when its folder no longer verifies, since Start task would then prepare a fresh task.
+    /// Hashing every image and reading the task's folder happen off the main actor; a cancelled
+    /// lookup stops there, and the answer is the task as it is now.
     func savedTask(sources: [HandoffSourceSnapshot], task: String, skill: ReadbackSkillPackSnapshot,
-                   review: SnapReviewContext? = nil) -> HandoffJob? {
-        let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let identity = try? HandoffJobStore.identity(sources: sources, task: task, skill: skill, review: review) else { return nil }
-        return HandoffJobStore.reusable(identity.fingerprint, in: jobs, root: directory)
+                   review: SnapReviewContext? = nil) async -> HandoffJob? {
+        let task = task.trimmingCharacters(in: .whitespacesAndNewlines), saved = jobs, root = directory
+        let lookup = Task.detached(priority: .userInitiated) { () -> UUID? in
+            guard let identity = try? HandoffJobStore.identity(sources: sources, task: task, skill: skill, review: review),
+                  !Task.isCancelled else { return nil }
+            return HandoffJobStore.reusable(identity.fingerprint, in: saved, root: root)?.id
+        }
+        let id = await withTaskCancellationHandler { await lookup.value } onCancel: { lookup.cancel() }
+        guard !Task.isCancelled, let id else { return nil }
+        return jobs.first { $0.id == id }
     }
     /// What a review's Start task says when it ran a failed task again.
     static let startedAgain = "Started this selection’s task again. Its earlier attempt failed and is kept under Previous attempts."
