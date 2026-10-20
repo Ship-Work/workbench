@@ -811,7 +811,7 @@ final class HandoffJobsModel: ObservableObject {
                 throw VoiceError.message("This skill needs companion files. Use Copy instructions and the complete selected work folder.")
             }
             let sizes = try images.map { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max }
-            if let problem = HandoffRunReadiness.inputProblem(provider: provider, prompt: prompt, imageBytes: sizes) {
+            if let problem = HandoffRunReadiness.inputProblem(provider: provider, prompt: prompt, imageBytes: sizes, items: snapshot.items.count) {
                 throw VoiceError.message(problem)
             }
             if let previousProvider = job.provider, job.attempts > 0 {
