@@ -356,6 +356,7 @@ enum MeetingChecks {
         try await phaseRecoveryChecks(root: root.appendingPathComponent("phase-recovery"), expect: expect)
         try await captureNoteChecks(root: root.appendingPathComponent("capture-notes"), expect: expect)
         try await selfEndChecks(root: root.appendingPathComponent("self-end"), expect: expect)
+        try await limitAndCallEndChecks(root: root.appendingPathComponent("limits"), expect: expect)
         try await lifecycleChecks(root: root, expect: expect)
         try await keptRecordingChecks(root: root, expect: expect)
         try await offerLifecycleChecks(root: root, expect: expect)
@@ -1681,15 +1682,15 @@ enum MeetingChecks {
         capture.stopReason = lost
         await waitUntil { !model.isBusy }
         try expect(model.completedTranscriptID != nil && history.map(\.id) == [model.completedTranscriptID!]
-                   && model.pendingTranscriptNotes.contains(lost) && model.recoveries.isEmpty && capture.finished == 1,
-                   "a source that could not reconnect ends with a saved transcript noting why")
+                   && model.pendingTranscriptNotes.first == MeetingSelfFinish.note(lost) && model.recoveries.isEmpty && capture.finished == 1,
+                   "a source that could not reconnect ends with a saved transcript noting that Workbench finished it, and why")
 
         capture = CaptureFixture(); capture.elapsedSeconds = MeetingSegmentPlan.maximumMeetingSeconds
         await model.start()
         await waitUntil { !model.isBusy }
         try expect(model.completedTranscriptID != nil && history.count == 2 && model.recoveries.isEmpty
-                   && model.pendingTranscriptNotes.contains("The two-hour recording limit was reached."),
-                   "reaching the two-hour limit ends with a saved transcript noting the limit")
+                   && model.pendingTranscriptNotes.first == MeetingSelfFinish.note("The two-hour recording limit was reached."),
+                   "reaching the two-hour limit ends with a saved transcript noting that Workbench finished it at the limit")
 
         capture = CaptureFixture()
         await model.start(); await model.cancel()
@@ -1710,6 +1711,35 @@ enum MeetingChecks {
         try expect(model.completedTranscriptID == nil && history.count == 2 && model.recoveries.count == 2 && kept != nil
                    && track.map { FileManager.default.fileExists(atPath: $0.path) } == true,
                    "a self-ended meeting whose transcription fails keeps the recording and its track for later")
+        await model.prepareForShutdown()
+    }
+
+    /// The note a call Workbench finished keeps when its audio ended (#377). Synthetic capture
+    /// and metadata; the watcher and the guarded finish run with short delays.
+    private static func limitAndCallEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingLimits-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = ProcessFixture()
+        source.values = [.init(pid: 93_001, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true, name: "Zoom")]
+        let capture = CaptureFixture()
+        let model = MeetingModel(directory: root, defaults: defaults, processSource: source,
+            transcribe: { _ in "Synthetic words heard before the call ended" }, microphonePermission: { true }, captureFactory: { capture })
+        model.saveTranscript = { _, _ in }
+        model.watchIntervalNanoseconds = 5_000_000
+        var guarded = MeetingAutoFinish(); guarded.inactivityDelay = 0; guarded.grace = 0
+        model.autoFinishGuard = guarded
+        func callAudio(_ running: Bool) { source.values[0].isRunningInput = running; source.values[0].isRunningOutput = running }
+        model.refreshApps(); model.selectAudioSource(93_001); model.includeMicrophone = false
+
+        // A call whose audio ends finishes itself, and its saved notes say Workbench did and why.
+        await model.start()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        callAudio(false)
+        await waitUntil { !model.isBusy }
+        try expect(model.completedTranscriptID != nil && model.pendingTranscriptNotes.first == MeetingSelfFinish.note(MeetingSelfFinish.callAudioEnded)
+                   && model.pendingTranscriptNotes.first == "Workbench finished this recording itself. The call app stopped using audio.",
+                   "a call that Workbench finished when its audio ended is saved with a note saying so")
         await model.prepareForShutdown()
     }
 
