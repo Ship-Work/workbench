@@ -137,6 +137,12 @@ final class MeetingDetector {
 
     private var streaks: [String: Int] = [:]
     private var cooldowns: [String: Date] = [:]
+    /// The process identifier each source was first listed with, by its owner bundle. A source
+    /// keeps it while any of its audio processes is listed, so Meetings, which holds the chosen
+    /// source by this number, never reads a running app as gone when a helper restarts or the
+    /// main process joins or leaves Core Audio's list (#377). A read that lists the source no
+    /// more forgets it.
+    private var representatives: [String: Int32] = [:]
 
     init(source: MeetingProcessSource, options: Options = Options()) {
         self.source = source
@@ -157,7 +163,7 @@ final class MeetingDetector {
         do {
             let processes = try source.snapshot()
             lastError = nil
-            return .success(availableApps(in: processes))
+            return .success(availableApps(in: processes, covering: { _ in true }))
         } catch {
             let message = "Audio sources could not be checked. The previous selection was kept. " + error.localizedDescription
             lastError = message
@@ -179,7 +185,9 @@ final class MeetingDetector {
         } catch { return .unknown }
     }
 
-    private func availableApps(in processes: [MeetingProcessSnapshot]) -> [MeetingAudioApp] {
+    /// One choice per source. `covers` names the sources this read could have seen, so a
+    /// detection read, which leaves out every other process, forgets only its own.
+    private func availableApps(in processes: [MeetingProcessSnapshot], covering covers: (String) -> Bool) -> [MeetingAudioApp] {
         var seen = Set<String>()
         var apps: [MeetingAudioApp] = []
         // A selected app's tap already includes its recognised helper processes.
@@ -191,6 +199,10 @@ final class MeetingDetector {
             if leftMain != rightMain { return leftMain }
             return left.pid < right.pid
         }
+        // Numbers a source was listed with stay that source's while it is listed. A new source
+        // whose process reuses one is listed by the negated number, which no process holds, so
+        // a chosen source is never silently replaced by another app; capture finds either by bundle.
+        var taken = Set(representatives.values)
         for process in ordered {
             let known = process.knownApp
             let serviceName = MeetingAppCatalogue.manualServiceNames[process.bundleID]
@@ -199,9 +211,19 @@ final class MeetingDetector {
                   !MeetingAppCatalogue.isExcluded(process.bundleID),
                   process.isUserFacingApp || known != nil || serviceName != nil,
                   seen.insert(bundleID).inserted else { continue }
-            apps.append(MeetingAudioApp(id: process.pid, name: known?.name ?? serviceName ?? process.name ?? process.bundleID,
+            var id = process.pid
+            if let kept = representatives[bundleID] { id = kept }
+            else {
+                while taken.contains(id) { id = id > 0 ? -id : id &- 1 }
+                taken.insert(id)
+            }
+            apps.append(MeetingAudioApp(id: id, name: known?.name ?? serviceName ?? process.name ?? process.bundleID,
                                         bundleID: bundleID))
         }
+        for bundleID in Array(representatives.keys) where covers(bundleID) && !seen.contains(bundleID) {
+            representatives[bundleID] = nil
+        }
+        for app in apps { representatives[app.bundleID] = app.id }
         return apps.sorted { left, right in
             let leftKind = MeetingAppCatalogue.known(left.bundleID)?.kind ?? .browser
             let rightKind = MeetingAppCatalogue.known(right.bundleID)?.kind ?? .browser
@@ -217,8 +239,9 @@ final class MeetingDetector {
         guard isEnabled, !isSuppressed, source.isAvailable else { return nil }
         if let snoozedUntil, snoozedUntil > now { streaks.removeAll(); return nil }
         var candidates: [String: MeetingAudioApp] = [:]
-        let processes = read()
-        let choices = Dictionary(uniqueKeysWithValues: availableApps(in: processes).map { ($0.bundleID, $0) })
+        // A failed read forgets the streaks but keeps the listed numbers: nothing was seen to go.
+        guard let processes = read() else { return nil }
+        let choices = Dictionary(uniqueKeysWithValues: availableApps(in: processes, covering: Self.considers).map { ($0.bundleID, $0) })
         for process in processes {
             guard process.pid != ProcessInfo.processInfo.processIdentifier,
                   !MeetingAppCatalogue.isExcluded(process.bundleID),
@@ -252,12 +275,12 @@ final class MeetingDetector {
         }.first
     }
 
-    private func read() -> [MeetingProcessSnapshot] {
+    private func read() -> [MeetingProcessSnapshot]? {
         do { let value = try source.detectionSnapshot(); lastError = nil; return value }
         catch {
             lastError = "Audio activity could not be checked. \(error.localizedDescription)"
             forgetObservations()
-            return []
+            return nil
         }
     }
 

@@ -4,7 +4,11 @@ import Foundation
 /// One audio-producing application the person can explicitly choose. A browser
 /// entry covers that browser's whole audio output, including every tab in it.
 struct MeetingAudioApp: Identifiable, Hashable {
-    /// The process identifier. It is stable only while the app keeps running.
+    /// The process identifier the app was first listed with. Detection keeps it while any of the
+    /// app's audio processes is listed, so a helper restarting never reads as the app having gone
+    /// (#377). It can name a process that has since ended, or be the negated identifier when
+    /// another listed app already holds that number; capture finds the app's current processes
+    /// by bundle either way (MeetingSystemCapture.currentApp).
     var id: Int32
     var name: String
     var bundleID: String

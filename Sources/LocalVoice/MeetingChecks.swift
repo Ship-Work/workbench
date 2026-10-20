@@ -103,8 +103,8 @@ enum MeetingChecks {
         try expect(detector.evaluate(now: now)?.id == 810,
                    "helper microphone activity offers the same app identifier as the manual picker")
         source.values.removeAll { $0.pid == 810 }
-        try expect(detector.availableApps().first(where: { $0.bundleID == "com.google.Chrome" })?.id == 811,
-                   "known audio helpers remain available when the main process has no CoreAudio object")
+        try expect(detector.availableApps().first(where: { $0.bundleID == "com.google.Chrome" })?.id == 810,
+                   "a browser whose main process leaves Core Audio's list stays available through its audio helper, as the same choice (#377)")
         source.values.removeAll { $0.bundleID.hasPrefix("com.google.Chrome") }
         detector.forgetObservations()
         _ = detector.evaluate(now: now); _ = detector.evaluate(now: now)
@@ -785,9 +785,13 @@ enum MeetingChecks {
         try expect(visible == [4] && created == 4 && closed == 3,
                    "absent activity permits a new offer with the same PID and invalidates its old timer")
         source.values[0].pid = 91_004; model.refreshDetection()
+        try expect(visible == [4] && created == 4 && model.offer?.id == 91_003,
+                   "the same app's process changing keeps its offer and panel (#377)")
+        source.values = [.init(pid: 91_005, bundleID: "com.apple.FaceTime", isRunningInput: true, isRunningOutput: true)]
+        for _ in 0..<3 { model.refreshDetection() }
         timers[3]()
-        try expect(visible == [5] && offers.last?.id == 91_004 && closed == 4,
-                   "a changed process replaces the panel and its predecessor cannot dismiss it")
+        try expect(visible == [5] && offers.last?.id == 91_005 && closed == 4,
+                   "a changed offer replaces the panel and its predecessor cannot dismiss it")
         controller.close()
         timers[4](); model.refreshDetection()
         try expect(visible.isEmpty && closed == 5 && created == 5,
@@ -931,7 +935,7 @@ enum MeetingChecks {
         try expect(offered.last?.id == 870, "Phone's lowercase identifier is offered")
         source.values[5].pid = 871
         try poll("Phone process changed")
-        try expect(offered.last?.id == 871, "a changed process is offered by its new PID")
+        try expect(offered.last?.id == 870, "a changed process keeps the app's offer and choice (#377)")
         filtered.disable(offered.last!); reference.disable(offered.last!)
         try poll("Phone turned off")
         filtered.snooze(now: now); reference.snooze(now: now)
@@ -944,7 +948,7 @@ enum MeetingChecks {
         try expect(offered.last?.id == 810, "the browser returns after its cooldown by its main process")
         source.values.remove(at: 0)
         try poll("browser main process gone", polls: 2)
-        try expect(offered.last?.id == 811, "a browser without its main process is offered by its audio helper")
+        try expect(offered.last?.id == 810, "a browser whose main process goes is still offered as the same choice, through its audio helper")
         source.failure = true
         try poll("metadata failure")
         source.failure = false
