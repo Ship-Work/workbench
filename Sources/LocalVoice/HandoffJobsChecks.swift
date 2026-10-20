@@ -784,6 +784,32 @@ enum HandoffJobsChecks {
         try check(resent.isEmpty && script.runs == runsAtStop && !door.isBusy && door.error == HandoffJobsModel.mayHaveCompleted(.cancelled)
                   && door.jobs.first { $0.id == stoppedRun.first }?.status == .cancelled,
                   "Start task never sends a stopped task again; it names History, where Retry… is")
+        // The same item with new content, as a Snap or transcript edited while the review is open, is
+        // not the stopped task: the review's key changes with the replaced selection, the lookup finds
+        // nothing, and Start task runs a fresh task (#377).
+        var editedMeeting = meeting; editedMeeting[0].text += " A later edit."
+        let keyBefore = HandoffReviewView.SavedTaskKey.make(task: "List the open questions.", skill: meetingSkill.reference.id, sources: meeting,
+                                                         roles: [:], review: nil, previousReview: true, selection: 1, jobs: door.jobs)
+        let replacedKey = HandoffReviewView.SavedTaskKey.make(task: "List the open questions.", skill: meetingSkill.reference.id, sources: editedMeeting,
+                                                              roles: [:], review: nil, previousReview: true, selection: 2, jobs: door.jobs)
+        let unchangedKey = HandoffReviewView.SavedTaskKey.make(task: "List the open questions.", skill: meetingSkill.reference.id, sources: meeting,
+                                                               roles: [:], review: nil, previousReview: true, selection: 1, jobs: door.jobs)
+        let editedTask = door.savedTask(sources: editedMeeting, task: "List the open questions.", skill: meetingSkill)
+        var fresh: [UUID] = []
+        try door.handOff(sources: editedMeeting, task: "List the open questions.", skill: meetingSkill, provider: .claude) { fresh.append($0) }
+        try check(editedMeeting[0].reference == meeting[0].reference && keyBefore != replacedKey && keyBefore == unchangedKey && editedTask == nil
+                  && fresh.count == 1 && fresh.first != stoppedRun.first && door.error == nil,
+                  "the same item with new content is not the stopped task: the key changes, the lookup finds none and Start task runs a fresh task")
+        try await settle("the edited selection's run") { !door.isBusy }
+        // A stopped task whose folder no longer verifies would not be reused by Start task, so it no longer holds Start task.
+        let stoppedFolder = door.directory.appendingPathComponent(stoppedRun[0].uuidString)
+        try HandoffJobStore.write(Data("Changed outside Workbench.".utf8), to: stoppedFolder.appendingPathComponent("SKILL.md"))
+        let damaged = door.savedTask(sources: meeting, task: "List the open questions.", skill: meetingSkill)
+        var replacement: [UUID] = []
+        try door.handOff(sources: meeting, task: "List the open questions.", skill: meetingSkill, provider: .claude) { replacement.append($0) }
+        try check(damaged == nil && replacement.count == 1 && replacement.first != stoppedRun.first && door.error == nil,
+                  "a stopped task whose saved folder fails verification no longer holds Start task; a fresh task runs instead")
+        try await settle("the replacement run") { !door.isBusy }
 
         // An interrupted run, as a relaunch finds one: Workbench quit while it was running.
         var unsure = try door.prepare(sources: meeting, task: "Name the decisions.", skill: meetingSkill)
