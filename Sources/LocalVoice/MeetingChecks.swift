@@ -448,6 +448,37 @@ enum MeetingChecks {
         try MeetingStore.save(stopped, at: session, replacing: result.manifest)
         _ = try await processor.run()
         try expect(recognitionCalls == 1 && saved.last?.text == "Batch words", "incomplete live checkpoint falls back to original audio")
+
+        // A two-sided live meeting heard on laptop speakers (#377): the microphone's copy of the other side
+        // is not saved as You, a quick reply after it is, and the original wording is the conversation's
+        // words a turn at a time, not two speakers zipped together word by word.
+        func spoken(_ source: LiveVoiceSource, _ words: String, at start: Double) -> [LiveVoiceSegment] {
+            words.split(separator: " ").enumerated().map { offset, word in
+                LiveVoiceSegment(source: source, start: start + Double(offset) * 0.3, end: start + Double(offset) * 0.3 + 0.25,
+                                 text: String(word), isFinal: true)
+            }
+        }
+        let call = manifest(state: .stopped)
+        let callSession = try MeetingStore.create(root: root.appendingPathComponent("live-call"), manifest: call)
+        var stoppedCall = call; stoppedCall.seconds = 6
+        stoppedCall.tracks = [try audio(source: .remote, seconds: 6, rate: 16_000, value: 0.2, offset: 0, session: callSession),
+                              try audio(source: .local, seconds: 6, rate: 16_000, value: 0.2, offset: 0, session: callSession)]
+        try MeetingStore.save(stoppedCall, at: callSession, replacing: call)
+        let liveCall = LiveVoiceCheckpoint(sessionID: call.id,
+            segments: spoken(.app, "Can you send the draft by Friday", at: 0) + spoken(.microphone, "can you send the draft by Friday", at: 0.05)
+                + spoken(.microphone, "Yes I will", at: 2.5) + spoken(.app, "Thanks so much everyone", at: 4) + spoken(.microphone, "No problem", at: 4.35),
+            completedThrough: ["microphone": 6, "app": 6], complete: true)
+        try LiveVoiceJournal.save(liveCall, to: callSession.appendingPathComponent("live-transcript.json"))
+        var callSaved: [Transcript] = []
+        let callResult = try await MeetingProcessor(session: callSession, transcribe: { _ in "Batch words" },
+                                                    commit: { transcript, _, _ in callSaved.append(transcript) }).run()
+        let callWording = "Can you send the draft by Friday Yes I will Thanks so much everyone No problem"
+        try expect(callResult.committed && callSaved.count == 1
+                   && callSaved[0].text == "Others: Can you send the draft by Friday\n\nYou: Yes I will\n\nOthers: Thanks so much everyone\n\nYou: No problem",
+                   "a live meeting on laptop speakers saves the other side once and your reply as You")
+        try expect(callSaved.first?.rawText == callWording && (try MeetingStore.load(from: callSession)).recognizedText == callWording
+                   && !HandoffJobStore.originalAddsWording(text: callSaved[0].text, original: callWording),
+                   "its original wording keeps each speaker's words together, so a handoff carries the meeting once")
     }
 
     /// A refused System Audio Recording tap delivers silence, not an error. Fifteen seconds into a call

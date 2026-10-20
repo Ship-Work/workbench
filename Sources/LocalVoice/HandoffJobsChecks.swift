@@ -164,12 +164,13 @@ enum HandoffJobsChecks {
         try check(connected.contains("format requested by the task") && connected.contains("REFERENCE"), "connected task output and source roles explicit")
         // A two-sided meeting saves its labelled conversation as the text and the same words
         // unlabelled as the original (MeetingRecovery.commitCheckpoint). Built by the real
-        // producer, with same-side pauses so labels repeat, an hour-long call is sent once.
+        // producer, with same-side pauses long enough to start a new turn (three seconds) so
+        // labels repeat, an hour-long call is sent once.
         let marker = "Unique marker: the cobalt orchard plan stays."
         let call = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<620).map { (index: Int) -> LiveVoiceSegment in
             let words = "Point \(index + 1). Maya will review the proposal on Thursday and Sam will confirm the room."
             let source: LiveVoiceSource = index / 2 % 2 == 0 ? .microphone : .app
-            return LiveVoiceSegment(source: source, start: Double(index) * 6, end: Double(index) * 6 + 5,
+            return LiveVoiceSegment(source: source, start: Double(index) * 6, end: Double(index) * 6 + 3,
                                     text: index == 310 ? words + " " + marker : words, isFinal: true)
         })
         try check(call.conversation.count > 55_000 && call.conversation.contains("You: Point 2.") && call.conversation.contains("\n\nOthers: Point 4."),
