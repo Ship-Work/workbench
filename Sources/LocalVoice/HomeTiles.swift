@@ -55,6 +55,13 @@ enum HomeMeetings {
     static func followUpState(_ status: HandoffJobStatus) -> String {
         status == .ready ? "Follow-up prepared, no result yet" : "Follow-up " + status.title.lowercased()
     }
+    /// Whether the tile's follow-up door is Open follow-up rather than Prepare follow-up…. A
+    /// follow-up only prepared has never run here: Copy instructions took it to the person's own
+    /// assistant, whose result stays there, or its start never began. So its door stays Prepare
+    /// follow-up…, which reopens the same reviewed task: Start task runs it here and its result
+    /// returns to this tile, or Copy instructions copies it again (#377). One that ran, finished or
+    /// not, opens in History, where its result, Retry… and receipt are, as before.
+    static func opensFollowUp(_ job: HandoffJob?) -> Bool { job.map { $0.status != .ready } ?? false }
     /// What the tile's task files follow: a run that finishes changes its task's time, not the list.
     struct TaskStamp: Equatable { let id: UUID; let updated: Date }
     static func taskStamps(_ jobs: [HandoffJob]) -> [TaskStamp] { jobs.map { TaskStamp(id: $0.id, updated: $0.updatedAt) } }
@@ -118,7 +125,8 @@ struct HomeMeetingTile: View {
     }
 
     /// The newest meeting, open: its names, date and length, its first words, and what to do with
-    /// it. A follow-up already made from it replaces Prepare follow-up… with the way to it.
+    /// it. A follow-up that has run replaces Prepare follow-up… with the way to it; one only
+    /// prepared keeps Prepare follow-up…, so it can still run here (`HomeMeetings.opensFollowUp`).
     @ViewBuilder private func newest(_ last: HomeMeetings.Summary) -> some View {
         let followUp = HomeMeetings.followUp(for: last.id, in: jobs.visibleJobs,
                                              inputs: { jobs.files($0)?.inputs.items.map(\.reference) ?? [] },
@@ -150,12 +158,13 @@ struct HomeMeetingTile: View {
             Button("Review transcript") { model.openHistory(HomeMeetings.review(last.id)) }
                 .help("Opens this transcript in History, with its original wording.")
                 .accessibilityIdentifier("home.meeting.review")
-            if let followUp {
+            if let followUp, HomeMeetings.opensFollowUp(followUp) {
                 Button("Open follow-up") { model.openHistory(HistoryDoor(job: followUp.id)) }
                     .help("Shows the follow-up made from this meeting in History, where Copy result copies it.")
                     .accessibilityIdentifier("home.meeting.followup.open")
             } else {
                 Button("Prepare follow-up…") { prepareFollowUp(last.id) }
+                    .help("Start task runs it here and brings its result to this tile; Copy instructions copies it for your own assistant.")
                     .accessibilityIdentifier("home.meeting.followup")
             }
             Spacer(minLength: 4)
