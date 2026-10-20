@@ -26,7 +26,7 @@ enum MeetingConversation {
 
     static let frameSeconds = 0.03
     static let minimumSpeechSeconds = 0.4
-    /// The echo rule's utterance shape (SpeakerEcho).
+    /// Live words are cut into utterances by the same two values, so both paths judge echoes alike.
     static let joinSilenceSeconds = SpeakerEcho.pauseSeconds
     static let maximumUtteranceSeconds = SpeakerEcho.longestSeconds
     static let maximumUtterances = 2_000
@@ -123,14 +123,15 @@ enum MeetingConversation {
         return utterances.indices.filter { !dropped.contains($0) }.map { utterances[$0] }
     }
 
-    /// Chronological turns; a speaker's consecutive utterances join into one turn.
+    /// Chronological turns; a speaker's consecutive utterances join into one turn across a
+    /// pause shorter than live turns allow (LiveVoiceTurns.pauseSeconds).
     static func conversation(_ utterances: [Utterance]) -> String {
         var turns: [(speaker: Speaker, text: String, end: Double)] = []
         let ordered = withoutEchoes(utterances).sorted { ($0.start, $0.speaker.rawValue) < ($1.start, $1.speaker.rawValue) }
         for utterance in ordered {
             let text = utterance.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            if let last = turns.last, last.speaker == utterance.speaker, utterance.start - last.end < 2 {
+            if let last = turns.last, last.speaker == utterance.speaker, utterance.start - last.end < LiveVoiceTurns.pauseSeconds {
                 turns[turns.count - 1] = (last.speaker, last.text + " " + text, utterance.end)
             } else {
                 turns.append((utterance.speaker, text, utterance.end))

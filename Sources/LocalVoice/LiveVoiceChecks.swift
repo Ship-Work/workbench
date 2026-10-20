@@ -67,6 +67,40 @@ enum LiveVoiceChecks {
             .init(source: .microphone, start: 7, end: 7.2, text: "Certainly", isFinal: true)])
         try expect(replies.conversation == "You: Yes\n\nOthers: Yes\n\nYou: Certainly", "separate identical replies survive in their actual turn order")
 
+        // Words 0.3 s apart, each a quarter of a second long, from `start`.
+        func said(_ source: LiveVoiceSource, _ text: String, at start: Double) -> [LiveVoiceSegment] {
+            text.split(separator: " ").enumerated().map { offset, word in
+                LiveVoiceSegment(source: source, start: start + Double(offset) * 0.3, end: start + Double(offset) * 0.3 + 0.25,
+                                 text: String(word), isFinal: true)
+            }
+        }
+        // A speaker who pauses to think stays one turn (#377); a long pause still starts a new one.
+        let thinking = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.microphone, "First the budget", at: 0)
+            + said(.microphone, "then the slides", at: 2.05) + said(.microphone, "And a new point", at: 5.5))
+        try expect(thinking.conversation == "You: First the budget then the slides\n\nYou: And a new point",
+                   "a 1.2 s pause keeps one turn and a 2.6 s pause starts the next")
+        // Two people talking at once alternate by utterance in the saved words, never word by word (#377).
+        let overlap = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, "Thanks so much everyone", at: 4)
+            + said(.microphone, "No problem", at: 4.35))
+        try expect(overlap.text == "Thanks so much everyone No problem" && overlap.conversation == "Others: Thanks so much everyone\n\nYou: No problem",
+                   "overlapping speakers keep their own words together in the original wording and the conversation")
+
+        // On laptop speakers the microphone hears the call (#377): through the real service, its copy
+        // of the other side is neither shown nor saved as You, and what you said yourself is.
+        let echoDecoder = FixtureDecoder(), shown = SnapshotLog()
+        let speakers = LiveVoiceService(id: UUID(),
+            sources: [.init(source: .microphone, name: "Fixture mic"), .init(source: .app, name: "Fixture call")],
+            journal: nil, recognize: { try await echoDecoder.recognize($0) }, update: { shown.append($0) })
+        speakers.input.append(.init(source: .app, samples: samples(20..<23), sampleRate: 16_000, start: 1))
+        speakers.input.append(.init(source: .microphone, samples: samples(20..<23), sampleRate: 16_000, start: 1))
+        speakers.input.append(.init(source: .microphone, samples: samples(30..<32), sampleRate: 16_000, start: 6))
+        let heardCall = await speakers.finish()
+        try expect(heardCall.complete && heardCall.conversation == "Others: word20 word21 word22\n\nYou: word30 word31"
+                   && heardCall.text == "word20 word21 word22 word30 word31",
+                   "the microphone's copy of the call is not saved as You, and your own words are")
+        try expect(shown.all.last?.segments.map { "\($0.source.label): \($0.text)" } == ["Others: word20 word21 word22", "You: word30 word31"],
+                   "the live transcript shows the call once and your own words as You")
+
         let failingDecoder = FixtureDecoder(failOn: 2)
         let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
@@ -152,7 +186,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, and live words that outlast an unmatched boundary or a backlog. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, live words that outlast an unmatched boundary or a backlog, turns across a pause, overlapping speakers, and the microphone's copy of the call. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
@@ -161,6 +195,13 @@ enum LiveVoiceChecks {
         private var value = LiveVoiceSnapshot()
         var current: LiveVoiceSnapshot { lock.lock(); defer { lock.unlock() }; return value }
         func set(_ snapshot: LiveVoiceSnapshot) { lock.lock(); value = snapshot; lock.unlock() }
+    }
+    /// Every snapshot a service published, in order.
+    private final class SnapshotLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [LiveVoiceSnapshot] = []
+        var all: [LiveVoiceSnapshot] { lock.lock(); defer { lock.unlock() }; return values }
+        func append(_ snapshot: LiveVoiceSnapshot) { lock.lock(); values.append(snapshot); lock.unlock() }
     }
     private actor FixtureDecoder {
         var calls = 0
