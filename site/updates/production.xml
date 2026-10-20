@@ -6,6 +6,34 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Workbench</title>
         <item>
+            <title>2.6.0</title>
+            <pubDate>Tue, 20 Oct 2026 22:11:04 +1100</pubDate>
+            <sparkle:version>20261020110933</sparkle:version>
+            <sparkle:shortVersionString>2.6.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description><![CDATA[<h2>Workbench 2.6.0</h2>
+<p>Fewer surprises: every dictation, Snap and meeting now ends with your words kept and a plain answer about where they went.</p>
+<ul>
+<li><strong>Snaps stay sharp and easy to fix.</strong> Screen captures keep every Retina pixel. A new caption starts selected, so typing replaces "Your text", and Undo steps back one whole edit, not one keystroke. Copy says "Image copied" where you pressed it.</li>
+<li><strong>Dictation always tells you what happened.</strong> If a live insertion stops early or you cancel after words have landed, your words stay copied and the result says so where you acted, with Retry beside it. Light cleanup no longer deletes acronyms like ERM or UM, or mangles "Uh-huh".</li>
+<li><strong>Meetings hold up on long calls.</strong> A long call stays responsive with its page open and always saves. Plugging in headphones restarts only the audio that changed, so your microphone keeps recording. If no sound arrives from the call app, Meetings says why and where to allow it. ⌘Q while recording asks first.</li>
+<li><strong>Snap &amp; Talk keeps your take.</strong> Quitting mid-narration keeps what you said and transcribes it once speech is ready. A retake that hears nothing keeps your earlier words, and Snaps you add join in the order you captured them.</li>
+<li><strong>Keys that tell the truth.</strong> A shortcut another app is holding shows as unavailable, and clears by itself once that app lets go. Every Change shortcut… opens Keyboard on that shortcut.</li>
+</ul>
+<p>Also in this release:</p>
+<ul>
+<li><strong>Prepare follow-up… offers the Meeting notes and follow-up skill</strong> first, on the runner you've set up, and a meeting is handed off once.</li>
+<li><strong>Presenting is quieter.</strong> Present, Draw and Persona successes stop pinning orange lines in the menu-bar panel. The Timer keeps the display awake only while a countdown shows. Board export is reachable while a board is up.</li>
+<li><strong>Updates and installs explain themselves.</strong> An update that fails says why and what to do, and long prompts insert in seconds.</li>
+<li><strong>A fresh install reads as ready to set up</strong>, not as a failed speech setup, and History's Copy and Copy result confirm beside the button.</li>
+</ul>
+<p>When you're ready, update from General › Updates. Your saved work stays in this edition's library.</p>
+<p>First download: unzip Workbench, move it to Applications in your home folder, then open it there. When replacing an existing copy, quit it and use the same Applications folder.</p>
+]]></description>
+            <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.6.0/Workbench.zip" length="76628112" type="application/octet-stream" sparkle:edSignature="nUDKubbLl7tpYbz1HYsnYdEtBCgHyBssdA//dY0mDKhq/kVGTryBWNC28DEzyKVu4SAkrCIvYdhyYWRoTIPJBA=="/>
+        </item>
+        <item>
             <title>2.5.0</title>
             <pubDate>Fri, 09 Oct 2026 09:22:33 +1100</pubDate>
             <sparkle:version>20261008222126</sparkle:version>
@@ -68,31 +96,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.4.1/Workbench.zip" length="72720026" type="application/octet-stream" sparkle:edSignature="MtJYcmxw0nqKMCxzLc6egmqZMzT8DAWYZDnKIPzzo9o94BgS+sIHLgdiUUKqfj3ng1GrPWhZuDBDMNZWfc3LCg=="/>
         </item>
-        <item>
-            <title>2.4.0</title>
-            <pubDate>Thu, 01 Oct 2026 13:24:26 +1000</pubDate>
-            <sparkle:version>20261001032329</sparkle:version>
-            <sparkle:shortVersionString>2.4.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description><![CDATA[<h2>Workbench 2.4.0</h2>
-<p>Keep dictation, capture and presentation controls close to the work you are doing.</p>
-<ul>
-<li><strong>A clearer floating toolbar.</strong> The three-dot menu is gone. Each tool shows its next action, and Switch tool keeps running jobs and their controls together.</li>
-<li><strong>A live Persona camera bubble.</strong> Show a mirrored webcam over your other apps, with Start, Hide, Show again and End controls. Nothing is recorded by the bubble; camera availability depends on other apps using the device.</li>
-<li><strong>Pick up unfinished captures.</strong> Snap &amp; Talk brings capture, narration and review into one workspace. Review unfinished Snap reopens its draft directly, and a narration that hears nothing keeps the screenshot.</li>
-<li><strong>More useful speech controls.</strong> Meetings has its own page with Pause and Stop &amp; transcribe. Sublime dictation uses one guarded paste and keeps your words copied; a changed or unreadable destination retains the copied fallback.</li>
-<li><strong>Consistent everyday actions.</strong> Timer uses the same Start, Pause, Resume and Stop controls across surfaces. Stop drawing closes a whiteboard while keeping its ink, and microphone-refusal messages offer the relevant settings shortcut.</li>
-</ul>
-<p>Choose Settings → Workbench updates when you are ready. Your saved work stays in this edition’s library.</p>
-<p>First download: unzip Workbench, move it to Applications in your home folder, then open it there. When replacing an existing copy, quit it and use the same Applications folder.</p>
-<p><small>Fresh-Mac setup, macOS 14/15, camera sharing with Zoom, camera disconnect/permission changes, additional displays and full VoiceOver were not newly certified for this release. Remaining click-through refinements stay in issue #134; this release does not claim every physical-input scenario passed.</small></p>
-]]></description>
-            <enclosure url="https://github.com/EthDawg/workbench/releases/download/v2.4.0/Workbench.zip" length="72207648" type="application/octet-stream" sparkle:edSignature="JHsM7mK+oDmVfQ4oOLs3hk043d1BkKu6Dh2tn4s+t2J4qmk8nXpkAWyX/UgRfOTAiRh37FgyYDfI/NsrK5pfBw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: or6ocCEg/9niXlToImhuf1tNs2ZjM80OvZiRgpl2X/5PfgfkTJnvdk8cohHrdwvY1Ezw38IBGYhWNu2SP+jPAA==
-length: 11506
+edSignature: 8kyNMxu1cuzYjUAUT+wm9rdOZOXqZTUqcOdESgmV8aYbArhuIZhx5U1Ror1mE+HxnqqG8wYKWlibLNhoNGBQBg==
+length: 12171
 -->
