@@ -151,7 +151,7 @@ enum SpeakerEcho {
     /// the minute around a word (within `lagRange`, at least `minimumLagMatches` of them), and a
     /// microphone word is an echo when the app said the same word at that lag, give or take
     /// `timingSlack`, each app word accounting for one microphone word at most. A word inside
-    /// your own speech that matches by chance, with no echo word beside it, stays yours; a word
+    /// your own speech that matches by chance, your words close on both sides, stays yours; a word
     /// or two the microphone heard differently between echo words, spelled like the app's words
     /// left there, goes with the echo. When unsure the words stay: a leaked echo is better than
     /// a lost word. Both lists in start order; the result is in the microphone's order.
@@ -233,11 +233,11 @@ enum SpeakerEcho {
         return result
     }
 
+    /// Words people say on their own as a reply; one heard inside the echo is kept as yours, never merged.
+    static let replyWords: Set<String> = ["no", "yes", "ok", "okay", "oh", "what", "wait", "sorry", "sure", "yeah", "right", "so"]
     /// Two recognisers' spellings of the same speech: the same letters, one in three changed,
     /// added or dropped (contract, contracts), or a shared start of three letters, or one the
     /// start of the other (OK, okay). Words are compared joined, so "Mon day" is "Monday".
-    /// Words people say on their own as a reply; one heard inside the echo is kept as theirs, never merged.
-    static let replyWords: Set<String> = ["no", "yes", "ok", "okay", "oh", "what", "wait", "sorry", "sure", "yeah", "right", "so"]
     static func resembles(_ heard: String, _ said: String) -> Bool {
         let a = Array(heard), b = Array(said), shorter = min(a.count, b.count)
         // Short words resemble almost anything ("no"/"not", "ok"/"on", "they"/"the"), and a reply word
