@@ -24,9 +24,9 @@ struct MeetingProcessSnapshot: Equatable {
     var owner: String { MeetingAppCatalogue.owner(bundleID, responsibleBundleID: responsibleBundleID) }
 }
 
-/// The app macOS holds responsible for a process: the app a WebKit helper works for, as macOS
-/// attributes the helper's microphone use to that app. macOS offers this only as a libSystem
-/// function without a public header, so it is looked up by name. When it is missing, a helper
+/// The app macOS holds responsible for a process: for a WebKit helper, the app it works for.
+/// macOS offers this only as a libSystem function without a public header, so it is looked up
+/// by name and read as metadata, like the rest of the snapshot. When it is missing, a helper
 /// belongs to no app: Safari is then not offered from WebKit audio and the shared WebKit service
 /// stays a manual choice, as before (#377).
 enum MeetingResponsibleApp {
