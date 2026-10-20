@@ -220,6 +220,9 @@ final class LiveVoiceService: @unchecked Sendable {
             var stopped = false
             var reconciled = true
             var noted: Set<LiveVoiceDegradation> = []
+            var published: LiveVoiceSnapshot?
+            let clock = ContinuousClock()
+            var publishedAt = clock.now
             func degrade(_ kind: LiveVoiceDegradation, at seconds: Double) {
                 reconciled = false
                 if noted.insert(kind).inserted { checkpoint.notes.append(kind.note(at: seconds)) }
@@ -230,6 +233,7 @@ final class LiveVoiceService: @unchecked Sendable {
                     let batch = input.drain()
                     if let problem = batch.problem { throw VoiceError.message(problem) }
                     stopped = batch.closed
+                    var wordsChanged = false
                     for audio in batch.audio {
                         if let index = snapshot.sources.firstIndex(where: { $0.source == audio.source }) {
                             let peak = audio.samples.map { abs($0) }.max() ?? 0
@@ -247,6 +251,7 @@ final class LiveVoiceService: @unchecked Sendable {
                         if let behindFrom = LiveVoiceWindow.trimBacklog(&queue) {
                             degrade(.backlog, at: behindFrom)
                             tails[audio.source] = []
+                            wordsChanged = true
                         }
                         runs[audio.source] = queue
                     }
@@ -265,6 +270,7 @@ final class LiveVoiceService: @unchecked Sendable {
                             let segments = try queue[0].segments(words: words, request: request)
                             if queue[0].unreconciledBoundaries > boundaries { degrade(.unmatchedBoundary, at: request.from) }
                             tails[source] = request.final ? [] : segments
+                            wordsChanged = true
                             if request.final {
                                 checkpoint.segments += segments
                                 checkpoint.completedThrough[source.rawValue] = request.through
@@ -275,11 +281,19 @@ final class LiveVoiceService: @unchecked Sendable {
                         if finishing && queue[0].uncommittedSeconds == 0 { queue.removeFirst() }
                         runs[source] = queue
                     }
-                    snapshot.segments = LiveVoiceTurns.group(checkpoint.segments + tails.values.flatMap { $0 })
+                    // Turns are rebuilt only when words changed, not on every pass of this loop (#377).
+                    if wordsChanged { snapshot.segments = LiveVoiceTurns.group(checkpoint.segments + tails.values.flatMap { $0 }) }
                     snapshot.recognitionDelayed = runs.values.flatMap { $0 }.contains { $0.uncommittedSeconds > 12 }
                     snapshot.liveIncomplete = !reconciled
                     snapshot.phase = stopped ? .finishing : .listening
-                    update(snapshot)
+                    // The loop passes ten times a second and every publish reaches the main thread, so it
+                    // publishes when something a page shows changes (words, phase, a source's health or
+                    // note) and the meter and clock at most once a second (#377). New words and the
+                    // final state are never held back.
+                    if published.map({ !$0.showsSame(as: snapshot) }) ?? true || clock.now - publishedAt >= .seconds(1) {
+                        update(snapshot)
+                        published = snapshot; publishedAt = clock.now
+                    }
                     if stopped && runs.values.allSatisfy(\.isEmpty) { break }
                     if !worked { try await Task.sleep(nanoseconds: 100_000_000) }
                 }
@@ -304,4 +318,16 @@ final class LiveVoiceService: @unchecked Sendable {
     func finish() async -> LiveVoiceCheckpoint { input.close(); return await task.value }
     func requestCancel() { input.close(); task.cancel() }
     func cancel() async -> LiveVoiceCheckpoint { requestCancel(); return await task.value }
+}
+
+private extension LiveVoiceSnapshot {
+    /// The same on any page: everything but the meter levels and elapsed time, which no page
+    /// shows from here (each model keeps its own clock).
+    func showsSame(as other: LiveVoiceSnapshot) -> Bool {
+        var mine = self, theirs = other
+        mine.elapsed = 0; theirs.elapsed = 0
+        for index in mine.sources.indices { mine.sources[index].level = 0 }
+        for index in theirs.sources.indices { theirs.sources[index].level = 0 }
+        return mine == theirs
+    }
 }

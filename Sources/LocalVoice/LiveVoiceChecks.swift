@@ -101,6 +101,25 @@ enum LiveVoiceChecks {
         try expect(shown.all.last?.segments.map { "\($0.source.label): \($0.text)" } == ["Others: word20 word21 word22", "You: word30 word31"],
                    "the live transcript shows the call once and your own words as You")
 
+        // Live words reach the main thread when something shown changes, not on every pass of a 10 Hz
+        // loop (#377). 2.5 s of continuous audio in 50 ms packets publishes a handful of times, the
+        // first words among them, and the final state still arrives.
+        let pacedDecoder = FixtureDecoder(), paced = SnapshotLog()
+        let streaming = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+            recognize: { try await pacedDecoder.recognize($0) }, update: { paced.append($0) })
+        let stream = samples(1..<4)
+        for packet in 0..<50 {
+            streaming.input.append(.init(source: .microphone, samples: Array(stream[packet * 800..<(packet + 1) * 800]),
+                                         sampleRate: 16_000, start: Double(packet) * 0.05))
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let whileStreaming = paced.all
+        let streamed = await streaming.finish()
+        try expect(whileStreaming.count <= 10 && whileStreaming.contains { !$0.text.isEmpty },
+                   "2.5 s of streamed audio publishes \(whileStreaming.count) snapshots, words among them, not one per 100 ms pass")
+        try expect(paced.all.last?.phase == .completed && paced.all.last?.text == streamed.text && streamed.text.hasPrefix("word1 word2"),
+                   "the final state is published with every word")
+
         let failingDecoder = FixtureDecoder(failOn: 2)
         let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
@@ -186,7 +205,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, live words that outlast an unmatched boundary or a backlog, turns across a pause, overlapping speakers, and the microphone's copy of the call. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, live words that outlast an unmatched boundary or a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
