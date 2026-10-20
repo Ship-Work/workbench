@@ -30,7 +30,8 @@ struct MeetingKnownApp {
     /// Shared helpers that play this app's sound for it: Safari's page and call audio plays in
     /// WebKit's media process, not in Safari. A helper belongs to the app only when macOS holds
     /// the app responsible for it (MeetingResponsibleApp), so Mail's or another app's WebKit
-    /// audio never reads as Safari's (#377).
+    /// audio never reads as Safari's. Safari is offered when macOS attributes the WebKit helper
+    /// to Safari; this is not yet observed on a real Safari call (#377).
     var hostedHelpers: [String] = []
     /// The system service that plays this app's call audio: FaceTime and Phone calls play in the
     /// Mac calling service. Recording the app taps that service too. It carries any call on this
@@ -125,6 +126,15 @@ enum MeetingAppCatalogue {
     static func isHostedHelper(_ bundleID: String) -> Bool {
         supported.contains { $0.hostedHelpers.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame } }
     }
+
+    /// An app whose sound plays only in shared helpers records silence when macOS cannot say which
+    /// helper is its own. Its picker entry says so, it is never offered, and Start refuses (#377).
+    static func unsupportedReason(_ bundleID: String, attributesHelpers: Bool) -> String? {
+        guard !attributesHelpers, let app = known(bundleID), !app.hostedHelpers.isEmpty else { return nil }
+        return "\(app.name) calls can't be recorded on this Mac: macOS doesn't say which web audio is \(app.name)'s, so the recording would be silent. Choose another browser or Microphone only."
+    }
+
+    static func unsupportedName(_ app: MeetingKnownApp) -> String { app.name + " (calls not supported on this Mac)" }
 
     /// Whether recording `appBundleID` taps this process: everything listed under that source,
     /// and the service that plays its calls (#377). FaceTime and Phone tapped only their own
