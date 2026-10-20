@@ -197,12 +197,13 @@ enum SpeakerEcho {
             }
             index = end
         }
-        // A match with words of its own beside it, none of them echo, is a coincidence in your speech.
+        // A match inside your own speech, your words close on both sides and neither of them echo, is
+        // a coincidence; one at the edge of your words (a reply just before their pause) is their echo.
         let echo = mine.indices.map { match[$0] != nil || misheard[$0] }
         return mine.indices.map { index in
             guard match[index] != nil else { return misheard[index] }
             let beside = [index - 1, index + 1].filter { $0 >= 0 && $0 < mine.count && close(min($0, index), max($0, index)) }
-            return beside.isEmpty || beside.contains { echo[$0] }
+            return beside.count < 2 || beside.contains { echo[$0] }
         }
     }
 
@@ -235,9 +236,13 @@ enum SpeakerEcho {
     /// Two recognisers' spellings of the same speech: the same letters, one in three changed,
     /// added or dropped (contract, contracts), or a shared start of three letters, or one the
     /// start of the other (OK, okay). Words are compared joined, so "Mon day" is "Monday".
+    /// Words people say on their own as a reply; one heard inside the echo is kept as theirs, never merged.
+    static let replyWords: Set<String> = ["no", "yes", "ok", "okay", "oh", "what", "wait", "sorry", "sure", "yeah", "right", "so"]
     static func resembles(_ heard: String, _ said: String) -> Bool {
         let a = Array(heard), b = Array(said), shorter = min(a.count, b.count)
-        guard shorter > 0 else { return false }
+        // Short words resemble almost anything ("no"/"not", "ok"/"on", "they"/"the"), and a reply word
+        // is far more often yours than a mishearing, so only longer words, never a reply, count as alike.
+        guard a == b || (shorter >= 4 && !replyWords.contains(heard)) else { return false }
         let prefix = zip(a, b).prefix { $0 == $1 }.count
         if a == b || prefix >= 3 || (prefix >= 2 && prefix == shorter) { return true }
         var row = Array(0...b.count)

@@ -176,6 +176,12 @@ enum LiveVoiceChecks {
         try expect(lego == both && monDay == both, "a misheard word inside the echo does not split their turn (\(lego == both ? monDay : lego))")
         try expect(heard { $0[6].text = "wait" } == "Others: we will send the contract to legal on Monday\n\nYou: wait\n\nOthers: and then the signed copy goes to finance",
                    "a word of your own inside the echo is kept")
+        // A short reply said over a short word of theirs is not taken for a mishearing of it (#377 review):
+        // "OK" over "on", "They" over "the", "No" over "to".
+        let shortReplies = ["OK": 7, "They": 3, "No": 5].map { word, index in (word, heard { $0[index].text = word }) }
+        try expect(shortReplies.allSatisfy { word, conversation in
+            conversation == "Others: we will send the contract to legal on Monday\n\nYou: \(word)\n\nOthers: and then the signed copy goes to finance" },
+                   "a short reply of your own over a short word of theirs is kept, and their echo around it dropped (\(shortReplies.filter { $0.1 != "Others: we will send the contract to legal on Monday\n\nYou: \($0.0)\n\nOthers: and then the signed copy goes to finance" }.map { $0.1 }))")
 
         // On laptop speakers the microphone hears the call (#377): through the real service, its copy
         // of the other side is neither shown nor saved as You, and what you said yourself is.

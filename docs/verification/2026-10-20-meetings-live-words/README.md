@@ -93,3 +93,13 @@ The paused, reconnecting and finishing renders differ from the base in the same 
 - The same call with headphones: nothing you said is missing, including words that repeat theirs.
 - A long call (30 minutes or more) with live words: the Meetings page stays responsive while words arrive; a `sample` of the app shows no whole-transcript text rebuild per update.
 - A speaker who talks for a minute with natural pauses reads as one paragraph; two people talking over each other read in a sensible order.
+
+## Third review and the lead's fix (20 October, on the integration branch)
+
+The final verification of `d13c756` found one more problem, which the author's record did not list. A one-word reply said over a short word of theirs was taken for a mishearing of that word and dropped with the echo: "No" over "not", "OK" over "on", "They" over "the". The release lead fixed it on `claude/meetings-377`:
+
+- **What counts as spelled alike.** `SpeakerEcho.resembles` now accepts only words of four or more letters (an exact match still counts) and never a common reply word (no, yes, ok, okay, oh, what, wait, sorry, sure, yeah, right, so).
+- **Coincidence rule.** A same-word match counts as a coincidence only when your own words are close on both sides of it. A match at the edge of your words is their echo: for example, their "Monday" just before their pause, right after your "OK".
+- **Check.** "a short reply of your own over a short word of theirs is kept, and their echo around it dropped" fails on `d13c756`.
+- **Reviewer's probes on the fixed code.** "No", "OK", "Oh" and "They" are kept. Cross-talk with headphones loses 0 of 888 of your words. Quick replies are kept at every gap from −0.1 to 0.3 s. A 2-hour call takes 10 ms in `group()`.
+- **Still a limit.** A word you ask back over their exact same word ("Late?" over "late") is taken for its echo.
