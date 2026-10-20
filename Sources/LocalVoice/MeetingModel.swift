@@ -167,6 +167,7 @@ final class MeetingModel: ObservableObject {
     /// objectWillChange read. It requests neither permission nor capture.
     func refreshAdmission() {
         if let hostAdmission { host = hostAdmission() }
+        let previousRefusal = admission.captureProblem
         let microphone = microphoneStatus()
         let speech = host.recognition.canTranscribe ? nil : MeetingProblem.speech(host.recognition.line)
         var refusal: MeetingProblem? = shuttingDown || host.closing ? .closing : speech
@@ -193,6 +194,14 @@ final class MeetingModel: ObservableObject {
         if let problem, [.microphoneDenied, .microphoneRestricted, .microphoneUnconfirmed].contains(problem), microphone == .authorized { setProblem(nil) }
         // A start refused while speech was not ready is settled once it is.
         if case .speech? = problem, host.recognition.canTranscribe { setProblem(nil) }
+        // So is a start refused for its source (an app's call audio not available, a source gone)
+        // once admission no longer refuses it, as after refreshing the audio apps (#377).
+        if let problem, problem == previousRefusal, next.captureProblem != problem {
+            switch problem {
+            case .appAudioUnavailable, .sourceDisappeared, .sourceProbe, .noSource: setProblem(nil)
+            default: break
+            }
+        }
     }
 
     func updateHostAdmission(_ value: MeetingHostAdmission) { host = value; refreshAdmission() }

@@ -931,10 +931,11 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
     /// process never broadens capture to all Mac audio or a different app.
     private func currentApp(_ original: MeetingAudioApp) throws -> MeetingAudioApp {
         let processes = try MeetingCoreAudio.tapProcesses()
-        if let reason = MeetingTapScope.unavailableReason(for: original.bundleID, among: processes) { throw MeetingError.message(reason) }
+        // An app that has quit is gone, whatever its helpers' attribution would have said (#377).
         guard let process = MeetingTapScope.representative(of: original, among: processes) else {
             throw MeetingError.message("The selected app is not supplying audio on this Mac.")
         }
+        if let reason = MeetingTapScope.unavailableReason(for: original.bundleID, among: processes) { throw MeetingError.message(reason) }
         return process.pid == original.id ? original : MeetingAudioApp(id: process.pid, name: original.name, bundleID: original.bundleID)
     }
 

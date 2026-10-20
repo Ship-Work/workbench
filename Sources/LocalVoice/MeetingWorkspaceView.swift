@@ -389,7 +389,7 @@ struct MeetingWorkspaceView: View {
     }
 
     private static func detail(_ manifest: MeetingManifest) -> String {
-        manifest.createdAt.formatted(date: .abbreviated, time: .shortened) + " · " + time(manifest.seconds)
+        manifest.createdAt.formatted(date: .abbreviated, time: .shortened) + " · " + clock(manifest.seconds)
     }
 
     @ViewBuilder private var transport: some View {

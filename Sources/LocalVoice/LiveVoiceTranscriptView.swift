@@ -237,9 +237,11 @@ struct LiveTranscriptText: NSViewRepresentable {
         let paragraph = conversation && !(index > 0 && continues(segments[index - 1], with: segment))
         if index > 0 { result.append(NSAttributedString(string: paragraph ? "\n\n" : " ", attributes: style.body)) }
         if paragraph {
-            let minutes = max(0, Int(segment.start)) / 60, seconds = max(0, Int(segment.start)) % 60
-            result.append(NSAttributedString(string: "\(segment.source.label)  ·  \(minutes):\(String(format: "%02d", seconds))\n",
-                                             attributes: style.label))
+            // With hours once the meeting has any, as the page's clock reads (#377).
+            let whole = max(0, Int(segment.start))
+            let at = whole < 3_600 ? "\(whole / 60):\(String(format: "%02d", whole % 60))"
+                : String(format: "%d:%02d:%02d", whole / 3_600, whole % 3_600 / 60, whole % 60)
+            result.append(NSAttributedString(string: "\(segment.source.label)  ·  \(at)\n", attributes: style.label))
         }
         var body = style.body
         if !segment.isFinal { body[.foregroundColor] = NSColor.secondaryLabelColor }

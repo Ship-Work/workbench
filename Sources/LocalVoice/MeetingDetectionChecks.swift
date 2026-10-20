@@ -144,7 +144,8 @@ enum MeetingDetectionChecks {
         source.values.append(.init(pid: 766, bundleID: "com.apple.WebKit.GPU", isRunningInput: true, isRunningOutput: true,
                                    isUserFacingApp: false, responsibleBundleID: "com.apple.Safari"))
         model.refreshApps()
-        try expect(model.admission.captureProblem == nil && model.admission.canStart, "a read that attributes Safari's helper admits it")
+        try expect(model.admission.captureProblem == nil && model.admission.canStart && model.problem == nil,
+                   "a read that attributes Safari's helper admits it, and the refusal Start showed goes with it")
         await model.prepareForShutdown()
     }
 
