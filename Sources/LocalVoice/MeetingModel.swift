@@ -47,6 +47,9 @@ final class MeetingModel: ObservableObject {
     }
     private var autoFinish = MeetingAutoFinish()
     private var recordingApp: MeetingAudioApp?
+    /// The detection failure last raised as the page's problem, so a failure that persists is
+    /// raised once rather than on every poll (#377).
+    private var detectionIssue: String?
     /// The history writer reads these during saveTranscript; originals stay unchanged.
     @Published private(set) var pendingTranscriptNotes: [String] = []
     @Published var detectionEnabled: Bool {
@@ -739,7 +742,15 @@ final class MeetingModel: ObservableObject {
             || host.captureProblem != nil || mayStart?() != nil
         let next = detector.evaluate()
         if next != offer { offer = next }
-        if let issue = detector.lastError, !isBusy, problem != .unknown(issue) { error = issue }
+        // A metadata failure becomes the page's problem once, when it appears, and only while no
+        // other problem shows; a later successful read takes back the one it raised (#377). Before,
+        // the same message came back every three seconds, over any other problem and after its ×,
+        // and kept coming while no poll read anything new (snoozed or suppressed detection).
+        let issue = detector.lastError
+        guard issue != detectionIssue, !isBusy else { return }
+        if let raised = detectionIssue, problem == .unknown(raised) { setProblem(nil) }
+        detectionIssue = issue
+        if let issue, problem == nil { setProblem(.unknown(issue)) }
     }
 
     /// Chooses the offered source for review. A call on this Mac is saved as a Call; a later
