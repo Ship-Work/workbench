@@ -208,7 +208,7 @@ enum HandoffManualChecks {
         let history = WorkbenchHistoryModel(directory: output.appendingPathComponent("synthetic-library"))
         // One two-hour meeting past the connected limit: its reason names Copy instructions alone (#377).
         var long = source
-        long.title = "Synthetic two-hour meeting"; long.originalText = ""; long.captureNotes = []; long.seconds = 7_200
+        long.title = "Synthetic two-hour meeting"; long.originalText = ""; long.captureNotes = []; long.seconds = 7_200; long.role = .reference
         long.text = (1...1_240).map { "Point \($0). Maya will review the proposal on Thursday and Sam will confirm the room." }.joined(separator: " ")
         for (name, providerOn, selected) in [("ready", true, source), ("manual", false, source), ("long-meeting", true, long)] {
             model.setEnabled(.codex, providerOn)
