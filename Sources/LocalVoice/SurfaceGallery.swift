@@ -2102,9 +2102,12 @@ private struct HistoryNativeAcceptanceView: View {
         model.historyLibrary.setMetadata(TranscriptMetadata(purpose: .meeting, person: "Sam Rivera", company: "Synthetic Orchard"), for: Self.meeting.id)
         let meeting = HandoffSourceSnapshot(reference: .init(kind: .transcript, id: Self.meeting.id), title: "Meeting · Sam Rivera",
             capturedAt: Self.meeting.date, text: Self.meeting.text, originalText: Self.meeting.text, role: .reference, seconds: Self.meeting.seconds)
+        // With the door's own skill and request, as Prepare follow-up… opens it, so the tile reopens it.
+        guard let doorSkill = TranscriptHandoffSkill.builtIns.first(where: { $0.id == MeetingFollowUp.skillID }), let doorTask = HomeMeetings.doorTask else {
+            throw VoiceError.message("The meeting door's skill is missing.")
+        }
         var copied: UUID?
-        try jobs.handOff(sources: [meeting], task: "Prepare notes and a follow-up message from this conversation.",
-                         skill: TranscriptHandoffSkill.followUp.load(), provider: nil) { copied = $0 }
+        try jobs.handOff(sources: [meeting], task: doorTask, skill: doorSkill.load(), provider: nil) { copied = $0 }
         guard let copied, jobs.jobs.first(where: { $0.id == copied })?.status == .ready else {
             throw VoiceError.message("Copy instructions did not leave a prepared follow-up: \(jobs.error ?? "no task").")
         }

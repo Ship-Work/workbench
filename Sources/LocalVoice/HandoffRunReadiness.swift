@@ -3,16 +3,19 @@ import Foundation
 /// A description of the existing local CLI route, never an instruction to run it.
 /// The review uses this from its in-memory inputs; dispatch rechecks the frozen files.
 struct HandoffRunReadiness: Equatable {
-    enum State { case off, checking, missing, unsupported, signIn, unverified, restricted, inputLimit, incompatible, busy, ready }
+    enum State { case off, checking, missing, unsupported, signIn, unverified, restricted, inputLimit, incompatible, mayHaveCompleted, busy, ready }
     let state: State
     let detail: String
     var canStart: Bool { state == .ready }
 
+    /// `mayHaveCompleted` is why Start task will not send this selection again: its saved task was
+    /// stopped or interrupted and may have completed (`HandoffJobsModel.mayHaveCompleted`, #377).
     static func evaluate(provider: SubscriptionProvider, enabled: Bool, checking: Bool,
                          connection: SubscriptionConnection?, busy: Bool, compatible: Bool,
-                         inputProblem: String?) -> Self {
+                         inputProblem: String?, mayHaveCompleted: String? = nil) -> Self {
         let manual = " Copy instructions remains available."
         if !compatible { return .init(state: .incompatible, detail: "This skill needs files or workspace tools. Copy instructions and give your assistant the complete selected work folder.") }
+        if let mayHaveCompleted { return .init(state: .mayHaveCompleted, detail: mayHaveCompleted) }
         if let inputProblem { return .init(state: .inputLimit, detail: inputProblem) }
         if busy { return .init(state: .busy, detail: "Another handoff is running. Wait for it to finish or stop it in History." + manual) }
         if !enabled { return .init(state: .off, detail: provider.title + " is off. Enable it in Connections if you want Workbench to run the task." + manual) }
@@ -44,29 +47,31 @@ struct HandoffRunReadiness: Equatable {
 
     /// Why a reviewed selection cannot start with this runner, with a next step that works for it.
     /// One item, such as a long meeting's transcript, cannot be made fewer, so it is pointed at
-    /// Copy instructions alone, which has none of these limits (#377).
+    /// Copy instructions alone, which has none of these limits; past an image limit, it says that
+    /// Copy instructions names the images to attach rather than pasting them (#377).
     static func inputProblem(provider: SubscriptionProvider, prompt: String, imageBytes: [Int], items: Int) -> String? {
-        let manual = items > 1 ? " Choose fewer items or use Copy instructions."
-            : " Use Copy instructions to paste the complete request into your assistant instead."
+        let fewer = " Choose fewer items or use Copy instructions."
+        let text = items > 1 ? fewer : " Use Copy instructions to paste the complete request into your assistant instead."
+        let attach = items > 1 ? fewer : " Use Copy instructions instead: it names each image, and you attach them in your assistant."
         if prompt.count > SubscriptionCLILimits.maximumPromptCharacters {
-            return "The full request exceeds the connected limit of 100,000 characters." + manual
+            return "The full request exceeds the connected limit of 100,000 characters." + text
         }
         if imageBytes.count > SubscriptionCLILimits.maximumImages(for: provider) {
-            return provider.title + " accepts up to \(SubscriptionCLILimits.maximumImages(for: provider)) images per task." + manual
+            return provider.title + " accepts up to \(SubscriptionCLILimits.maximumImages(for: provider)) images per task." + attach
         }
         let each = SubscriptionCLILimits.maximumImageBytes(for: provider)
         if imageBytes.contains(where: { $0 < 0 || $0 > each }) {
-            return provider.title + " accepts each image up to " + (provider == .claude ? "3.75" : "10") + " MiB." + manual
+            return provider.title + " accepts each image up to " + (provider == .claude ? "3.75" : "10") + " MiB." + attach
         }
         if imageBytes.reduce(0, +) > SubscriptionCLILimits.maximumTotalImageBytes(for: provider) {
-            return provider.title + " accepts images totaling up to " + (provider == .claude ? "16" : "128") + " MiB." + manual
+            return provider.title + " accepts images totaling up to " + (provider == .claude ? "16" : "128") + " MiB." + attach
         }
         if provider == .claude, !imageBytes.isEmpty {
             guard let bytes = try? SubscriptionClaudeInput.projectedBytes(prompt: prompt, imageBytes: imageBytes) else {
-                return "The Claude Code request size could not be verified." + manual
+                return "The Claude Code request size could not be verified." + attach
             }
             if bytes > SubscriptionCLILimits.claudeMaximumRequestBytes {
-                return "The encoded images and request exceed Claude Code’s 24 MiB request limit." + manual
+                return "The encoded images and request exceed Claude Code’s 24 MiB request limit." + attach
             }
         }
         return nil

@@ -29,8 +29,14 @@ enum HomeMeetings {
                 let names = [details.person, details.company].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
                 return Summary(id: item.id, heading: ([details.purpose.title] + names).joined(separator: " · "), date: item.date,
                                seconds: item.seconds, excerpt: String(item.text.prefix(400)).trimmingCharacters(in: .whitespacesAndNewlines),
-                               note: details.captureNotes.first)
+                               note: note(details.captureNotes))
             }
+    }
+    /// The one note the tile shows. A meeting Workbench finished itself keeps that note first, but a
+    /// note about what the recording lost, such as an app that sent no sound, matters more, so it
+    /// wins; the finish note shows when it is the only one (#377).
+    static func note(_ notes: [String]) -> String? {
+        notes.first { !$0.hasPrefix(MeetingSelfFinish.prefix) } ?? notes.first
     }
     /// "Under a minute", "42 min", "1 h 5 min".
     static func duration(_ seconds: Double) -> String {
@@ -57,11 +63,29 @@ enum HomeMeetings {
     }
     /// Whether the tile's follow-up door is Open follow-up rather than Prepare follow-up…. A
     /// follow-up only prepared has never run here: Copy instructions took it to the person's own
-    /// assistant, whose result stays there, or its start never began. So its door stays Prepare
-    /// follow-up…, which reopens the same reviewed task: Start task runs it here and its result
-    /// returns to this tile, or Copy instructions copies it again (#377). One that ran, finished or
-    /// not, opens in History, where its result, Retry… and receipt are, as before.
-    static func opensFollowUp(_ job: HandoffJob?) -> Bool { job.map { $0.status != .ready } ?? false }
+    /// assistant, whose result stays there, or its start never began. When it is exactly what this
+    /// meeting's door prepares (`reopensFromDoor`), its door stays Prepare follow-up…, which reopens
+    /// that same task: Start task runs it here and its result returns to this tile, or Copy
+    /// instructions copies it again (#377). One prepared another way opens in History, where its own
+    /// Start task… is, and one that ran, finished or not, opens there with its result, Retry… and receipt.
+    static func opensFollowUp(_ job: HandoffJob?, inputs: HandoffJobInputs?, meeting id: UUID) -> Bool {
+        guard let job else { return false }
+        return job.status != .ready || !reopensFromDoor(inputs, meeting: id)
+    }
+    /// The request the meeting's own Prepare follow-up… opens with: its preferred skill's suggestion.
+    static var doorTask: String? {
+        TranscriptHandoffSkill.builtIns.first { $0.id == MeetingFollowUp.skillID }?.defaultTask?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// Whether a task's frozen inputs are what this meeting's door prepares when nothing is changed:
+    /// this one transcript as reference, with the door's skill and request. Reopening the door then
+    /// reaches that same task, unless the transcript's words changed since.
+    static func reopensFromDoor(_ inputs: HandoffJobInputs?, meeting id: UUID) -> Bool {
+        guard let inputs, inputs.problem == nil, inputs.items.count == 1, let item = inputs.items.first,
+              item.reference == WorkbenchItemReference(kind: .transcript, id: id), item.role == .reference,
+              inputs.skillID == MeetingFollowUp.skillID, let doorTask else { return false }
+        return inputs.task.trimmingCharacters(in: .whitespacesAndNewlines) == doorTask
+    }
     /// What the tile's task files follow: a run that finishes changes its task's time, not the list.
     struct TaskStamp: Equatable { let id: UUID; let updated: Date }
     static func taskStamps(_ jobs: [HandoffJob]) -> [TaskStamp] { jobs.map { TaskStamp(id: $0.id, updated: $0.updatedAt) } }
@@ -126,7 +150,7 @@ struct HomeMeetingTile: View {
 
     /// The newest meeting, open: its names, date and length, its first words, and what to do with
     /// it. A follow-up that has run replaces Prepare follow-up… with the way to it; one only
-    /// prepared keeps Prepare follow-up…, so it can still run here (`HomeMeetings.opensFollowUp`).
+    /// prepared by this door keeps Prepare follow-up…, so it can still run here (`HomeMeetings.opensFollowUp`).
     @ViewBuilder private func newest(_ last: HomeMeetings.Summary) -> some View {
         let followUp = HomeMeetings.followUp(for: last.id, in: jobs.visibleJobs,
                                              inputs: { jobs.files($0)?.inputs.items.map(\.reference) ?? [] },
@@ -158,7 +182,7 @@ struct HomeMeetingTile: View {
             Button("Review transcript") { model.openHistory(HomeMeetings.review(last.id)) }
                 .help("Opens this transcript in History, with its original wording.")
                 .accessibilityIdentifier("home.meeting.review")
-            if let followUp, HomeMeetings.opensFollowUp(followUp) {
+            if let followUp, HomeMeetings.opensFollowUp(followUp, inputs: jobs.files(followUp)?.inputs, meeting: last.id) {
                 Button("Open follow-up") { model.openHistory(HistoryDoor(job: followUp.id)) }
                     .help("Shows the follow-up made from this meeting in History, where Copy result copies it.")
                     .accessibilityIdentifier("home.meeting.followup.open")

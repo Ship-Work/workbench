@@ -4578,6 +4578,14 @@
     "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner."
   },
   {
+    "id": "LocalVoice.HistorySelectionControls.HandoffReviewView.Button.show-in-history",
+    "surface": "handoff review",
+    "label": "Show in History…",
+    "kind": "action",
+    "belongsTo": "history",
+    "note": "Option of History (#377, lead decision 20 Oct): shown only when this exact selection's saved task was stopped or interrupted and may have completed, so Start task will not send it again. Opens History revealing that task's card, with its receipt and the explicit Retry…, through the review's existing reveal of the task it reused; nothing is sent."
+  },
+  {
     "id": "LocalVoice.HistorySelectionControls.HandoffReviewView.Button.start-task",
     "surface": "handoff review",
     "label": "Start task",
@@ -5512,7 +5520,7 @@
     "kind": "action",
     "belongsTo": "history",
     "aliasOf": "history",
-    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6). Stays while the follow-up is only prepared, so Start task can run that same task and bring its result to the tile (#377)."
+    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6). Stays while the follow-up is only prepared with the door's own skill and request, so reopening reaches that same task and Start task can bring its result to the tile (#377)."
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-fe289c1404ed",
@@ -5677,7 +5685,7 @@
     "label": "Open follow-up",
     "kind": "action",
     "belongsTo": "history",
-    "note": "Option: once a follow-up from the newest meeting has run in Workbench (finished or not), opens that task in History, where Copy result, Retry… and its receipt are. A follow-up only prepared, such as one copied to the person's own assistant, keeps Prepare follow-up… (#377)."
+    "note": "Option: once a follow-up from the newest meeting has run in Workbench (finished or not), or was prepared with another request or skill than the meeting's door, opens that task in History, where Copy result, Start task…, Retry… and its receipt are. A follow-up only prepared by the door, such as one copied to the person's own assistant, keeps Prepare follow-up… (#377)."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.review-transcript",
