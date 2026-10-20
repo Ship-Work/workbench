@@ -106,10 +106,14 @@ enum HandoffManualChecks {
         while model.isBusy { await Task.yield() }
         let failed = model.jobs.first(where: { $0.id == job.id })!
         try check(failed.status == .failed && failed.detail.contains("unverified"), "dispatch failure stays on its originating attempt")
-        var prepared = false
-        try model.handOff(sources: [source], task: task, skill: skill, provider: .codex) { _ in prepared = true }
-        try check(!prepared && calls == 1 && model.error?.contains("Retry") == true, "reopening an identical review cannot silently retry a failed attempt")
-        try check(model.start(failed, provider: .codex, retry: true), "explicit retry starts a new attempt")
+        try check(!model.start(failed, provider: .codex) && calls == 1 && model.error?.contains("Retry") == true,
+                  "a start that is not a retry never runs a failed task again")
+        // Reopening the same review and choosing Start task is that explicit choice (#377): it runs the
+        // failed task again as a new attempt and says so, rather than answering with an error each time.
+        var prepared: UUID?
+        try model.handOff(sources: [source], task: task, skill: skill, provider: .codex) { prepared = $0 }
+        try check(prepared == job.id && model.error == nil && model.notice == HandoffJobsModel.startedAgain(after: .failed),
+                  "reopening an identical review and choosing Start task retries its failed task, and says so")
         for _ in 0..<100 where calls < 2 { await Task.yield() }
         callbacks[0]("late-prior-attempt")
         while model.isBusy { await Task.yield() }
