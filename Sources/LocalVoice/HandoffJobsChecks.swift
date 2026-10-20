@@ -728,13 +728,19 @@ enum HandoffJobsChecks {
         var revealed: [UUID] = []
         try door.handOff(sources: meeting, task: doorTask, skill: meetingSkill, provider: nil) { revealed.append($0) }
         let copied = await doorFollowUp()
+        let copiedLookup = await door.savedTask(sources: meeting, task: doorTask, skill: meetingSkill)
         try check(copied != nil && revealed == [copied!.job.id] && copied?.job.status == .ready && copied?.job.attempts == 0
-                  && door.savedTask(sources: meeting, task: doorTask, skill: meetingSkill)?.id == copied?.job.id
+                  && copiedLookup?.id == copied?.job.id
                   && !HomeMeetings.opensFollowUp(copied?.job, inputs: copied?.inputs, meeting: id)
                   && HomeMeetings.followUpState(copied!.job.status) == "Follow-up prepared, no result yet",
                   "a follow-up copied from the meeting's door keeps Prepare follow-up… on Home, which the review finds before anything is prepared")
         try check(try HandoffJobStore.identity(sources: meeting, task: doorTask, skill: meetingSkill, review: nil).fingerprint == copied?.job.fingerprint,
                   "the review's lookup uses the same identity as the task it prepared")
+        // The lookup hashes off the main actor; one the review has moved past is cancelled and answers nothing.
+        let staleLookup = Task { await door.savedTask(sources: meeting, task: doorTask, skill: meetingSkill) }
+        staleLookup.cancel()
+        let staleAnswer = await staleLookup.value
+        try check(staleAnswer == nil, "a cancelled lookup gives no answer for the review to apply")
         let runsBefore = script.runs
         try door.handOff(sources: meeting, task: doorTask, skill: meetingSkill, provider: .claude) { revealed.append($0) }
         try check(revealed == [copied!.job.id, copied!.job.id] && door.activeID == copied!.job.id && door.error == nil,
@@ -771,7 +777,7 @@ enum HandoffJobsChecks {
         door.cancel()
         try await settle("the stopped run") { !door.isBusy }
         mode.value = "result"
-        let stoppedTask = door.savedTask(sources: meeting, task: "List the open questions.", skill: meetingSkill)
+        let stoppedTask = await door.savedTask(sources: meeting, task: "List the open questions.", skill: meetingSkill)
         let stoppedReadiness = HandoffRunReadiness.evaluate(provider: .claude, enabled: true, checking: false, connection: door.connections[.claude],
             busy: false, compatible: true, inputProblem: nil, mayHaveCompleted: stoppedTask.flatMap { HandoffJobsModel.mayHaveCompleted($0.status) })
         try check(stoppedTask?.id == stoppedRun.first && stoppedTask?.status == .cancelled && !stoppedReadiness.canStart
@@ -793,7 +799,7 @@ enum HandoffJobsChecks {
                                                               roles: [:], review: nil, previousReview: true, selection: 2, jobs: door.jobs)
         let unchangedKey = HandoffReviewView.SavedTaskKey.make(task: "List the open questions.", skill: meetingSkill.reference.id, sources: meeting,
                                                                roles: [:], review: nil, previousReview: true, selection: 1, jobs: door.jobs)
-        let editedTask = door.savedTask(sources: editedMeeting, task: "List the open questions.", skill: meetingSkill)
+        let editedTask = await door.savedTask(sources: editedMeeting, task: "List the open questions.", skill: meetingSkill)
         var fresh: [UUID] = []
         try door.handOff(sources: editedMeeting, task: "List the open questions.", skill: meetingSkill, provider: .claude) { fresh.append($0) }
         try check(editedMeeting[0].reference == meeting[0].reference && keyBefore != replacedKey && keyBefore == unchangedKey && editedTask == nil
@@ -803,7 +809,7 @@ enum HandoffJobsChecks {
         // A stopped task whose folder no longer verifies would not be reused by Start task, so it no longer holds Start task.
         let stoppedFolder = door.directory.appendingPathComponent(stoppedRun[0].uuidString)
         try HandoffJobStore.write(Data("Changed outside Workbench.".utf8), to: stoppedFolder.appendingPathComponent("SKILL.md"))
-        let damaged = door.savedTask(sources: meeting, task: "List the open questions.", skill: meetingSkill)
+        let damaged = await door.savedTask(sources: meeting, task: "List the open questions.", skill: meetingSkill)
         var replacement: [UUID] = []
         try door.handOff(sources: meeting, task: "List the open questions.", skill: meetingSkill, provider: .claude) { replacement.append($0) }
         try check(damaged == nil && replacement.count == 1 && replacement.first != stoppedRun.first && door.error == nil,
@@ -818,7 +824,7 @@ enum HandoffJobsChecks {
         relaunchedDoor.clock = { now }
         relaunchedDoor.runner = scripted(doorReply)
         await relaunchedDoor.refresh()
-        let interrupted = relaunchedDoor.savedTask(sources: meeting, task: "Name the decisions.", skill: meetingSkill)
+        let interrupted = await relaunchedDoor.savedTask(sources: meeting, task: "Name the decisions.", skill: meetingSkill)
         let runsAtRelaunch = script.runs
         var resumed: [UUID] = []
         try relaunchedDoor.handOff(sources: meeting, task: "Name the decisions.", skill: meetingSkill, provider: .claude) { resumed.append($0) }

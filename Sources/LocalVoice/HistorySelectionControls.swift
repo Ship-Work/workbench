@@ -601,9 +601,12 @@ struct HandoffReviewView: View {
                 Task { await jobs.refresh() }
             }
             .task(id: savedTaskKey) {
+                // A changed key cancels this lookup, and a stale answer is never applied.
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 guard !Task.isCancelled else { return }
-                savedTask = lookUpSavedTask()
+                let found = await lookUpSavedTask()
+                guard !Task.isCancelled else { return }
+                savedTask = found
             }
             .sheet(isPresented: $showingPreviousReview) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -682,14 +685,15 @@ struct HandoffReviewView: View {
     private func selectionChanged() {
         selectionVersion += 1; savedTask = nil
     }
-    /// The selection exactly as Start task would prepare it, looked up among the saved tasks.
-    private func lookUpSavedTask() -> HandoffJob? {
+    /// The selection exactly as Start task would prepare it, looked up among the saved tasks off
+    /// the main actor.
+    private func lookUpSavedTask() async -> HandoffJob? {
         guard let loadedSkill, !sources.isEmpty else { return nil }
         var items = sources
         for index in items.indices { items[index].role = roles[items[index].reference] ?? items[index].role }
         var review = reviewContext
         if !includePreviousReview { review?.previousDocument = nil }
-        return jobs.savedTask(sources: items, task: task, skill: loadedSkill, review: review)
+        return await jobs.savedTask(sources: items, task: task, skill: loadedSkill, review: review)
     }
     private func loadSkill() {
         do { loadedSkill = try skill.load(); skillProblem = nil }
