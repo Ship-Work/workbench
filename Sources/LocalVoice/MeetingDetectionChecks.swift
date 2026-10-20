@@ -16,6 +16,7 @@ enum MeetingDetectionChecks {
         try callServiceChecks(expect: expect)
         try await snoozeChecks(root: root, expect: expect)
         try await representativeChecks(root: root, expect: expect)
+        try finishCaptionChecks(expect: expect)
         return checks
     }
 
@@ -192,6 +193,23 @@ enum MeetingDetectionChecks {
         model.refreshApps()
         try expect(model.apps.first { $0.bundleID == chrome }?.id == 750, "a failed read forgets nothing it could not see")
         await model.prepareForShutdown()
+    }
+
+    /// Finish when call audio ends reads activity only for catalogue apps and the calling service.
+    private static func finishCaptionChecks(expect: (Bool, String) throws -> Void) throws {
+        let automatic = MeetingAppCatalogue.supported.map { MeetingAudioApp(id: 1, name: $0.name, bundleID: $0.bundleID) }
+            + [MeetingAudioApp(id: 2, name: "Mac calling service", bundleID: "com.apple.avconferenced")]
+        let manual = [MeetingAudioApp(id: 3, name: "Example", bundleID: "example.player"),
+                      MeetingAudioApp(id: 4, name: "Mac telephony service", bundleID: "com.apple.TelephonyUtilities"),
+                      MeetingAudioApp(id: 5, name: "WebKit audio service (shared)", bundleID: "com.apple.WebKit.GPU")]
+        try expect(automatic.allSatisfy(MeetingDetector.finishesAutomatically) && !manual.contains(where: MeetingDetector.finishesAutomatically)
+                   && !MeetingDetector.finishesAutomatically(nil),
+                   "only catalogue apps and calls on this Mac finish by themselves")
+        let detector = MeetingDetector(source: Fixture())
+        try expect(manual.allSatisfy { detector.activity(for: $0) == .unknown }, "every manual source's activity reads as unknown, which never finishes")
+        let caption = MeetingDetector.automaticFinishCaption
+        try expect(caption.contains("a supported call app, or a call on this Mac") && caption.contains("Microphone-only recordings and other apps or services finish manually"),
+                   "the Finish when call audio ends caption names every source that finishes manually, not only the microphone (#377)")
     }
 
     private final class Fixture: MeetingProcessSource {
