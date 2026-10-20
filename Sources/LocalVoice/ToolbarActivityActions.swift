@@ -159,7 +159,7 @@ extension FloatingToolbar {
         var rows: [ToolbarChooserActivity] = []
         let meeting = actions.filter { $0.id.hasPrefix("meeting.") }
         if !meeting.isEmpty {
-            let detail: String
+            var detail: String
             if meetings.isRecording, let seconds = meetings.autoFinishSeconds {
                 detail = "Call audio ended · finishing in \(seconds)s"
             } else if meetings.isRecording {
@@ -168,7 +168,9 @@ extension FloatingToolbar {
                 case .reconnecting: detail = "Reconnecting audio · recording kept"
                 default: detail = "Recording"
                 }
-            } else { detail = meetings.isBusy ? "Processing" : "Recording kept for recovery" }
+                // The two-hour limit's warning, in the words of the page and the panel (#377).
+                if let warning = meetings.timeLimitWarning { detail += " · " + warning.lowercased() }
+            } else { detail = meetings.isStarting ? "Starting" : meetings.isBusy ? "Processing" : "Recording kept for recovery" }
             rows.append(.init(id: "meeting", title: "Meetings", symbol: "person.2.wave.2",
                 detail: detail, actions: meeting))
         }

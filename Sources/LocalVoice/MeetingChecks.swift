@@ -1714,25 +1714,65 @@ enum MeetingChecks {
         await model.prepareForShutdown()
     }
 
-    /// The note a call Workbench finished keeps when its audio ended (#377). Synthetic capture
-    /// and metadata; the watcher and the guarded finish run with short delays.
+    /// What the meeting's row on the panel and Home says while it starts, near the two-hour limit
+    /// and during the call-audio countdown, and the note a call Workbench finished keeps (#377).
+    /// Synthetic capture and metadata; the watcher and the guarded finish run with short delays.
     private static func limitAndCallEndChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
         let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingLimits-" + UUID().uuidString).path
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        try expect(MeetingTimeLimit.warning(elapsed: 6_899) == nil && MeetingTimeLimit.warning(elapsed: 6_900) == "Finishes at 2 hours in 5 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_080) == "Finishes at 2 hours in 2 min"
+                   && MeetingTimeLimit.warning(elapsed: 7_141) == "Finishes at 2 hours in under a minute"
+                   && MeetingTimeLimit.caption(elapsed: 3_600, paused: false) == "Up to 2 hours"
+                   && MeetingTimeLimit.caption(elapsed: 3_600, paused: true) == "Up to 2 hours, pauses included"
+                   && MeetingTimeLimit.caption(elapsed: 6_960, paused: true) == "Finishes at 2 hours in 4 min",
+                   "the two-hour limit warns from five minutes before it, and says that pauses count while paused")
         let source = ProcessFixture()
         source.values = [.init(pid: 93_001, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true, name: "Zoom")]
-        let capture = CaptureFixture()
+        var capture = CaptureFixture()
         let model = MeetingModel(directory: root, defaults: defaults, processSource: source,
             transcribe: { _ in "Synthetic words heard before the call ended" }, microphonePermission: { true }, captureFactory: { capture })
         model.saveTranscript = { _, _ in }
         model.watchIntervalNanoseconds = 5_000_000
-        var guarded = MeetingAutoFinish(); guarded.inactivityDelay = 0; guarded.grace = 0
+        var guarded = MeetingAutoFinish(); guarded.inactivityDelay = 0; guarded.grace = 600
         model.autoFinishGuard = guarded
+        func row() -> (title: String, controls: [MeetingQuickStatus.Control]) {
+            (MeetingQuickStatus.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
+                                      autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning),
+             MeetingQuickStatus.controls(starting: model.isStarting, recording: model.isRecording, countingDown: model.autoFinishSeconds != nil))
+        }
         func callAudio(_ running: Bool) { source.values[0].isRunningInput = running; source.values[0].isRunningOutput = running }
         model.refreshApps(); model.selectAudioSource(93_001); model.includeMicrophone = false
 
+        let gate = Gate<Bool>(); capture.startGate = gate
+        let starting = Task { await model.start() }
+        await waitUntil { gate.isWaiting }
+        try expect(model.isStarting && row().title == "Meetings · starting" && row().controls == [.cancelStart],
+                   "a meeting still starting reads as starting, with Cancel start, never finishing with Stop processing")
+        gate.resume(true); await starting.value
+        try expect(model.isRecording && row().title == "Meetings · recording" && row().controls == [.finish] && model.timeLimitWarning == nil,
+                   "a recording well inside the limit reads as recording, with Finish meeting")
+
+        capture.elapsedSeconds = 6_900
+        await waitUntil { model.elapsed == 6_900 }
+        try expect(model.timeLimitWarning == "Finishes at 2 hours in 5 min" && row().title == "Meetings · recording · finishes at 2 hours in 5 min",
+                   "five minutes before the two-hour limit the recording's row says when Workbench will finish it")
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        callAudio(false)
+        await waitUntil { model.autoFinishSeconds != nil }
+        try expect(row().title.hasPrefix("Meetings · call audio ended · finishing in ") && row().controls == [.keepRecording, .finish],
+                   "during the call-audio countdown the panel and Home rows offer Keep recording beside Finish meeting")
+        model.keepRecording()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try expect(model.isRecording && model.autoFinishSeconds == nil && row().controls == [.finish],
+                   "Keep recording ends the countdown and the same recording continues")
+        await model.stop()
+
         // A call whose audio ends finishes itself, and its saved notes say Workbench did and why.
+        guarded.grace = 0; model.autoFinishGuard = guarded
+        capture = CaptureFixture(); callAudio(true)
         await model.start()
         try await Task.sleep(nanoseconds: 100_000_000)
         callAudio(false)

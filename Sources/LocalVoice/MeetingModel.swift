@@ -56,6 +56,9 @@ final class MeetingModel: ObservableObject {
     /// The detection failure last raised as the page's problem, so a failure that persists is
     /// raised once rather than on every poll (#377).
     private var detectionIssue: String?
+    /// The two-hour limit's warning while this recording is within five minutes of it
+    /// (MeetingTimeLimit), for the page's caption and every row that shows the recording live.
+    var timeLimitWarning: String? { isRecording ? MeetingTimeLimit.warning(elapsed: elapsed) : nil }
     /// The history writer reads these during saveTranscript; originals stay unchanged.
     @Published private(set) var pendingTranscriptNotes: [String] = []
     @Published var detectionEnabled: Bool {
@@ -433,7 +436,10 @@ final class MeetingModel: ObservableObject {
         await finishCapture(process: true)
     }
 
+    /// Cancels the automatic finish for this recording. A click that lands after the recording
+    /// ended does nothing.
     func keepRecording() {
+        guard isRecording else { return }
         autoFinish.keepRecording(); autoFinishSeconds = nil
     }
 
@@ -830,6 +836,28 @@ final class MeetingModel: ObservableObject {
         shuttingDown = true; activeCapture?.requestStop()
         detectionTask?.cancel(); watcher?.cancel()
         Task { await prepareForShutdown() }
+    }
+}
+
+/// The two-hour limit as the person sees it coming (#377). The warning starts five minutes before
+/// Workbench finishes the recording itself. Paused and reconnecting time count, as they do on the
+/// clock the page shows: a recording keeps one timeline, and a pause is written into both tracks as
+/// silence once audio returns, so it costs the disk and the recognition the limit protects. The
+/// writer, the segment plan and recovery all bound that same timeline (MeetingSegmentPlan).
+enum MeetingTimeLimit {
+    static let warningSeconds = 300.0
+
+    /// "Finishes at 2 hours in 5 min" from five minutes before the limit; nil before then.
+    static func warning(elapsed: Double) -> String? {
+        let remaining = MeetingSegmentPlan.maximumMeetingSeconds - elapsed
+        guard remaining <= warningSeconds else { return nil }
+        return "Finishes at 2 hours in " + (remaining < 60 ? "under a minute" : "\(Int((remaining / 60).rounded(.up))) min")
+    }
+
+    /// The words beside a recording's elapsed time: the warning, else the limit, which says that
+    /// pauses count while the recording is paused or reconnecting.
+    static func caption(elapsed: Double, paused: Bool) -> String {
+        warning(elapsed: elapsed) ?? (paused ? "Up to 2 hours, pauses included" : "Up to 2 hours")
     }
 }
 
