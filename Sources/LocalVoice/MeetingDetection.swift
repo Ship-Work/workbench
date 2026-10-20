@@ -91,6 +91,23 @@ extension MeetingCoreAudio {
                 responsibleBundleID: MeetingAppCatalogue.isHostedHelper(bundle) ? MeetingResponsibleApp.bundleID(for: pid) : nil)
         }
     }
+
+    /// The nominal rate of the default output or input device, which a new app tap or
+    /// microphone track records at; nil when it cannot be read.
+    static func defaultNominalSampleRate(input: Bool) -> Double? {
+        var property = AudioObjectPropertyAddress(mSelector: input ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
+                                                  mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var device = kAudioObjectUnknown
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &property, 0, nil, &size, &device) == noErr,
+              device != kAudioObjectUnknown else { return nil }
+        var rateProperty = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate,
+                                                      mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var rate = Float64(0)
+        var rateSize = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(device, &rateProperty, 0, nil, &rateSize, &rate) == noErr else { return nil }
+        return rate
+    }
 }
 
 protocol MeetingProcessSource: AnyObject {

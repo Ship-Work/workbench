@@ -34,6 +34,9 @@ struct MeetingCaptureRequest {
     var onAudio: (@Sendable (MeetingAudioChunk) -> Void)? = nil
     /// Dictate supplies its existing recoverable WAV destination.
     var microphoneFileURL: URL? = nil
+    /// The originals a meeting writes, which its start check budgets for two hours
+    /// (MeetingDiskBudget); nil for Dictate's live capture, which keeps its own floor (#377).
+    var meetingTracks: [MeetingTrackSource]? = nil
 }
 
 struct MeetingAudioChunk: Sendable {
@@ -913,7 +916,7 @@ final class MeetingSystemCapture: MeetingCapture, @unchecked Sendable {
         }
         guard self.request == nil else { throw MeetingError.message("This recording has already started.") }
         try MeetingStore.createPrivateDirectory(request.tracksDirectory)
-        try MeetingDiskBudget.checkStartSpace(at: request.tracksDirectory)
+        try MeetingDiskBudget.checkStartSpace(at: request.tracksDirectory, meetingTracks: request.meetingTracks)
         self.request = request
         chosenApp = request.app; microphoneIncluded = request.includeMicrophone
         try startRoutes(configuredRoutes)

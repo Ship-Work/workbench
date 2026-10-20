@@ -392,7 +392,7 @@ final class MeetingModel: ObservableObject {
                     if audio.source != .local { evidence?.hear(audio.samples) }
                     input?.append(LiveVoiceAudio(source: audio.source == .local ? .microphone : .app,
                         samples: audio.samples, sampleRate: audio.sampleRate, start: audio.startSeconds))
-                }))
+                }, meetingTracks: MeetingDiskBudget.tracks(app: app != nil, microphone: microphone)))
             try check(token)
             notice = "Recording. Your original audio is being saved."
             voiceSession.phase = .listening

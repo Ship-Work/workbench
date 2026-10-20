@@ -300,12 +300,12 @@ enum MeetingDetectionChecks {
 
     /// The start check promised a safe meeting with room for two tracks for about half an hour.
     private static func diskBudgetChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
-        func trackBytes(seconds: Int) async throws -> Int64 {
+        func trackBytes(seconds: Int, rate: Double) async throws -> Int64 {
             let directory = root.appendingPathComponent("disk-\(seconds)-" + UUID().uuidString, isDirectory: true)
             try MeetingStore.createPrivateDirectory(directory)
-            let writer = try MeetingTrackRecorder(source: .remote, directory: directory, sampleRate: 48_000, timeline: MeetingCaptureTimeline())
+            let writer = try MeetingTrackRecorder(source: .remote, directory: directory, sampleRate: rate, timeline: MeetingCaptureTimeline())
             try writer.open()
-            let chunk = [Float](repeating: 0.25, count: 4_800), host = MeetingClock.now()
+            let chunk = [Float](repeating: 0.25, count: Int(rate / 10)), host = MeetingClock.now()
             for index in 0..<(seconds * 10) {
                 chunk.withUnsafeBufferPointer {
                     writer.append($0.baseAddress!, count: chunk.count, hostTime: host + AVAudioTime.hostTime(forSeconds: Double(index) / 10))
@@ -319,34 +319,37 @@ enum MeetingDetectionChecks {
             let size = try FileManager.default.attributesOfItem(atPath: writer.url.path)[.size] as? NSNumber
             return size?.int64Value ?? 0
         }
-        let perSecond = (try await trackBytes(seconds: 3) - trackBytes(seconds: 1)) / 2
-        try expect(perSecond == 96_000 && MeetingDiskBudget.trackBytesPerSecond == perSecond,
-                   "the budget uses the real track writer's format: 48 kHz audio at 96,000 bytes a second (16-bit mono)")
+        let perSecond = (try await trackBytes(seconds: 3, rate: 48_000) - trackBytes(seconds: 1, rate: 48_000)) / 2
+        let fastPerSecond = (try await trackBytes(seconds: 3, rate: 96_000) - trackBytes(seconds: 1, rate: 96_000)) / 2
+        try expect(perSecond == 96_000 && fastPerSecond == 192_000 && MeetingDiskBudget.trackBytesPerSecond(sampleRate: 48_000) == perSecond
+                   && MeetingDiskBudget.trackBytesPerSecond(sampleRate: 96_000) == fastPerSecond,
+                   "the budget uses the real track writer's format: 16-bit mono, 96,000 bytes a second at 48 kHz and 192,000 at 96 kHz")
+        try expect(MeetingDiskBudget.trackBytesPerSecond(sampleRate: nil) == perSecond && MeetingDiskBudget.trackBytesPerSecond(sampleRate: 0) == perSecond,
+                   "an unreadable device rate counts as 48 kHz")
         let seconds = Int64(MeetingSegmentPlan.maximumMeetingSeconds), segments = Int64(MeetingSegmentPlan.bytesPerSecond) * seconds
-        let stores = root.appendingPathComponent("disk-sessions", isDirectory: true)
-        func tracksFolder(remote: Bool, microphone: Bool) throws -> URL {
-            let manifest = MeetingManifest(id: UUID(), createdAt: Date(), updatedAt: Date(), purpose: "meeting",
-                                           includesMicrophone: microphone, includesRemote: remote, state: .recording, seconds: 0)
-            return try MeetingStore.create(root: stores, manifest: manifest).appendingPathComponent(MeetingStore.tracksDirectory, isDirectory: true)
-        }
-        let both = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: true, microphone: true))
-        let appOnly = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: true, microphone: false))
-        let microphoneOnly = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: false, microphone: true))
-        try expect(both == 2 && appOnly == 1 && microphoneOnly == 1 && MeetingDiskBudget.meetingTracks(at: root.appendingPathComponent("live-dictation")) == nil,
-                   "a meeting session's folder is budgeted for the sources its manifest names; Dictate's live folder is not a meeting")
-        let twoTrack = MeetingDiskBudget.requiredStartBytes(meetingTracks: both)
+        let both = MeetingDiskBudget.tracks(app: true, microphone: true), at48: (MeetingTrackSource) -> Double? = { _ in 48_000 }
+        try expect(both == [.remote, .local] && MeetingDiskBudget.tracks(app: false, microphone: true) == [.local],
+                   "a meeting names one original per source")
+        let twoTrack = MeetingDiskBudget.requiredStartBytes(meetingTracks: both, sampleRate: at48)
         try expect(twoTrack >= 2 * perSecond * seconds + segments + MeetingDiskBudget.stopFloorBytes,
                    "starting a meeting with both sources needs room for two tracks for two hours and their transcription segments above the stop floor (#377)")
         try expect(twoTrack - 2 * perSecond * seconds - segments == MeetingDiskBudget.stopFloorBytes
-                   && MeetingDiskBudget.requiredStartBytes(meetingTracks: 1) - perSecond * seconds - segments == MeetingDiskBudget.stopFloorBytes,
+                   && MeetingDiskBudget.requiredStartBytes(meetingTracks: [.local], sampleRate: at48) - perSecond * seconds - segments == MeetingDiskBudget.stopFloorBytes,
                    "an admitted meeting reaches the low-disk stop only if something else fills the disk")
-        try expect(MeetingDiskBudget.requiredStartBytes(meetingTracks: nil) == 512 * 1024 * 1024,
-                   "Dictate's live capture, which shares the start check, keeps the floor it had")
-        let refusal = MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: 2)
+        let fastOutput: (MeetingTrackSource) -> Double? = { $0 == .remote ? 96_000 : 48_000 }
+        let fast = MeetingDiskBudget.requiredStartBytes(meetingTracks: both, sampleRate: fastOutput)
+        try expect(fast == (fastPerSecond + perSecond) * seconds + segments + MeetingDiskBudget.stopFloorBytes
+                   && MeetingDiskBudget.startRefusal(available: fast - 1, meetingTracks: both, sampleRate: fastOutput)?.contains("about 2.6 GB") == true
+                   && MeetingDiskBudget.startRefusal(available: twoTrack, meetingTracks: both, sampleRate: fastOutput) != nil,
+                   "a 96 kHz output device sizes the app track at its own rate, so the 48 kHz figure is not enough")
+        try expect(MeetingDiskBudget.requiredStartBytes(meetingTracks: nil) == 512 * 1024 * 1024
+                   && MeetingDiskBudget.startRefusal(available: 0, meetingTracks: nil) == "There is not enough free disk space to record a meeting safely. Free about 500 MB and try again.",
+                   "Dictate's live capture, which passes no meeting tracks, keeps the floor and wording it had")
+        let refusal = MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: both, sampleRate: at48)
         try expect(refusal?.contains("Two hours with these sources needs about 1.9 GB free") == true && !(refusal ?? "").contains("500 MB")
-                   && MeetingDiskBudget.startRefusal(available: twoTrack, meetingTracks: 2) == nil
-                   && MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: 1) == nil
-                   && MeetingDiskBudget.startRefusal(available: MeetingDiskBudget.requiredStartBytes(meetingTracks: 1) - 1, meetingTracks: 1)?.contains("about 1.2 GB") == true,
+                   && MeetingDiskBudget.startRefusal(available: twoTrack, meetingTracks: both, sampleRate: at48) == nil
+                   && MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: [.remote], sampleRate: at48) == nil
+                   && MeetingDiskBudget.startRefusal(available: 1, meetingTracks: [.remote], sampleRate: at48)?.contains("about 1.2 GB") == true,
                    "the refusal names what two hours of the meeting's sources need, and exactly that much space starts")
     }
 
