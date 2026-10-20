@@ -209,7 +209,7 @@ struct WorkbenchHome: View {
                     openHistory: { id in model.openHistory(id.map { HistoryDoor(transcript: $0) } ?? HistoryDoor(filter: .transcripts)) },
                     copyTranscript: model.copyMeetingTranscript,
                     openModels: { model.page = "models" },
-                    prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: MeetingFollowUp.task, transcriptID: id) })
+                    prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: nil, transcriptID: id, meetingFollowUp: true) })
                 case "annotate": titled("annotate", summary: "Draw attention to what matters, right over your live demo.") { stage.controlsView }
                 case "present": titled("present", summary: "Your phone on a clean stage, for calls and demos.") { PresentWorkspaceView(model: model, stage: stage) }
                 case "personas": stage.personasView(editProfile: { keyboard.stopInteraction(); showingProfile = true })
@@ -245,10 +245,12 @@ struct WorkbenchHome: View {
             }
             .sheet(item: $libraryPreparation) { $0.view }
             .sheet(item: $handoffReview) { request in
+                let choice = MeetingFollowUp.reviewSkills(meetingDoor: request.meetingFollowUp, singleTranscript: request.transcriptID != nil,
+                    builtIns: TranscriptHandoffSkill.builtIns, packSkills: packs.transcriptSkills, packPreferred: packs.preferredTranscriptSkillID)
                 HandoffReviewView(history: model.historyLibrary, jobs: model.handoffJobs,
-                    skills: request.transcriptID == nil ? TranscriptHandoffSkill.builtIns + packs.transcriptSkills : [.followUp],
+                    skills: choice.skills,
                     initialTask: request.task,
-                    preferredSkillID: request.transcriptID == nil ? packs.preferredTranscriptSkillID : nil,
+                    preferredSkillID: choice.preferred,
                     selectedSnapTalkSession: request.transcriptID == nil ? readback.sessionURL : nil,
                     initialEvidenceURL: request.evidenceURL,
                     evidenceProblem: { readback.handOffProblem(forEvidence: $0) },
@@ -288,7 +290,7 @@ struct WorkbenchHome: View {
         WorkbenchHomePage(model: model, stage: stage, readback: readback, snap: snap,
                           jobs: model.handoffJobs, meetings: model.meetings, keyboard: keyboard,
                           greetingPlayed: $greetingPlayed, openProfile: { keyboard.stopInteraction(); showingProfile = true },
-                          prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: MeetingFollowUp.task, transcriptID: id) })
+                          prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: nil, transcriptID: id, meetingFollowUp: true) })
     }
     /// Library holds Resources and Packs as sections of one page, with its switcher at the top
     /// (#134). The route alone chooses the section, so every Library door opens Resources.
