@@ -662,11 +662,27 @@
     "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
   },
   {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.runtime-c7b9c4bd1517",
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.cancel-start",
+    "surface": "quick panel status rows",
+    "label": "Cancel start",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#377): a meeting that is still starting offers the Meetings page's own Cancel start, where it read finishing with Stop processing. The same row shows in Home's Current work."
+  },
+  {
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.keep-recording",
+    "surface": "quick panel status rows",
+    "label": "Keep recording",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#377): during the call-audio countdown the row offers the page's and toolbar's Keep recording beside Finish meeting, so the automatic finish can be cancelled without opening Meetings. Never starts another capture. The same row shows in Home's Current work."
+  },
+  {
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.runtime-d6237faf6167",
     "surface": "quick panel status rows",
     "label": null,
-    "expression": "model . isRecording ? \"Meetings · \" + model . voiceSession . recordingTitle . lowercased ( ) : \"Meetings · finishing\"",
-    "note": "Quality: opens the same Meetings page and names its actual paused, reconnecting or finishing state.",
+    "expression": "Self . title ( starting : model . isStarting , recording : model . isRecording , phase : model . voiceSession . recordingTitle , autoFinishSeconds : model . autoFinishSeconds , limitWarning : model . timeLimitWarning )",
+    "note": "Quality: opens the same Meetings page and names its actual state: starting, recording, paused, reconnecting or finishing, the call-audio countdown, and the two-hour limit's warning from five minutes before it (#377).",
     "kind": "action",
     "belongsTo": "dictate"
   },

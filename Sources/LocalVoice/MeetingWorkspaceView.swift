@@ -2,19 +2,42 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// The meeting's row on the menu-bar panel and in Home's Current work: what it is doing now and
+/// its own controls, in the Meetings page's words (#377). A start reads as starting, with Cancel
+/// start; the call-audio countdown offers Keep recording beside Finish meeting; the two-hour
+/// limit's warning joins the recording's state.
 struct MeetingQuickStatus: View {
     @ObservedObject var model: MeetingModel
     var review: () -> Void
+
+    enum Control: Hashable { case keepRecording, finish, cancelStart, stopProcessing }
+
+    static func controls(starting: Bool, recording: Bool, countingDown: Bool) -> [Control] {
+        if recording { return countingDown ? [.keepRecording, .finish] : [.finish] }
+        return starting ? [.cancelStart] : [.stopProcessing]
+    }
+
+    static func title(starting: Bool, recording: Bool, phase: String, autoFinishSeconds: Int?, limitWarning: String?) -> String {
+        if recording, let seconds = autoFinishSeconds { return "Meetings · call audio ended · finishing in \(seconds)s" }
+        if recording { return "Meetings · " + phase.lowercased() + (limitWarning.map { " · " + $0.lowercased() } ?? "") }
+        return starting ? "Meetings · starting" : "Meetings · finishing"
+    }
+
     var body: some View {
         if model.isBusy {
             HStack {
-                Button(model.isRecording ? "Meetings · " + model.voiceSession.recordingTitle.lowercased() : "Meetings · finishing", action: review)
-                    .buttonStyle(.plain).font(.caption)
+                Button(Self.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
+                                  autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning), action: review)
+                    .buttonStyle(.plain).font(.caption).monospacedDigit()
                 Spacer()
-                if model.isRecording {
-                    Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red)
-                } else {
-                    Button("Stop processing") { Task { await model.cancel() } }.font(.caption)
+                ForEach(Self.controls(starting: model.isStarting, recording: model.isRecording,
+                                      countingDown: model.autoFinishSeconds != nil), id: \.self) { control in
+                    switch control {
+                    case .keepRecording: Button("Keep recording") { model.keepRecording() }.font(.caption)
+                    case .finish: Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red)
+                    case .cancelStart: Button("Cancel start") { Task { await model.cancel() } }.font(.caption)
+                    case .stopProcessing: Button("Stop processing") { Task { await model.cancel() } }.font(.caption)
+                    }
                 }
             }.padding(.vertical, 4)
         }
@@ -233,10 +256,14 @@ struct MeetingWorkspaceView: View {
             }
     }
 
-    /// One caption under the status title, carrying the limit as Dictate's does.
+    /// One caption under the status title, carrying the limit as Dictate's does, and its warning
+    /// from five minutes before the recording finishes itself (#377).
     private var statusLine: String {
         if showsCompletedResult { return "Copy the complete transcript to use it in your next task." }
-        if model.isRecording { return time(model.elapsed) + " · Up to 2 hours" }
+        if model.isRecording {
+            return time(model.elapsed) + " · " + MeetingTimeLimit.caption(elapsed: model.elapsed,
+                paused: [.paused, .reconnecting].contains(model.voiceSession.phase))
+        }
         if model.isProcessing { return "Finishing your transcript." }
         return speechLine ?? "Start once and follow the words as they happen · Up to 2 hours"
     }
