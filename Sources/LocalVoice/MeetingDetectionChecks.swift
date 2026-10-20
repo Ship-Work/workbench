@@ -3,7 +3,8 @@ import Foundation
 
 /// The detection and admission defects of #377, each held where it was wrong. Synthetic process
 /// metadata and a synthetic capture only: nothing here reads a real process, asks a permission,
-/// opens a tap or microphone, or plays a sound.
+/// opens a tap or microphone, or plays a sound. The disk check writes a few seconds of synthetic
+/// PCM through the real track writer in a temporary folder.
 @MainActor
 enum MeetingDetectionChecks {
     static func run(root: URL) async throws -> Int {
@@ -17,6 +18,7 @@ enum MeetingDetectionChecks {
         try await snoozeChecks(root: root, expect: expect)
         try await representativeChecks(root: root, expect: expect)
         try finishCaptionChecks(expect: expect)
+        try await diskBudgetChecks(root: root, expect: expect)
         return checks
     }
 
@@ -210,6 +212,58 @@ enum MeetingDetectionChecks {
         let caption = MeetingDetector.automaticFinishCaption
         try expect(caption.contains("a supported call app, or a call on this Mac") && caption.contains("Microphone-only recordings and other apps or services finish manually"),
                    "the Finish when call audio ends caption names every source that finishes manually, not only the microphone (#377)")
+    }
+
+    /// The start check promised a safe meeting with room for two tracks for about half an hour.
+    private static func diskBudgetChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        func trackBytes(seconds: Int) async throws -> Int64 {
+            let directory = root.appendingPathComponent("disk-\(seconds)-" + UUID().uuidString, isDirectory: true)
+            try MeetingStore.createPrivateDirectory(directory)
+            let writer = try MeetingTrackRecorder(source: .remote, directory: directory, sampleRate: 48_000, timeline: MeetingCaptureTimeline())
+            try writer.open()
+            let chunk = [Float](repeating: 0.25, count: 4_800), host = MeetingClock.now()
+            for index in 0..<(seconds * 10) {
+                chunk.withUnsafeBufferPointer {
+                    writer.append($0.baseAddress!, count: chunk.count, hostTime: host + AVAudioTime.hostTime(forSeconds: Double(index) / 10))
+                }
+                if index % 10 == 9 { try await Task.sleep(nanoseconds: 60_000_000) }
+            }
+            let track = await Task.detached { writer.close() }.value
+            guard abs(track.seconds - Double(seconds)) < 0.001, writer.failure == nil else {
+                throw MeetingError.message("The synthetic \(seconds)-second track did not write (\(writer.failure ?? "short")).")
+            }
+            let size = try FileManager.default.attributesOfItem(atPath: writer.url.path)[.size] as? NSNumber
+            return size?.int64Value ?? 0
+        }
+        let perSecond = (try await trackBytes(seconds: 3) - trackBytes(seconds: 1)) / 2
+        try expect(perSecond == 96_000 && MeetingDiskBudget.trackBytesPerSecond == perSecond,
+                   "the budget uses the real track writer's format: 48 kHz audio at 96,000 bytes a second (16-bit mono)")
+        let seconds = Int64(MeetingSegmentPlan.maximumMeetingSeconds), segments = Int64(MeetingSegmentPlan.bytesPerSecond) * seconds
+        let stores = root.appendingPathComponent("disk-sessions", isDirectory: true)
+        func tracksFolder(remote: Bool, microphone: Bool) throws -> URL {
+            let manifest = MeetingManifest(id: UUID(), createdAt: Date(), updatedAt: Date(), purpose: "meeting",
+                                           includesMicrophone: microphone, includesRemote: remote, state: .recording, seconds: 0)
+            return try MeetingStore.create(root: stores, manifest: manifest).appendingPathComponent(MeetingStore.tracksDirectory, isDirectory: true)
+        }
+        let both = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: true, microphone: true))
+        let appOnly = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: true, microphone: false))
+        let microphoneOnly = MeetingDiskBudget.meetingTracks(at: try tracksFolder(remote: false, microphone: true))
+        try expect(both == 2 && appOnly == 1 && microphoneOnly == 1 && MeetingDiskBudget.meetingTracks(at: root.appendingPathComponent("live-dictation")) == nil,
+                   "a meeting session's folder is budgeted for the sources its manifest names; Dictate's live folder is not a meeting")
+        let twoTrack = MeetingDiskBudget.requiredStartBytes(meetingTracks: both)
+        try expect(twoTrack >= 2 * perSecond * seconds + segments + MeetingDiskBudget.stopFloorBytes,
+                   "starting a meeting with both sources needs room for two tracks for two hours and their transcription segments above the stop floor (#377)")
+        try expect(twoTrack - 2 * perSecond * seconds - segments == MeetingDiskBudget.stopFloorBytes
+                   && MeetingDiskBudget.requiredStartBytes(meetingTracks: 1) - perSecond * seconds - segments == MeetingDiskBudget.stopFloorBytes,
+                   "an admitted meeting reaches the low-disk stop only if something else fills the disk")
+        try expect(MeetingDiskBudget.requiredStartBytes(meetingTracks: nil) == 512 * 1024 * 1024,
+                   "Dictate's live capture, which shares the start check, keeps the floor it had")
+        let refusal = MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: 2)
+        try expect(refusal?.contains("Two hours with these sources needs about 1.9 GB free") == true && !(refusal ?? "").contains("500 MB")
+                   && MeetingDiskBudget.startRefusal(available: twoTrack, meetingTracks: 2) == nil
+                   && MeetingDiskBudget.startRefusal(available: twoTrack - 1, meetingTracks: 1) == nil
+                   && MeetingDiskBudget.startRefusal(available: MeetingDiskBudget.requiredStartBytes(meetingTracks: 1) - 1, meetingTracks: 1)?.contains("about 1.2 GB") == true,
+                   "the refusal names what two hours of the meeting's sources need, and exactly that much space starts")
     }
 
     private final class Fixture: MeetingProcessSource {

@@ -317,13 +317,46 @@ enum MeetingSegmentPlan {
     }
 }
 
-/// Space checks are deliberately blunt: they refuse to start a long recording on
-/// a nearly full disk and stop safely rather than corrupt an original track.
+/// Space checks are deliberately blunt: they refuse to start a meeting this disk could not hold
+/// to the two-hour limit, and stop safely rather than corrupt an original track.
 enum MeetingDiskBudget {
-    static let requiredStartBytes: Int64 = 512 * 1024 * 1024
+    /// Each original track is 16-bit mono PCM at its source's rate (MeetingTrackRecorder.open),
+    /// and Mac audio runs at 48 kHz unless a device asks for another rate.
+    static let trackSampleRate = 48_000.0
+    static let trackBytesPerSample = 2
+    static var trackBytesPerSecond: Int64 { Int64(trackSampleRate) * Int64(trackBytesPerSample) }
     static let stopFloorBytes: Int64 = 192 * 1024 * 1024
+    /// Dictate's live capture shares this check with its own folder and keeps what it had.
+    static let otherCaptureStartBytes: Int64 = 512 * 1024 * 1024
     /// The bounded live buffer each track keeps before it reports dropped audio.
     static let captureBufferSeconds = 8.0
+
+    /// One track per source for two hours, the 16 kHz segments their transcription writes, and
+    /// the stop floor beneath them, so an admitted meeting reaches the low-disk stop only if
+    /// something else fills the disk (#377). The 512 MB this replaced held two tracks for about
+    /// half an hour. A device running faster than 48 kHz uses more, and the stop floor still
+    /// keeps what was recorded.
+    static func meetingStartBytes(tracks: Int) -> Int64 {
+        let seconds = Int64(MeetingSegmentPlan.maximumMeetingSeconds)
+        return Int64(max(1, tracks)) * trackBytesPerSecond * seconds + Int64(MeetingSegmentPlan.bytesPerSecond) * seconds + stopFloorBytes
+    }
+
+    /// The tracks a meeting session's tracks folder will hold, one per source its manifest names;
+    /// nil for any other folder, such as Dictate's live capture, which shares this check.
+    static func meetingTracks(at url: URL) -> Int? {
+        guard url.lastPathComponent == MeetingStore.tracksDirectory,
+              let manifest = try? MeetingStore.load(from: url.deletingLastPathComponent()) else { return nil }
+        return (manifest.includesRemote ? 1 : 0) + (manifest.includesMicrophone ? 1 : 0)
+    }
+
+    static func requiredStartBytes(meetingTracks: Int?) -> Int64 {
+        meetingTracks.map(meetingStartBytes) ?? otherCaptureStartBytes
+    }
+
+    /// A size as Finder counts it, rounded up to a tenth of a gigabyte.
+    static func description(_ bytes: Int64) -> String {
+        String(format: "%.1f GB", (Double(bytes) / 100_000_000).rounded(.up) / 10)
+    }
 
     static func availableBytes(at url: URL) -> Int64? {
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -333,11 +366,20 @@ enum MeetingDiskBudget {
         return free.int64Value
     }
 
+    /// The refusal for this much free space, or nil when the capture fits. A meeting names what
+    /// two hours of its sources need; it said "Free about 500 MB" whatever the meeting held.
+    static func startRefusal(available: Int64, meetingTracks: Int?) -> String? {
+        let required = requiredStartBytes(meetingTracks: meetingTracks)
+        guard available < required else { return nil }
+        guard meetingTracks != nil else {
+            return "There is not enough free disk space to record a meeting safely. Free about 500 MB and try again."
+        }
+        return "There is not enough free disk space to record this meeting safely. Two hours with these sources needs about \(description(required)) free; free some space and try again."
+    }
+
     static func checkStartSpace(at url: URL) throws {
         guard let available = availableBytes(at: url) else { return }
-        guard available >= requiredStartBytes else {
-            throw MeetingError.message("There is not enough free disk space to record a meeting safely. Free about 500 MB and try again.")
-        }
+        if let refusal = startRefusal(available: available, meetingTracks: meetingTracks(at: url)) { throw MeetingError.message(refusal) }
     }
 }
 
