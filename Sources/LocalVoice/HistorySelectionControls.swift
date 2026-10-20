@@ -635,7 +635,7 @@ struct HandoffReviewView: View {
             let prompt = HandoffJobStore.prompt(snapshot: snapshot, skill: text,
                 folder: jobs.directory.appendingPathComponent(id.uuidString), manual: false)
             inputProblem = HandoffRunReadiness.inputProblem(provider: selectedProvider, prompt: prompt,
-                imageBytes: items.flatMap(\.images).map(\.count))
+                imageBytes: items.flatMap(\.images).map(\.count), items: items.count)
         }
         return HandoffRunReadiness.evaluate(provider: selectedProvider, enabled: jobs.enabled(selectedProvider),
             checking: jobs.refreshing, connection: jobs.connections[selectedProvider], busy: jobs.isBusy,

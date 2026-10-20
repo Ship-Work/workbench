@@ -42,8 +42,12 @@ struct HandoffRunReadiness: Equatable {
         return jobs.lazy.compactMap(\.provider).first(where: candidates.contains) ?? candidates[0]
     }
 
-    static func inputProblem(provider: SubscriptionProvider, prompt: String, imageBytes: [Int]) -> String? {
-        let manual = " Choose fewer items or use Copy instructions."
+    /// Why a reviewed selection cannot start with this runner, with a next step that works for it.
+    /// One item, such as a long meeting's transcript, cannot be made fewer, so it is pointed at
+    /// Copy instructions alone, which has none of these limits (#377).
+    static func inputProblem(provider: SubscriptionProvider, prompt: String, imageBytes: [Int], items: Int) -> String? {
+        let manual = items > 1 ? " Choose fewer items or use Copy instructions."
+            : " Use Copy instructions to paste the complete request into your assistant instead."
         if prompt.count > SubscriptionCLILimits.maximumPromptCharacters {
             return "The full request exceeds the connected limit of 100,000 characters." + manual
         }

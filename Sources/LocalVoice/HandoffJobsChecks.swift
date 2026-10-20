@@ -183,13 +183,36 @@ enum HandoffJobsChecks {
         let callPrompts = [true, false].map { HandoffJobStore.prompt(snapshot: callSnapshot, skill: followUpText, folder: callFolder, manual: $0) }
         try check(callPrompts.allSatisfy { !$0.contains("Original wording:") && $0.components(separatedBy: marker).count == 2 },
                   "a two-sided meeting's unlabelled original is not sent a second time")
-        let callProblem = HandoffRunReadiness.inputProblem(provider: .codex, prompt: callPrompts[1], imageBytes: [])
+        let callProblem = HandoffRunReadiness.inputProblem(provider: .codex, prompt: callPrompts[1], imageBytes: [], items: 1)
         let readyRunner = SubscriptionConnection(provider: .codex, executable: URL(fileURLWithPath: "/usr/bin/false"), version: "synthetic",
                                                  ready: true, detail: "Synthetic fixture; no process or network.")
         try check(callPrompts[1].count < SubscriptionCLILimits.maximumPromptCharacters && callProblem == nil
                   && HandoffRunReadiness.evaluate(provider: .codex, enabled: true, checking: false, connection: readyRunner, busy: false,
                                                   compatible: true, inputProblem: callProblem).state == .ready,
                   "an hour-long two-sided meeting stays within the connected limit, so Start task is offered")
+        // A two-hour call by the same producer is one transcript past the connected limit (#377).
+        // Choosing fewer items cannot help one item, so its reason names the step that works:
+        // Copy instructions, whose copy carries the whole call. Several items keep both steps.
+        let long = LiveVoiceCheckpoint(sessionID: UUID(), segments: (0..<1_240).map { (index: Int) -> LiveVoiceSegment in
+            let words = "Point \(index + 1). Maya will review the proposal on Thursday and Sam will confirm the room."
+            return LiveVoiceSegment(source: index / 2 % 2 == 0 ? .microphone : .app, start: Double(index) * 6, end: Double(index) * 6 + 5,
+                                    text: index == 1_239 ? words + " " + marker : words, isFinal: true)
+        })
+        let longJob = try calls.prepare(sources: [HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: UUID()),
+            title: "Synthetic two-hour call", capturedAt: Date(timeIntervalSince1970: 300), text: long.conversation, originalText: long.text,
+            role: .reference, seconds: 7_200)], task: meetingTask, skill: skill)
+        let longFolder = calls.folder(longJob)
+        let longSnapshot = try HandoffJobStore.read(HandoffSnapshotRecord.self, at: longFolder.appendingPathComponent("selection.json"))
+        let longPrompts = [true, false].map { HandoffJobStore.prompt(snapshot: longSnapshot, skill: followUpText, folder: longFolder, manual: $0) }
+        let longProblem = HandoffRunReadiness.inputProblem(provider: .codex, prompt: longPrompts[1], imageBytes: [], items: longSnapshot.items.count)
+        let longReadiness = HandoffRunReadiness.evaluate(provider: .codex, enabled: true, checking: false, connection: readyRunner, busy: false,
+                                                         compatible: true, inputProblem: longProblem)
+        try check(longPrompts[1].count > SubscriptionCLILimits.maximumPromptCharacters && longReadiness.state == .inputLimit && !longReadiness.canStart
+                  && longProblem?.contains("Use Copy instructions") == true && longProblem?.contains("fewer items") == false
+                  && longPrompts[0].components(separatedBy: marker).count == 2,
+                  "a two-hour meeting past the connected limit names Copy instructions, which carries its last words, never Choose fewer items")
+        try check(HandoffRunReadiness.inputProblem(provider: .codex, prompt: longPrompts[1], imageBytes: [], items: 2)?.contains("Choose fewer items") == true,
+                  "a selection of several items past the limit can still be made smaller")
         let callPortable = try HandoffJobStore.read(TranscriptHandoffManifest.self, at: callFolder.appendingPathComponent("handoff.json"))
         try check(callSnapshot.items[0].originalText == call.text
                   && (try Data(contentsOf: callFolder.appendingPathComponent(callPortable.transcripts[0].originalFile))) == Data(call.text.utf8),
