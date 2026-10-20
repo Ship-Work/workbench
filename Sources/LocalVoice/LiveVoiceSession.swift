@@ -134,30 +134,122 @@ enum SpeakerEcho {
     /// length (MeetingConversation), and live words are cut the same way, so both order turns alike.
     static let pauseSeconds = 0.6
     static let longestSeconds = 25.0
-    /// The microphone hears the app's sound a moment after it plays (the speaker, the room and
-    /// both devices' buffers). A word the app said up to this long before the microphone's same
-    /// word is its echo, with `timingSlack` either side for where two recognisers place a word.
-    static let delaySeconds = 0.4
+    /// How far the microphone's lane can sit from the app's for one word heard on both: the
+    /// speaker and room add a moment, Bluetooth or AirPlay output much more, and the two lanes
+    /// count time from their own first sample with no drift correction (MeetingAudio).
+    static let lagRange = -1.0...2.5
+    /// Where two recognisers place the same word: within a frame or so of each other.
     static let timingSlack = 0.1
+    /// The lag is estimated for each 10 s of microphone words from the minute around them, so a
+    /// slow drift between the two clocks is followed.
+    static let lagBlockSeconds = 10.0, lagWindowSeconds = 60.0
+    /// Fewer words than this agreeing on one lag in that minute is no echo: nothing is dropped.
+    static let minimumLagMatches = 4
 
-    /// Which microphone words echo the app's (#377): the app said the same word 0–0.4 s before,
-    /// and each app word accounts for one microphone word at most. Every other word is yours, so
-    /// a quick "Yes" as they finish, or a few words of your own in the middle of their sentence,
-    /// stays, and with headphones a word of theirs you repeat a moment later is not touched. An
-    /// echo is dropped however the other side's pauses fall. Both lists in start order.
+    /// Which microphone words echo the app's (#377). Live words carry their times, so the echo is
+    /// found word by word: the lag between the lanes is the one most same-word pairs agree on in
+    /// the minute around a word (within `lagRange`, at least `minimumLagMatches` of them), and a
+    /// microphone word is an echo when the app said the same word at that lag, give or take
+    /// `timingSlack`, each app word accounting for one microphone word at most. A word inside
+    /// your own speech that matches by chance, with no echo word beside it, stays yours; a word
+    /// or two the microphone heard differently between echo words, spelled like the app's words
+    /// left there, goes with the echo. When unsure the words stay: a leaked echo is better than
+    /// a lost word. Both lists in start order; the result is in the microphone's order.
     static func echoed(_ mine: [LiveVoiceSegment], of theirs: [LiveVoiceSegment]) -> [Bool] {
-        let spoken = theirs.map { normal($0.text) }
-        var used = [Bool](repeating: false, count: theirs.count), first = 0
-        return mine.map { word in
-            let said = normal(word.text)
-            while first < theirs.count, theirs[first].start < word.start - delaySeconds - timingSlack { first += 1 }
-            var index = first
-            while !said.isEmpty, index < theirs.count, theirs[index].start <= word.start + timingSlack {
-                if !used[index], spoken[index] == said { used[index] = true; return true }
-                index += 1
+        let said = mine.map { normal($0.text) }, spoken = theirs.map { normal($0.text) }
+        // Every pairing of a microphone word with the same app word at a lag an echo could have.
+        var pairs: [(word: Int, app: Int, lag: Double)] = [], low = 0
+        for (index, word) in mine.enumerated() where !said[index].isEmpty {
+            while low < theirs.count, theirs[low].start < word.start - lagRange.upperBound { low += 1 }
+            var app = low
+            while app < theirs.count, theirs[app].start <= word.start - lagRange.lowerBound {
+                if spoken[app] == said[index] { pairs.append((index, app, word.start - theirs[app].start)) }
+                app += 1
             }
-            return false
         }
+        let lags = estimatedLags(mine, pairs)
+        var used = [Bool](repeating: false, count: theirs.count), match = [Int?](repeating: nil, count: mine.count)
+        var first = 0
+        while first < pairs.count {
+            var last = first
+            while last < pairs.count, pairs[last].word == pairs[first].word { last += 1 }
+            if let lag = lags[pairs[first].word], let best = pairs[first..<last]
+                .filter({ !used[$0.app] && abs($0.lag - lag) <= timingSlack + 1e-9 })
+                .min(by: { abs($0.lag - lag) < abs($1.lag - lag) }) {
+                used[best.app] = true; match[best.word] = best.app
+            }
+            first = last
+        }
+        func close(_ earlier: Int, _ later: Int) -> Bool { mine[later].start - mine[earlier].end < pauseSeconds }
+        // A run of one or two unmatched words between echo words, where the one to three app words
+        // between those two are unmatched and spelled alike ("Lego" for "legal", "Mon day" for
+        // "Monday"), even across a pause of theirs.
+        var misheard = [Bool](repeating: false, count: mine.count), index = 0
+        while index < mine.count {
+            guard match[index] == nil else { index += 1; continue }
+            var end = index
+            while end < mine.count, match[end] == nil { end += 1 }
+            if end - index <= 2, index > 0, end < mine.count, let left = match[index - 1], let right = match[end],
+               right - left >= 2, right - left <= 4,
+               (left + 1..<right).allSatisfy({ !used[$0] }),
+               resembles((index..<end).map { said[$0] }.joined(), (left + 1..<right).map { spoken[$0] }.joined()) {
+                for word in index..<end { misheard[word] = true }
+            }
+            index = end
+        }
+        // A match with words of its own beside it, none of them echo, is a coincidence in your speech.
+        let echo = mine.indices.map { match[$0] != nil || misheard[$0] }
+        return mine.indices.map { index in
+            guard match[index] != nil else { return misheard[index] }
+            let beside = [index - 1, index + 1].filter { $0 >= 0 && $0 < mine.count && close(min($0, index), max($0, index)) }
+            return beside.isEmpty || beside.contains { echo[$0] }
+        }
+    }
+
+    /// The lag at each microphone word, or nil where no lag has enough agreement. `pairs` are in
+    /// the microphone's order.
+    private static func estimatedLags(_ mine: [LiveVoiceSegment], _ pairs: [(word: Int, app: Int, lag: Double)]) -> [Double?] {
+        var result = [Double?](repeating: nil, count: mine.count), index = 0, low = 0, high = 0
+        while index < mine.count {
+            let block = (mine[index].start / lagBlockSeconds).rounded(.down)
+            var last = index
+            while last < mine.count, (mine[last].start / lagBlockSeconds).rounded(.down) == block { last += 1 }
+            let center = (block + 0.5) * lagBlockSeconds
+            while low < pairs.count, mine[pairs[low].word].start < center - lagWindowSeconds / 2 { low += 1 }
+            high = max(high, low)
+            while high < pairs.count, mine[pairs[high].word].start <= center + lagWindowSeconds / 2 { high += 1 }
+            // The busiest band of 2 × `timingSlack`, and its middle.
+            let lags = pairs[low..<high].map(\.lag).sorted()
+            var best: (count: Int, lag: Double)?, end = 0
+            for start in lags.indices {
+                end = max(end, start)
+                while end < lags.count, lags[end] - lags[start] <= 2 * timingSlack + 1e-9 { end += 1 }
+                if end - start >= minimumLagMatches, end - start > best?.count ?? 0 { best = (end - start, (lags[start] + lags[end - 1]) / 2) }
+            }
+            for word in index..<last { result[word] = best?.lag }
+            index = last
+        }
+        return result
+    }
+
+    /// Two recognisers' spellings of the same speech: the same letters, one in three changed,
+    /// added or dropped (contract, contracts), or a shared start of three letters, or one the
+    /// start of the other (OK, okay). Words are compared joined, so "Mon day" is "Monday".
+    static func resembles(_ heard: String, _ said: String) -> Bool {
+        let a = Array(heard), b = Array(said), shorter = min(a.count, b.count)
+        guard shorter > 0 else { return false }
+        let prefix = zip(a, b).prefix { $0 == $1 }.count
+        if a == b || prefix >= 3 || (prefix >= 2 && prefix == shorter) { return true }
+        var row = Array(0...b.count)
+        for (i, x) in a.enumerated() {
+            var diagonal = row[0]; row[0] = i + 1
+            for (j, y) in b.enumerated() {
+                let above = row[j + 1]
+                row[j + 1] = x == y ? diagonal : 1 + min(diagonal, above, row[j])
+                diagonal = above
+            }
+        }
+        return row[b.count] <= max(1, shorter / 3)
     }
 
     struct Utterance: Equatable, Sendable {

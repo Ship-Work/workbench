@@ -67,12 +67,16 @@ enum LiveVoiceChecks {
             .init(source: .microphone, start: 7, end: 7.2, text: "Certainly", isFinal: true)])
         try expect(replies.conversation == "You: Yes\n\nOthers: Yes\n\nYou: Certainly", "separate identical replies survive in their actual turn order")
 
-        // Words 0.3 s apart, each a quarter of a second long, from `start`.
-        func said(_ source: LiveVoiceSource, _ text: String, at start: Double) -> [LiveVoiceSegment] {
+        // Words `step` apart, each a quarter of a second long, from `start`.
+        func said(_ source: LiveVoiceSource, _ text: String, at start: Double, step: Double = 0.3) -> [LiveVoiceSegment] {
             text.split(separator: " ").enumerated().map { offset, word in
-                LiveVoiceSegment(source: source, start: start + Double(offset) * 0.3, end: start + Double(offset) * 0.3 + 0.25,
+                LiveVoiceSegment(source: source, start: start + Double(offset) * step, end: start + Double(offset) * step + 0.25,
                                  text: String(word), isFinal: true)
             }
+        }
+        // The app's words as the microphone hears them, `lag` later.
+        func echo(of words: [LiveVoiceSegment], lag: (Double) -> Double) -> [LiveVoiceSegment] {
+            words.map { LiveVoiceSegment(source: .microphone, start: $0.start + lag($0.start), end: $0.end + lag($0.start), text: $0.text, isFinal: true) }
         }
         // A speaker who pauses to think stays one turn (#377); a long pause still starts a new one.
         let thinking = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.microphone, "First the budget", at: 0)
@@ -120,6 +124,58 @@ enum LiveVoiceChecks {
         let interjection = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, sentence, at: 0) + interrupted)
         try expect(interjection.conversation == "Others: \(sentence)\n\nYou: wait which legal team do you mean",
                    "an interjection inside the echo of their sentence is kept, and the echo around it is not")
+        // The lanes can sit further apart than a speaker's delay (#377): a USB microphone's clock, a
+        // Bluetooth or AirPlay output, or where each lane's first sample fell. The lag comes from the
+        // words themselves, so the echo goes at -0.15, +0.5 and +1.0 s, and while the lag drifts from
+        // 0 to 0.3 s over four minutes.
+        let budget = said(.app, "the budget goes to finance on Friday", at: 0)
+        let slides = said(.app, "and the slides go to Sam next week", at: budget.last!.end + 0.8)
+        let shifted = [-0.15, 0.5, 1.0].filter { shift in
+            LiveVoiceCheckpoint(sessionID: UUID(), segments: budget + slides + echo(of: budget + slides) { _ in shift }).conversation
+                != "Others: the budget goes to finance on Friday and the slides go to Sam next week"
+        }
+        try expect(shifted.isEmpty, "an echo whose lane sits -0.15, +0.5 or +1.0 s from the call's is dropped (leaked at \(shifted))")
+        let lines = ["the budget goes to finance on Friday afternoon", "Sam will review the numbers before the launch",
+                     "we can move the venue deposit to next week", "please send the signed contract back to legal"]
+        let fourMinutes = (0..<24).flatMap { said(.app, lines[$0 % lines.count], at: Double($0) * 10) }
+        let drifting = LiveVoiceCheckpoint(sessionID: UUID(), segments: fourMinutes + echo(of: fourMinutes) { 0.3 * $0 / 240 })
+        try expect(drifting.turns.count == 24 && !drifting.turns.contains { $0.source == .microphone },
+                   "an echo whose lag drifts from 0 to 0.3 s over four minutes is dropped throughout")
+        // With headphones there is no echo. Two people talking over each other share common words that
+        // line up by chance; every one of yours is kept. Two review fixtures, 24 alignments each: none of
+        // the 1,776 words is dropped (with three agreeing words as the minimum, 6 were).
+        func talkedOver(_ theirs: String, _ mine: String) -> Int {
+            stride(from: 0.0, to: 1.2, by: 0.05).reduce(0) { lost, offset in
+                let words = said(.microphone, mine, at: offset, step: 0.33)
+                let kept = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, theirs, at: 0) + words).turns
+                    .filter { $0.source == .microphone }.map { $0.text.split(separator: " ").count }.reduce(0, +)
+                return lost + words.count - kept
+            }
+        }
+        let crossTalkLost = talkedOver("I spoke to the vendor this morning and they think the parts will arrive late next week so we may need to push the install back a few days and let the client know before Friday if that is okay with you",
+                                       "that works for me but I want to check with the client first because they already booked the room for the install and moving it might cost us a fee so let me call them after this")
+            + talkedOver("I think the plan is to move the launch to the end of the month and then we can tell the team about it and the date and the budget for the event so that is the plan for now and I think that is fine",
+                         "but the team said that the date is fixed and the budget is the same so I do not think we can move it to the end of the month and I think we should keep it")
+        try expect(crossTalkLost == 0, "with headphones, talking over each other keeps every one of your words (\(crossTalkLost) of 1,776 dropped)")
+        // A word the microphone's recogniser heard differently inside the echo goes with it, so their turn
+        // is not split ("Lego" for "legal"; "Mon day" for "Monday", just before a pause of theirs). A
+        // word of your own there is kept.
+        let contract = said(.app, "we will send the contract to legal on Monday", at: 0)
+        let copy = said(.app, "and then the signed copy goes to finance", at: contract.last!.end + 0.7)
+        func heard(_ change: (inout [LiveVoiceSegment]) -> Void) -> String {
+            var words = echo(of: contract + copy) { _ in 0.05 }
+            change(&words)
+            return LiveVoiceCheckpoint(sessionID: UUID(), segments: contract + copy + words).conversation
+        }
+        let both = "Others: we will send the contract to legal on Monday and then the signed copy goes to finance"
+        let lego = heard { $0[6].text = "Lego" }
+        let monDay = heard { words in
+            words[8].text = "Mon"; words[8].end = words[8].start + 0.12
+            words.append(LiveVoiceSegment(source: .microphone, start: words[8].start + 0.14, end: words[8].start + 0.25, text: "day", isFinal: true))
+        }
+        try expect(lego == both && monDay == both, "a misheard word inside the echo does not split their turn (\(lego == both ? monDay : lego))")
+        try expect(heard { $0[6].text = "wait" } == "Others: we will send the contract to legal on Monday\n\nYou: wait\n\nOthers: and then the signed copy goes to finance",
+                   "a word of your own inside the echo is kept")
 
         // On laptop speakers the microphone hears the call (#377): through the real service, its copy
         // of the other side is neither shown nor saved as You, and what you said yourself is.
@@ -127,14 +183,15 @@ enum LiveVoiceChecks {
         let speakers = LiveVoiceService(id: UUID(),
             sources: [.init(source: .microphone, name: "Fixture mic"), .init(source: .app, name: "Fixture call")],
             journal: nil, recognize: { try await echoDecoder.recognize($0) }, update: { shown.append($0) })
-        speakers.input.append(.init(source: .app, samples: samples(20..<23), sampleRate: 16_000, start: 1))
-        speakers.input.append(.init(source: .microphone, samples: samples(20..<23), sampleRate: 16_000, start: 1))
-        speakers.input.append(.init(source: .microphone, samples: samples(30..<32), sampleRate: 16_000, start: 6))
+        // Five words, enough to agree on the lanes' lag (SpeakerEcho.minimumLagMatches).
+        speakers.input.append(.init(source: .app, samples: samples(20..<25), sampleRate: 16_000, start: 1))
+        speakers.input.append(.init(source: .microphone, samples: samples(20..<25), sampleRate: 16_000, start: 1))
+        speakers.input.append(.init(source: .microphone, samples: samples(30..<32), sampleRate: 16_000, start: 8))
         let heardCall = await speakers.finish()
-        try expect(heardCall.complete && heardCall.conversation == "Others: word20 word21 word22\n\nYou: word30 word31"
-                   && heardCall.text == "word20 word21 word22 word30 word31",
+        try expect(heardCall.complete && heardCall.conversation == "Others: word20 word21 word22 word23 word24\n\nYou: word30 word31"
+                   && heardCall.text == "word20 word21 word22 word23 word24 word30 word31",
                    "the microphone's copy of the call is not saved as You, and your own words are")
-        try expect(shown.all.last?.segments.map { "\($0.source.label): \($0.text)" } == ["Others: word20 word21 word22", "You: word30 word31"],
+        try expect(shown.all.last?.segments.map { "\($0.source.label): \($0.text)" } == ["Others: word20 word21 word22 word23 word24", "You: word30 word31"],
                    "the live transcript shows the call once and your own words as You")
 
         // Live words reach the main thread when something shown changes, not on every pass of a 10 Hz
