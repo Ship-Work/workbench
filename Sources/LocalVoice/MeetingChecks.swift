@@ -1829,7 +1829,7 @@ enum MeetingChecks {
         model.keepRecording()
         try await Task.sleep(nanoseconds: 100_000_000)
         callAudio(false)
-        await waitUntil { model.autoFinishSeconds != nil }
+        await waitUntil(seconds: 20) { model.autoFinishSeconds != nil }
         try expect(row().title.hasPrefix("Meetings · call audio ended · finishing in ") && row().controls == [.keepRecording, .finish],
                    "a Keep recording click with no countdown does not switch automatic finish off, and the countdown offers Keep recording on the panel and Home")
         model.keepRecording(expected: UUID())
@@ -1844,9 +1844,11 @@ enum MeetingChecks {
         guarded.grace = 0; model.autoFinishGuard = guarded
         capture = CaptureFixture(); callAudio(true)
         await model.start()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // The watcher reads call activity every fourth tick; a shared CI runner can take far longer
+        // than a desk Mac to see it active, so it gets a second, and the finish a bounded 20 s.
+        try await Task.sleep(nanoseconds: 1_000_000_000)
         callAudio(false)
-        await waitUntil { !model.isBusy }
+        await waitUntil(seconds: 20) { !model.isBusy }
         try expect(model.completedTranscriptID != nil && model.pendingTranscriptNotes.first == MeetingSelfFinish.note(MeetingSelfFinish.callAudioEnded)
                    && model.pendingTranscriptNotes.first == "Workbench finished this recording itself. The call app stopped using audio.",
                    "a call that Workbench finished when its audio ended is saved with a note saying so")
@@ -1855,6 +1857,13 @@ enum MeetingChecks {
 
     private static func waitUntil(_ condition: () -> Bool) async {
         for _ in 0..<5_000 { if condition() { return }; try? await Task.sleep(nanoseconds: 1_000_000) }
+    }
+
+    /// The same wait, bounded by the clock rather than a count of short sleeps, for a step that can
+    /// take seconds on a busy CI runner.
+    private static func waitUntil(seconds: TimeInterval, _ condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { if condition() { return }; try? await Task.sleep(nanoseconds: 5_000_000) }
     }
 
     private static func manifest(state: MeetingState = .stopped) -> MeetingManifest {

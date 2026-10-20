@@ -206,15 +206,18 @@ enum LiveVoiceChecks {
         let pacedDecoder = FixtureDecoder(), paced = SnapshotLog()
         let streaming = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
             recognize: { try await pacedDecoder.recognize($0) }, update: { paced.append($0) })
-        let stream = samples(1..<4)
+        let stream = samples(1..<4), streamStarted = Date()
         for packet in 0..<50 {
             streaming.input.append(.init(source: .microphone, samples: Array(stream[packet * 800..<(packet + 1) * 800]),
                                          sampleRate: 16_000, start: Double(packet) * 0.05))
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         let whileStreaming = paced.all
+        // A busy CI runner stretches the 2.5 s, and the meter and clock may publish once a second of
+        // it; one publish per 100 ms pass would be ten a second.
+        let streamingSeconds = Date().timeIntervalSince(streamStarted)
         let streamed = await streaming.finish()
-        try expect(whileStreaming.count <= 10 && whileStreaming.contains { !$0.text.isEmpty },
+        try expect(whileStreaming.count <= Int(streamingSeconds.rounded(.up)) + 8 && whileStreaming.contains { !$0.text.isEmpty },
                    "2.5 s of streamed audio publishes \(whileStreaming.count) snapshots, words among them, not one per 100 ms pass")
         try expect(paced.all.last?.phase == .completed && paced.all.last?.text == streamed.text && streamed.text.hasPrefix("word1 word2"),
                    "the final state is published with every word")
