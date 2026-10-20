@@ -1728,6 +1728,9 @@ enum MeetingChecks {
                    && MeetingTimeLimit.caption(elapsed: 3_600, paused: true) == "Up to 2 hours, pauses included"
                    && MeetingTimeLimit.caption(elapsed: 6_960, paused: true) == "Finishes at 2 hours in 4 min",
                    "the two-hour limit warns from five minutes before it, and says that pauses count while paused")
+        try expect(MeetingWorkspaceView.clock(75) == "1:15" && MeetingWorkspaceView.clock(3_599) == "59:59"
+                   && MeetingWorkspaceView.clock(6_930) == "1:55:30" && MeetingWorkspaceView.clock(7_200) == "2:00:00",
+                   "the page's elapsed time shows hours once a recording has them, beside the limit's warning")
         let source = ProcessFixture()
         source.values = [.init(pid: 93_001, bundleID: "us.zoom.xos", isRunningInput: true, isRunningOutput: true, name: "Zoom")]
         var capture = CaptureFixture()

@@ -25,21 +25,31 @@ struct MeetingQuickStatus: View {
 
     var body: some View {
         if model.isBusy {
-            HStack {
-                Button(Self.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
-                                  autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning), action: review)
-                    .buttonStyle(.plain).font(.caption).monospacedDigit()
-                Spacer()
-                ForEach(Self.controls(starting: model.isStarting, recording: model.isRecording,
-                                      countingDown: model.autoFinishSeconds != nil), id: \.self) { control in
-                    switch control {
-                    case .keepRecording: Button("Keep recording") { model.keepRecording() }.font(.caption)
-                    case .finish: Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red)
-                    case .cancelStart: Button("Cancel start") { Task { await model.cancel() } }.font(.caption)
-                    case .stopProcessing: Button("Stop processing") { Task { await model.cancel() } }.font(.caption)
-                    }
-                }
+            // One line where it fits, as on Home; on the narrow panel two controls take a line of
+            // their own under the state, whole, rather than truncating it and themselves (Fit rule 4).
+            ViewThatFits(in: .horizontal) {
+                HStack { state; Spacer(); actions }
+                VStack(alignment: .leading, spacing: 6) { state; HStack { Spacer(); actions } }
             }.padding(.vertical, 4)
+        }
+    }
+
+    private var state: some View {
+        Button(Self.title(starting: model.isStarting, recording: model.isRecording, phase: model.voiceSession.recordingTitle,
+                          autoFinishSeconds: model.autoFinishSeconds, limitWarning: model.timeLimitWarning), action: review)
+            .buttonStyle(.plain).font(.caption).monospacedDigit()
+            .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var actions: some View {
+        ForEach(Self.controls(starting: model.isStarting, recording: model.isRecording,
+                              countingDown: model.autoFinishSeconds != nil), id: \.self) { control in
+            switch control {
+            case .keepRecording: Button("Keep recording") { model.keepRecording() }.font(.caption).fixedSize()
+            case .finish: Button("Finish meeting") { Task { await model.stop() } }.font(.caption).foregroundStyle(.red).fixedSize()
+            case .cancelStart: Button("Cancel start") { Task { await model.cancel() } }.font(.caption).fixedSize()
+            case .stopProcessing: Button("Stop processing") { Task { await model.cancel() } }.font(.caption).fixedSize()
+            }
         }
     }
 }
@@ -261,11 +271,18 @@ struct MeetingWorkspaceView: View {
     private var statusLine: String {
         if showsCompletedResult { return "Copy the complete transcript to use it in your next task." }
         if model.isRecording {
-            return time(model.elapsed) + " · " + MeetingTimeLimit.caption(elapsed: model.elapsed,
+            return Self.clock(model.elapsed) + " · " + MeetingTimeLimit.caption(elapsed: model.elapsed,
                 paused: [.paused, .reconnecting].contains(model.voiceSession.phase))
         }
         if model.isProcessing { return "Finishing your transcript." }
         return speechLine ?? "Start once and follow the words as they happen · Up to 2 hours"
+    }
+
+    /// A recording's elapsed time, with hours once it has any, so the limit's warning reads
+    /// "1:55:30 · Finishes at 2 hours in 5 min" rather than "115:30" (#377).
+    static func clock(_ seconds: Double) -> String {
+        let whole = max(0, Int(seconds))
+        return whole < 3_600 ? time(seconds) : String(format: "%d:%02d:%02d", whole / 3_600, whole % 3_600 / 60, whole % 60)
     }
 
     private var speechLine: String? { model.isBusy || showsCompletedResult ? nil : Self.speechCaption(model.admission) }
