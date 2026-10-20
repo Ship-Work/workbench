@@ -436,10 +436,11 @@ final class MeetingModel: ObservableObject {
         await finishCapture(process: true)
     }
 
-    /// Cancels the automatic finish for this recording. A click that lands after the recording
-    /// ended does nothing.
-    func keepRecording() {
-        guard isRecording else { return }
+    /// Cancels the automatic finish for this recording, during its countdown only. A click that
+    /// lands after the countdown ended, or on a later recording than the one it was shown for, does
+    /// nothing, so it cannot quietly switch automatic finish off for the rest of a call (#377).
+    func keepRecording(expected: UUID? = nil) {
+        guard isRecording, autoFinishSeconds != nil, expected == nil || recordingIdentity == expected else { return }
         autoFinish.keepRecording(); autoFinishSeconds = nil
     }
 
@@ -847,11 +848,13 @@ final class MeetingModel: ObservableObject {
 enum MeetingTimeLimit {
     static let warningSeconds = 300.0
 
-    /// "Finishes at 2 hours in 5 min" from five minutes before the limit; nil before then.
+    /// "Finishes at 2 hours in 5 min" from five minutes before the limit; nil before then. Whole
+    /// minutes count down, so "in 1 min" means at least a minute is left, and below that it says
+    /// "under a minute".
     static func warning(elapsed: Double) -> String? {
         let remaining = MeetingSegmentPlan.maximumMeetingSeconds - elapsed
         guard remaining <= warningSeconds else { return nil }
-        return "Finishes at 2 hours in " + (remaining < 60 ? "under a minute" : "\(Int((remaining / 60).rounded(.up))) min")
+        return "Finishes at 2 hours in " + (remaining < 60 ? "under a minute" : "\(max(1, Int(remaining / 60))) min")
     }
 
     /// The words beside a recording's elapsed time: the warning, else the limit, which says that
@@ -864,8 +867,10 @@ enum MeetingTimeLimit {
 /// The saved note for a recording that Workbench finished rather than the person (#377): that it
 /// did, then why, so the transcript read later in History says why its words end there.
 enum MeetingSelfFinish {
+    /// How every such note begins, so Home can rank it after a note about what the recording lost.
+    static let prefix = "Workbench finished this recording itself."
     static let callAudioEnded = "The call app stopped using audio."
-    static func note(_ why: String) -> String { "Workbench finished this recording itself. " + why }
+    static func note(_ why: String) -> String { prefix + " " + why }
 }
 
 /// Writes call audio's record once, from the first app samples that carry sound. A refused tap
