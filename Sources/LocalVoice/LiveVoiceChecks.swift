@@ -84,6 +84,42 @@ enum LiveVoiceChecks {
             + said(.microphone, "No problem", at: 4.35))
         try expect(overlap.text == "Thanks so much everyone No problem" && overlap.conversation == "Others: Thanks so much everyone\n\nYou: No problem",
                    "overlapping speakers keep their own words together in the original wording and the conversation")
+        // On laptop speakers a reply right as the other side finishes is yours however quickly it comes
+        // (#377): its first word is never taken for the end of their echo.
+        let question = said(.app, "can you send it by Friday", at: 0), echoedQuestion = said(.microphone, "can you send it by Friday", at: 0.05)
+        let quick = [("Yes", 0.0), ("Yes", 0.05), ("No not this week", 0.1), ("No", 0.15)].filter { reply, gap in
+            LiveVoiceCheckpoint(sessionID: UUID(), segments: question + echoedQuestion + said(.microphone, reply, at: 1.75 + gap)).conversation
+                != "Others: can you send it by Friday\n\nYou: \(reply)"
+        }
+        try expect(quick.isEmpty, "a reply 0 to 0.15 s after the other side finishes is kept whole and their echo is not (lost: \(quick))")
+        // With headphones nothing is an echo: a word of theirs you say a moment later is yours (#377).
+        let okay = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, "so I think okay we should move the launch to Friday and tell the whole team today", at: 0)
+            + said(.microphone, "okay", at: 2.4))
+        let friday = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, "which day works for you Friday or Monday either is fine for me", at: 0)
+            + said(.microphone, "Friday", at: 3.0))
+        try expect(okay.conversation.hasSuffix("\n\nYou: okay") && friday.conversation.hasSuffix("\n\nYou: Friday"),
+                   "an \"okay\" 1.5 s after theirs and a \"Friday\" answering \"Friday or Monday\" are kept")
+        // The echo of two phrases with a short pause between them is dropped however the microphone's
+        // recogniser times the pause (#377).
+        var leaked: [String] = []
+        for pause in [0.65, 0.8] {
+            for jitter in [0.0, 0.08, 0.16, 0.4] {
+                let first = said(.app, "the budget goes to finance on Friday", at: 0), next = first.last!.end + pause
+                var echo = said(.microphone, "the budget goes to finance on Friday", at: 0.05)
+                echo[echo.count - 1].end += jitter
+                let call = LiveVoiceCheckpoint(sessionID: UUID(), segments: first + said(.app, "and the slides go to Sam next week", at: next)
+                    + echo + said(.microphone, "and the slides go to Sam next week", at: next + 0.05))
+                if call.conversation != "Others: the budget goes to finance on Friday and the slides go to Sam next week" { leaked.append("\(pause) s/\(jitter) s") }
+            }
+        }
+        try expect(leaked.isEmpty, "an echo across a 0.65 or 0.8 s pause of theirs is dropped at any microphone timing (leaked at \(leaked))")
+        // Your words in the middle of their sentence, with its echo right around them, are yours (#377).
+        let sentence = "we will send the contract to legal on Monday and then the signed copy goes to finance by the end of the month"
+        var interrupted = said(.microphone, sentence, at: 0.05)
+        for (offset, word) in "wait which legal team do you mean".split(separator: " ").enumerated() { interrupted[8 + offset].text = String(word) }
+        let interjection = LiveVoiceCheckpoint(sessionID: UUID(), segments: said(.app, sentence, at: 0) + interrupted)
+        try expect(interjection.conversation == "Others: \(sentence)\n\nYou: wait which legal team do you mean",
+                   "an interjection inside the echo of their sentence is kept, and the echo around it is not")
 
         // On laptop speakers the microphone hears the call (#377): through the real service, its copy
         // of the other side is neither shown nor saved as You, and what you said yourself is.
