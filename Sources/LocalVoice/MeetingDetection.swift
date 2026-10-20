@@ -179,8 +179,7 @@ final class MeetingDetector {
     /// audio-use metadata: what its recording taps, including the service that
     /// plays its calls. This is independent of proactive Start offers.
     func activity(for app: MeetingAudioApp) -> MeetingAutoFinish.Activity {
-        guard source.isAvailable,
-              MeetingAppCatalogue.known(app.bundleID) != nil || Self.isCallService(app) else { return .unknown }
+        guard source.isAvailable, Self.finishesAutomatically(app) else { return .unknown }
         do {
             let processes = try source.detectionSnapshot().filter {
                 MeetingAppCatalogue.taps($0.bundleID, responsibleBundleID: $0.responsibleBundleID, for: app.bundleID)
@@ -188,6 +187,18 @@ final class MeetingDetector {
             return processes.contains { $0.isRunningInput || $0.isRunningOutput } ? .active : .inactive
         } catch { return .unknown }
     }
+
+    /// Finish when call audio ends reads activity only for catalogue apps and the calling
+    /// service; every other source, like the microphone alone, finishes when the person says.
+    static func finishesAutomatically(_ app: MeetingAudioApp?) -> Bool {
+        guard let app else { return false }
+        return MeetingAppCatalogue.known(app.bundleID) != nil || isCallService(app)
+    }
+
+    /// Recording options' caption for Finish when call audio ends. It said only microphone-only
+    /// recordings finish manually, while any app the catalogue does not know never finishes by
+    /// itself either (#377); finishesAutomatically is the rule it describes.
+    static let automaticFinishCaption = "After a supported call app, or a call on this Mac, stops using audio, a short countdown lets you keep recording. Silence, Pause and reconnecting audio never finish a session. Microphone-only recordings and other apps or services finish manually."
 
     /// One choice per source. `covers` names the sources this read could have seen, so a
     /// detection read, which leaves out every other process, forgets only its own.
