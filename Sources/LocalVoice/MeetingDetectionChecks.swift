@@ -14,6 +14,7 @@ enum MeetingDetectionChecks {
         }
         try safariChecks(expect: expect)
         try callServiceChecks(expect: expect)
+        try await representativeChecks(root: root, expect: expect)
         return checks
     }
 
@@ -106,6 +107,50 @@ enum MeetingDetectionChecks {
         try expect(detector.activity(for: faceTime) == .inactive, "the call service going quiet reads as FaceTime's call ending")
     }
 
+    /// The chosen app is held by one process number; a running app read as no longer available
+    /// when that process changed, though capture already follows the app by bundle.
+    private static func representativeChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("Workbench-MeetingRepresentative-" + UUID().uuidString).path
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = Fixture(), capture = Capture()
+        let model = MeetingModel(directory: root.appendingPathComponent("representative"), defaults: defaults, processSource: source,
+                                 transcribe: { _ in "unused" }, microphonePermission: { true }, captureFactory: { capture })
+        let chrome = "com.google.Chrome"
+        source.values = [.init(pid: 741, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        model.refreshApps(); model.selectAudioSource(741)
+        try expect(model.admission.canStart, "Chrome is chosen by its audio helper")
+        source.values.append(.init(pid: 740, bundleID: chrome, isRunningInput: false, isRunningOutput: false))
+        model.refreshApps()
+        try expect(model.admission.canStart && model.apps.filter { $0.bundleID == chrome }.map(\.id) == [741],
+                   "Chrome's main process joining Core Audio's list keeps the chosen source (#377)")
+        source.values = [.init(pid: 740, bundleID: chrome, isRunningInput: false, isRunningOutput: false),
+                         .init(pid: 742, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        model.refreshApps()
+        try expect(model.admission.canStart && model.admission.captureProblem == nil && model.apps.filter { $0.bundleID == chrome }.map(\.id) == [741],
+                   "Chrome's audio helper restarting keeps the chosen source rather than reading as no longer available (#377)")
+        model.useAppAudioOnly()
+        await model.start()
+        try expect(capture.started?.id == 741 && capture.started?.bundleID == chrome && model.problem == .unknown(Capture.refusal),
+                   "Start passes the chosen app to capture, which finds its current processes by bundle")
+        source.values.append(.init(pid: 741, bundleID: "example.player", isRunningInput: false, isRunningOutput: true, name: "Example Player"))
+        model.refreshApps()
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 741 && model.apps.first { $0.bundleID == "example.player" }?.id == -741
+                   && Set(model.apps.map(\.id)).count == model.apps.count && model.admission.canStart,
+                   "another app whose process reuses the chosen number is listed apart, so the choice never silently becomes that app")
+        source.values = []
+        model.refreshApps()
+        try expect(model.admission.captureProblem == .sourceDisappeared, "an app that quit still reads as no longer available")
+        source.values = [.init(pid: 750, bundleID: chrome, isRunningInput: false, isRunningOutput: false)]
+        model.refreshApps()
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 750, "a relaunched app is listed by its new process")
+        source.failure = true; model.refreshApps(); source.failure = false
+        source.values = [.init(pid: 751, bundleID: "com.google.Chrome.helper", isRunningInput: true, isRunningOutput: true, isUserFacingApp: false)]
+        model.refreshApps()
+        try expect(model.apps.first { $0.bundleID == chrome }?.id == 750, "a failed read forgets nothing it could not see")
+        await model.prepareForShutdown()
+    }
+
     private final class Fixture: MeetingProcessSource {
         var isAvailable = true
         var unavailableReason = "Synthetic unavailable metadata"
@@ -115,5 +160,19 @@ enum MeetingDetectionChecks {
             if failure { throw MeetingError.message("Synthetic metadata failure") }
             return values
         }
+    }
+
+    /// Records the app Start passed and refuses, so the model's own start path runs to capture.
+    private final class Capture: MeetingCapture {
+        static let refusal = "Synthetic capture refusal"
+        var started: MeetingAudioApp?
+        func start(_ request: MeetingCaptureRequest) async throws {
+            started = request.app
+            throw MeetingError.message(Self.refusal)
+        }
+        func finish() async -> MeetingCaptureReport { MeetingCaptureReport() }
+        func requestStop() {}
+        var elapsedSeconds: Double { 0 }
+        var stopReason: String? { nil }
     }
 }
