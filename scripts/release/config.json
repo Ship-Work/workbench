@@ -85,7 +85,7 @@
         "I",
         "J"
       ],
-      "reason": "2.5.0 (8 October 2026): the maintainer chose to ship and test every foundation journey in production on his work Mac, reporting through Report a Problem. This release attests only the fresh smoke (opening, permissions, saved work), D1 dictation into a real app and the signed 2.4.1-to-2.5.0 upgrade on the exact notarized package. The other foundation journeys (M1, M2, H1, H2, S1, ST1, P1, P2, R1, U1, I2, Q1-Q3, L1-L4, X1-X3) are not attested here and stay owed in #7."
+      "reason": "2.6.0 (20 October 2026): the maintainer's standing choice since 2.5.0 is to ship and test the foundation journeys in production on his work Mac, reporting through Report a Problem. This release attests only the fresh smoke (opening, permissions, saved work), D1 dictation into a real app and the signed 2.5.0-to-2.6.0 upgrade on the exact notarized package. Meetings' two-sided capture (M1, M2) needs System Audio Recording allowed for the edition and a real call; it and the other foundation journeys (H1, H2, S1, ST1, P1, P2, R1, U1, I2, Q1-Q3, L1-L4, X1-X3) are not attested here and stay owed in #7."
     }
   }
 }
