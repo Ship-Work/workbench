@@ -822,6 +822,8 @@ final class MeetingModel: ObservableObject {
 
     func dismissOffer() { if let offer { detector.dismiss(offer) }; offer = nil }
     func snoozeOffers() { detector.snooze(); offer = nil }
+    /// When call offers are snoozed, the line the detection setting shows until the snooze ends (#377).
+    var offerSnoozeLine: String? { detector.snoozeLine() }
 
     /// The app's terminateLater hook awaits this before replying to macOS.
     func prepareForShutdown() async {

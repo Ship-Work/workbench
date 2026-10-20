@@ -63,6 +63,12 @@ struct MeetingDetectionSettings: View {
             Toggle("Detect Meetings & Calls", isOn: $model.detectionEnabled).toggleStyle(.switch)
             Text("Offer to transcribe when a supported call uses audio on this Mac. Detection checks activity only; you choose whether to record.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            // Snooze holds offers back for a while; the setting says until when, and drops the line once it ends (#377).
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                if let line = model.offerSnoozeLine {
+                    Text(line).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if #unavailable(macOS 14.2) {
                 Text("Meeting detection and app audio capture require macOS 14.2 or later. Dictate remains available.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -76,7 +82,7 @@ struct MeetingFinishSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle("Finish when call audio ends", isOn: $model.automaticallyFinishCalls).toggleStyle(.switch)
-            Text("After the selected call app stops using audio, a short countdown lets you keep recording. Silence, Pause and reconnecting audio never finish a session. Microphone-only recordings finish manually.")
+            Text(MeetingDetector.automaticFinishCaption)
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
