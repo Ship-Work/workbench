@@ -40,13 +40,14 @@ struct StateStore {
 @MainActor enum TextDelivery {
     static func copy(_ text: String) -> Int? { fatalError("The fixture must inject its private Copy action") }
 }
-struct FixtureShortcut { var label = "⌃⌥J"; var enabled = true }
-struct FixturePreferences { func shortcut(_ id: UInt32) -> FixtureShortcut { FixtureShortcut() } }
+// Library's footer reads the actual VoiceShortcut and its registration failure (#76).
+struct FixturePreferences { func shortcut(_ id: UInt32) -> VoiceShortcut { VoiceShortcut(keyCode: UInt32(kVK_ANSI_J), modifiers: UInt32(controlKey | optionKey)) } }
 @MainActor final class AppModel: ObservableObject {
     @Published var transcript = "A synthetic transcript for this disposable app."
     @Published var page = "library"
     @Published var libraryFocusToken = UUID()
     @Published var preferences = FixturePreferences()
+    @Published var shortcutFailures: [UInt32: String] = [:]
     let presenter = FixturePresenter()
 }
 // The separate Saved Prompts panel is covered by production --check-core and

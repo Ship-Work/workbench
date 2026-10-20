@@ -328,7 +328,7 @@ final class PhoneCaptureTests: PhoneOwnerFixture {
         XCTAssertTrue(waitUntil { hardware.read(capture) { $0.opened.count } == 1 })
         deliverFrame(scenes, from: hardware.read(capture) { $0.outputs[0] })
         XCTAssertTrue(waitUntil { capture.live })
-        hardware.read(capture) { $0.disconnected.insert(self.phone.id) }
+        _ = hardware.read(capture) { $0.disconnected.insert(self.phone.id) }
         XCTAssertTrue(waitUntil(4) { phases.contains(.interrupted(self.phone.id)) }, "The health check publishes the disconnect")
         XCTAssertFalse(capture.live)
         XCTAssertFalse(words(scenes).phase == .live, "Showing iPhone does not outlive the phone")

@@ -78,7 +78,7 @@ struct LogoBrowser: View {
                 }
             }
             if let error = browser.error {
-                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                PersonaNote(error).textSelection(.enabled)
             }
         }
         .padding(20).frame(width: 880, height: 670).workbenchTheme()

@@ -104,7 +104,7 @@ struct LiveVoiceTranscriptView: View {
     }
 }
 
-private struct LiveTranscriptText: NSViewRepresentable {
+struct LiveTranscriptText: NSViewRepresentable {
     /// Short transcripts take only their own height; long ones scroll inside, keeping the
     /// newest words in view without pushing the page's controls away.
     static let minimumHeight: CGFloat = 120
@@ -147,7 +147,7 @@ private struct LiveTranscriptText: NSViewRepresentable {
         }
         let follow = text.string.isEmpty || Self.isAtLatest(scroll)
         let selected = text.selectedRange(), position = scroll.contentView.bounds.origin
-        let value = attributedText()
+        let value = attributedText().text
         if !text.attributedString().isEqual(to: value) {
             text.textStorage?.setAttributedString(value)
             text.setSelectedRange(NSRange(location: min(selected.location, value.length),
@@ -165,22 +165,42 @@ private struct LiveTranscriptText: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? nsView.bounds.width
         guard width > 0, width.isFinite else { return nil }
-        let used = attributedText().boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
-                                                 options: [.usesLineFragmentOrigin, .usesFontLeading]).height
-        return CGSize(width: width, height: min(Self.maximumHeight, max(Self.minimumHeight, ceil(used) + 8)))
+        return CGSize(width: width, height: Self.fittedHeight(segments: segments, conversation: conversation,
+                                                              completedText: completedText, width: width))
+    }
+    /// The page relayouts every second for its clock, so measuring a two-hour meeting whole
+    /// stalled the app. A prefix is never taller than the whole text, so measuring stops once
+    /// one reaches the clamp; a short transcript is still measured whole, exactly as before.
+    static func fittedHeight(segments: [LiveVoiceSegment], conversation: Bool, completedText: String?, width: CGFloat) -> CGFloat {
+        var limit = 16
+        while true {
+            let prefix = attributedText(segments: segments, conversation: conversation, completedText: completedText, limit: limit)
+            let used = ceil(prefix.text.boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                                                     options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 8
+            if prefix.whole || used >= maximumHeight { return min(maximumHeight, max(minimumHeight, used)) }
+            limit *= 2
+        }
     }
     private static func isAtLatest(_ scroll: NSScrollView) -> Bool {
         guard let document = scroll.documentView else { return true }
         return document.bounds.height - scroll.contentView.bounds.maxY < 30
     }
-    private func attributedText() -> NSAttributedString {
+    private func attributedText() -> (text: NSAttributedString, whole: Bool) {
+        Self.attributedText(segments: segments, conversation: conversation, completedText: completedText, limit: .max)
+    }
+    /// The first `limit` turns, or about `limit` turns' worth of a saved transcript, and whether that was all of it.
+    private static func attributedText(segments: [LiveVoiceSegment], conversation: Bool, completedText: String?,
+                                       limit: Int) -> (text: NSAttributedString, whole: Bool) {
         let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 5; paragraph.paragraphSpacing = 12
         // Dictate's editor reads at the title 3 size (15 pt standard); both grow with larger text.
         let body: [NSAttributedString.Key: Any] = [.font: NSFont.preferredFont(forTextStyle: .title3), .foregroundColor: NSColor.labelColor,
                                                    .paragraphStyle: paragraph]
-        if let completedText { return NSAttributedString(string: completedText, attributes: body) }
+        if let completedText {
+            let prefix = completedText.prefix(limit > Int.max / 200 ? Int.max : limit * 200)
+            return (NSAttributedString(string: String(prefix), attributes: body), prefix.endIndex == completedText.endIndex)
+        }
         let result = NSMutableAttributedString()
-        for (index, segment) in segments.enumerated() {
+        for (index, segment) in segments.prefix(limit).enumerated() {
             if index > 0 { result.append(NSAttributedString(string: conversation ? "\n\n" : " ", attributes: body)) }
             if conversation {
                 let minutes = max(0, Int(segment.start)) / 60, seconds = max(0, Int(segment.start)) % 60
@@ -192,7 +212,7 @@ private struct LiveTranscriptText: NSViewRepresentable {
             if !segment.isFinal { style[.foregroundColor] = NSColor.secondaryLabelColor }
             result.append(NSAttributedString(string: segment.text, attributes: style))
         }
-        return result
+        return (result, limit >= segments.count)
     }
     final class Coordinator {
         var latestRequest = 0

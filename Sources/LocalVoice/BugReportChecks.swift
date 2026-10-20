@@ -297,8 +297,11 @@ enum BugReportChecks {
         try expect(limit(200, "45::organization") == Limit(wait: 45, attachmentsOnly: false), "empty categories mean all")
         try expect(limit(429, nil, "90") == Limit(wait: 90, attachmentsOnly: false), "Retry-After seconds")
         try expect(limit(429, nil, "Thu, 01 Oct 2026 21:02:00 GMT", at: Date(timeIntervalSince1970: 1_790_888_400))?.wait == 120, "Retry-After date")
-        try expect(limit(429, nil) == Limit(wait: 60, attachmentsOnly: false) && limit(429, "30:attachment:org") == Limit(wait: 60, attachmentsOnly: false),
-                   "429 without a feedback limit waits for Retry-After or 60 s")
+        try expect(limit(429, nil) == Limit(wait: 60, attachmentsOnly: false), "429 without a header waits for Retry-After or 60 s")
+        // Relay queues what it accepted and still answers 429 when it dropped any item (check_rate_limits).
+        try expect(limit(429, "30:attachment:org") == Limit(wait: 30, attachmentsOnly: true), "429 limiting only attachments: the event went through")
+        try expect(limit(429, "60:attachment_item:organization") == Limit(wait: 60, attachmentsOnly: true), "an attachment count limit is an attachment limit")
+        try expect(limit(429, "30:attachment:org, 10:feedback:org") == Limit(wait: 30, attachmentsOnly: false), "429 naming feedback waits")
         try expect(BugReportTransport.session().configuration.timeoutIntervalForResource >= 1_800, "an upload may take 30 minutes on a slow uplink")
         try expect(BugReportView.sendShortcut == KeyboardShortcut(.return, modifiers: .command), "Send is Command-Return; plain Return in the email field never sends")
         // The email caption and the privacy page say the team can see and search an added address.
@@ -431,7 +434,6 @@ enum BugReportChecks {
         try expect(state(h, id).nextAttemptAt == h.clock.now + 120 && state(h, id).problem == .rateLimited, "429 waits for Retry-After")
         try expect(h.model.receipts.first?.title == "Sending…", "receipt while asked to wait: Sending…")
 
-        // 200 limiting only attachments: the event went through, so it is Sent and the verifier decides.
         // A 200 limiting only attachments: the words arrived without their files. Sent · words only,
         // nothing checked or resent by itself, and Send attachments again under a new event ID.
         let words = harness(root.appendingPathComponent("words-only"), destination: .init(dsn: dsn, verifier: verifier, environment: "production", isOverride: false))
@@ -461,6 +463,23 @@ enum BugReportChecks {
                    && wd.files.count == 3 && wd.nextAttemptAt == words.clock.now + 15, "Send attachments again goes under a new event ID and is checked")
         try expect(resent.items.dropFirst().map(\.filename) == ["context.json", "screenshot.png", "voice.wav"]
                    && (resentEvent["tags"] as? [String: String])?["report_id"] == wid, "with every attachment and the same report ID")
+
+        // Relay answers an attachment quota with 429 after queueing the words: the same Sent · words only,
+        // the words' arrival kept, and no resend of the same event while the quota lasts.
+        let quota = harness(root.appendingPathComponent("words-only-429"), destination: .init(dsn: dsn, verifier: verifier, environment: "production", isOverride: false))
+        try fill(quota.model)
+        quota.model.send()
+        let qid = quota.store.deliveries()[0].id
+        sentry.script = [.status(429, ["X-Sentry-Rate-Limits": "60:attachment:organization:usage_exceeded", "Retry-After": "60"])]
+        await quota.transport.runDue()
+        let qd = quota.store.delivery(qid)!
+        try expect(qd.state == .sent && qd.wordsOnly && qd.nextAttemptAt == nil && qd.status == nil && !qd.isUnsent
+                   && qd.mayHaveArrivedAt == quota.clock.now, "a 429 limiting only attachments is Sent · words only")
+        try expect(quota.model.receipts.first?.title == "Sent · words only · \(BugReportText.shortID(qid))"
+                   && quota.model.receipts.first?.actions == [.sendAttachmentsAgain, .saveCopy, .remove], "its receipt offers Send attachments again")
+        let quotaSent = sentry.bodies.count
+        quota.clock.advance(86_400); await quota.transport.runDue()
+        try expect(sentry.bodies.count == quotaSent, "nothing is resent by itself while the attachment quota lasts")
 
         // A lost reply may have arrived: after 55 minutes the same event ID is not sent again by itself.
         (h, id) = try frozen("lost-then-late")
@@ -617,7 +636,7 @@ enum BugReportChecks {
         let sent = sentry.bodies.count
         await h.transport.runDue()
         try expect(state(h, id).state == .failed && state(h, id).problem == .unreadable && sentry.bodies.count == sent, "changed bytes are refused, not sent")
-        return ["transport: 200, 200+feedback limit, 200+attachment-only limit is Sent · words only with Send attachments again, clock saved before the request (Quit mid-upload), uploads finish inside Sentry's hour, time-outs with no bytes never connected, stale due lists, 429 Retry-After, 413/401/403/400/TLS without loops, Retry, offline then relaunch with the same event and bytes, no automatic resend 55 minutes after a possible arrival, time-out as busy, 5xx backoff, removal in flight, changed bytes"]
+        return ["transport: 200, 200+feedback limit, 200 or 429 with an attachment-only limit is Sent · words only with Send attachments again, clock saved before the request (Quit mid-upload), uploads finish inside Sentry's hour, time-outs with no bytes never connected, stale due lists, 429 Retry-After, 413/401/403/400/TLS without loops, Retry, offline then relaunch with the same event and bytes, no automatic resend 55 minutes after a possible arrival, time-out as busy, 5xx backoff, removal in flight, changed bytes"]
     }
 
     // MARK: Verifier
@@ -976,11 +995,21 @@ enum BugReportChecks {
         await h.model.addScreenshot()
         try expect(!captured && h.model.problemAction == .screenAccess && h.model.problem == BugReportModel.screenAccessOff && !h.model.capturing,
                    "Screen Recording off offers Choose image… and Open System Settings… without capturing")
+        try expect(h.model.problemPlacement == .screenshot, "a screenshot problem shows under Add screenshot, where the person acted")
+        let unplayable = harness(root.appendingPathComponent("voice-problem"))
+        unplayable.model.open(origin: .help)
+        unplayable.model.togglePlayback()
+        try expect(unplayable.model.problem == "The voice note couldn't be played." && unplayable.model.problemPlacement == .voice,
+                   "a voice note problem shows under the voice row")
         var bytes = BugReportStore.Limits(); bytes.bytes = 1_024
         h = harness(root.appendingPathComponent("bytes"), limits: bytes)
         try fill(h.model)
+        h.model.services.screenCaptureGranted = { false }
+        await h.model.addScreenshot()
+        try expect(h.model.problemPlacement == .screenshot && h.model.problemAction == .screenAccess, "fixture: a screenshot problem first")
         h.model.send()
         try expect(h.store.deliveries().isEmpty && h.model.problemAction == .saveCopy, "the byte reservation refuses a large report")
+        try expect(h.model.problemPlacement == .form, "a later form problem moves to the form and drops the screenshot's actions")
         h = harness(root.appendingPathComponent("disk"), capacity: 1_024 * 1_024)
         try fill(h.model)
         h.model.send()
@@ -1010,7 +1039,7 @@ enum BugReportChecks {
         h.clock.advance(200 * 86_400)
         h.store.prune()
         try expect(h.store.delivery(unsent) != nil, "pruning never removes an unsent report")
-        return ["outbox: 0700/0600, draft resume and origin rules, a second report from the open composer, over-limit text kept, Save a copy without overwrite, entry/byte/disk quota with the draft kept, only settled copies make room (with a verifier), refusal names only unsent reports, facts from the moment of reporting with fresh access and speech, older delivery.json loads, Screen Recording preflight, no-DSN build"]
+        return ["outbox: 0700/0600, draft resume and origin rules, a second report from the open composer, over-limit text kept, Save a copy without overwrite, entry/byte/disk quota with the draft kept, only settled copies make room (with a verifier), refusal names only unsent reports, facts from the moment of reporting with fresh access and speech, older delivery.json loads, Screen Recording preflight, problems under the screenshot, voice or form, no-DSN build"]
     }
 }
 

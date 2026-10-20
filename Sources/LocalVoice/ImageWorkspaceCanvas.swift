@@ -156,7 +156,6 @@ final class ImageWorkspaceCanvasView: NSView {
         guard !editing.showingOriginal else { return }
         let p = convert(event.locationInWindow, from: nil), point = original(p)
         start = point; points = [point]
-        if editing.tool == .text { editing.addText(at: point); start = nil; return }
         if editing.tool == .select {
             if let mark = editing.selectedMark, mark.kind == .arrow,
                let endpoint = mark.points.firstIndex(where: { let d = display($0); return hypot(d.x - p.x, d.y - p.y) <= 10 / zoom }) {

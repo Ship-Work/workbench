@@ -12,8 +12,8 @@ views embedded in it); the Draw, Present, Persona and Timer menus that the
 rows, the floating toolbar and the app menu bar open, with any native views
 embedded in them, and the Saved Prompts picker Library and Present's toolbar Prompts open; the
 floating toolbar's modes (its launcher's chooser), next action and hover
-labels, accessory and More menu, and the live dictation, narration and
-reading controls shown in the same window; the app menu bar and any status
+labels and accessory, and the live dictation and narration controls shown
+in the same window; the app menu bar and any status
 item menu built in AppDelegate; the window sidebar and the section switchers of
 pages with sections, both from the page record in WorkbenchHome; every control
 on Home and on the Settings page, including views embedded in them; the global shortcut
@@ -121,6 +121,9 @@ ENTRY_POINTS = [
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.shownPanel', 'Persona live copy', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView.liveSourceControl', 'Persona source', 'controls'),
     ('StageKit/PersonaLibraryView.swift', 'PersonaLibraryView', 'Persona workspace', 'doors'),
+    # Present's Add persona…: a selection-only chooser of saved cards (#276), so every control
+    # it has is listed, and anything that makes, edits or groups a card would show here.
+    ('StageKit/PersonaLibraryView.swift', 'PersonaSceneChooser', 'Present persona chooser', 'controls'),
     # Persona's other live source: the local camera bubble, prepared and run beside
     # the shown card's controls on the same page.
     ('StageKit/PersonaCamera.swift', 'PersonaCameraPanel', 'Persona live camera', 'controls'),
@@ -138,8 +141,6 @@ ENTRY_POINTS = [
     # toolbar reveals in place of its row (#134 T4). Recording and narration are the row's.
     ('LocalVoice/FloatingToolbar.swift', 'WorkbenchFloatingContent', 'floating toolbar live controls', 'page'),
     ('LocalVoice/FloatingToolbar.swift', 'FloatingResultView', 'floating toolbar live controls', 'page'),
-    # Persona's Appearance accessory opens its own menu for the selected live copy (#134 part B).
-    ('LocalVoice/FloatingToolbarState.swift', 'ToolbarAccessoryMenus', 'floating toolbar accessory', 'controls'),
     ('StageKit/AnnotationMenu.swift', 'AnnotationMenu', 'Draw menu', 'controls'),
     ('StageKit/DemoScenes.swift', 'DemoScenes.makeControlsMenu', 'Present menu', 'controls'),
     ('StageKit/DemoPresentation.swift', 'DemoPresentation.makeControlsMenu', 'Present menu', 'controls'),
@@ -643,6 +644,7 @@ class Inventory:
     def __init__(self, tree, strict):
         self.tree, self.strict = tree, strict
         self.entries, self.visited, self.enums = [], set(), {}
+        self.offered = set()  # Views an offer embeds; the panel still lists their status rows.
 
     def owner(self, relative, scope, kinds=None):
         """The file and the ranges of `scope` in it. Missing owners fail loudly."""
@@ -731,9 +733,9 @@ class Inventory:
 
     def bridged(self, found, member):
         """(enum, member) whose words `found` shows unchanged, when every case's `member` is
-        Other(rawValue: rawValue)?.m ?? rawValue and Other has every one of its raw values:
-        StageKitController.PersonaShape shows PersonaAppearance.Shape's titles. Otherwise None,
-        and the labels stay runtime."""
+        Other(rawValue: rawValue)?.m ?? rawValue and Other has every one of its raw values, as a
+        wrapper of PersonaAppearance.Shape shows its titles. Otherwise None, and the labels stay
+        runtime."""
         swift, start, end = found
         forms = {expr for _, expr in choice_labels(swift, start, end, member).values()}
         match = len(forms) == 1 and re.fullmatch(r'((?:\w+ \. )*\w+) \( rawValue : rawValue \) \? \. (\w+) \?\? rawValue', next(iter(forms)) or '')
@@ -1066,9 +1068,10 @@ class Inventory:
                     continue
                 for path in self.tree.declaring(kind, name, near=swift.module)[:1]:
                     relative = path.relative_to(self.tree.root / 'Sources').as_posix()
-                    if (path, name) in self.visited or name in EXCLUDED.get(relative, []):
+                    claimed = (path, name) in self.visited and not (mode == 'panel' and (path, name) in self.offered)
+                    if claimed or name in EXCLUDED.get(relative, []):
                         continue
-                    self.visited.add((path, name))
+                    self.visited.add((path, name)); self.offered.discard((path, name))  # Once, like any other view.
                     owner = self.tree.swift(path)
                     ranges = [(s[0], s[1]) for s in owner.scopes if s[2] == kind and s[3] == name]
                     embedded = 'quick panel status rows' if mode == 'panel' else surface(swift, i, '')
@@ -1102,13 +1105,14 @@ class Inventory:
         for start, end in ranges[:1]:
             for case, (label, expr) in choice_labels(swift, start, end, 'title').items():
                 self.add(swift, start + 1, 'title', labelled(label, expr), 'floating toolbar contextual actions', identity=case, case=case)
-        # Stage shortcuts: every Action case, titled as the shortcut list shows it.
+        # Stage shortcuts: every Action case, titled as the shortcut list shows it. An Action's own
+        # name for its case (a presenter key's) comes first; otherwise a tool's key has its name.
         swift, ranges = self.owner(*CATALOGUES[3], kinds=('enum',))
         for start, end in ranges[:1]:
             tools = self.find_enum(swift, 'DrawingTool')
             tool_labels = choice_labels(*tools, 'title') if tools else {}
             for case, (label, expr) in choice_labels(swift, start, end, 'title').items():
-                self.add(swift, start + 1, 'title', labelled(*tool_labels.get(case, (label, expr))),
+                self.add(swift, start + 1, 'title', labelled(*(tool_labels[case] if label is None and case in tool_labels else (label, expr))),
                          'global shortcuts', identity=case, case=case)
                 self.entries[-1]['id'] = 'shortcut.stage.' + case
         # Voice shortcuts: (id, title) pairs.
@@ -1176,6 +1180,8 @@ def derive(root, require_roots=True, tree=None):
         ranges = [(s[0], s[1]) for s in swift.scopes if s[2] in ('struct', 'class') and s[3] == name]
         inventory.visited.add((path, name))
         inventory.collect(swift, ranges, lambda *_, n=name: 'proactive offer ' + n, 'controls', follow=True)
+    # A shared view an offer embeds, such as the kit's note, keeps its rows where the panel shows it.
+    inventory.offered = inventory.visited - offers
     for relative, scope, where, mode in ENTRY_POINTS:
         swift, ranges = inventory.owner(relative, scope)
         if not ranges:

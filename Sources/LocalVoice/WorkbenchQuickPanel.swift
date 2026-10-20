@@ -19,6 +19,7 @@ struct WorkbenchQuickPanel: View {
     @ObservedObject var receipts: ClipboardReceiptModel
     @ObservedObject var snapModel: SnapModel
     @ObservedObject private var updates = WorkbenchUpdates.shared
+    @Environment(\.pageSectionFrames) private var sectionFrames
     var open: (String) -> Void
     var draw: () -> Void
     var snap: () -> Void
@@ -99,7 +100,6 @@ struct WorkbenchQuickPanel: View {
                                 default: model.openHistory(); open("history")
                                 }
                             },
-                            showCue: { model.onCloseMenu?(); receipts.revealHUD() },
                             reviewUnresolved: { entry in
                                 open(entry.isDraft ? "dictate" : "history")
                                 model.reviewUnresolvedDelivery()
@@ -111,6 +111,7 @@ struct WorkbenchQuickPanel: View {
                             }
                             if let recovery {
                                 PanelRecoveryRow(message: recovery.message, page: recovery.page, warning: recovery.warning, open: open)
+                                    .reportsFrame("panel.recovery", to: sectionFrames)
                             }
                         }
                     }
@@ -175,15 +176,19 @@ struct WorkbenchQuickPanel: View {
                 Button("Done") { editor.end() }
                     .buttonStyle(.plain).foregroundStyle(Workbench.accent)
             }
-            Text(keyboard.message ?? "Press your combination.")
-                .font(.caption).foregroundStyle(keyboard.hasError ? .orange : .secondary).lineLimit(3)
+            // A problem's words stay primary beside the attention symbol, as on every page.
+            if keyboard.hasError { WorkbenchNote(keyboard.message ?? "", font: .caption, selectable: false).lineLimit(3) }
+            else { Text(keyboard.message ?? "Press your combination.").font(.caption).foregroundStyle(.secondary).lineLimit(3) }
             HStack {
-                Button("Change") { keyboard.beginRecording() }
+                // One leading slot: Cancel while the recorder waits, as it does from opening, and
+                // Change once it stops. Change would only restart the same wait, and Turn off never
+                // moves into the place just clicked.
+                if keyboard.isInteracting { Button("Cancel") { keyboard.stopInteraction() }.reportsFrame("panel.editor.cancel", to: sectionFrames) }
+                else { Button("Change") { keyboard.beginRecording() }.reportsFrame("panel.editor.change", to: sectionFrames) }
                 // Off already: nothing to turn off, so nothing to confirm. It stays
                 // usable while recording, which this editor starts on opening.
                 Button("Turn off") { keyboard.disableSelected() }
-                    .disabled(keyboard.selected?.shortcut.enabled != true)
-                if keyboard.isInteracting { Button("Cancel") { keyboard.stopInteraction() } }
+                    .disabled(keyboard.selected?.shortcut.enabled != true).reportsFrame("panel.editor.turn-off", to: sectionFrames)
             }.controlSize(.small)
         }
     }
@@ -194,7 +199,7 @@ struct WorkbenchQuickPanel: View {
         switch tool {
         case .dictate:
             // A native menu like every other row's, so its Options chevron matches theirs.
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Dictate"); menu.autoenablesItems = false
                 let idle = model.phase == .idle
                 // The same two choices, under the same names, as the Dictate page's task region.
@@ -223,7 +228,7 @@ struct WorkbenchQuickPanel: View {
                 return menu
             }
         case .snap:
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Snap"); menu.autoenablesItems = false
                 for mode in SnapCapture.Mode.allCases {
                     menu.addItem(ToolbarMenuAction(mode.title, enabled: context.state.enabled(.snap)) {
@@ -235,21 +240,24 @@ struct WorkbenchQuickPanel: View {
                 return menu
             }
         case .snapAndTalk:
-            NativeControlMenu(title: "Options") {
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
                 let menu = NSMenu(title: "Snap & Talk"); menu.autoenablesItems = false
                 menu.addItem(ToolbarMenuAction("Open Snap & Talk…") { open("readback") })
                 return menu
             }
         case .annotate:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .present:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .persona:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         case .timer:
-            NativeControlMenu(title: "Options") { nativeOptions(tool) ?? NSMenu() }
+            NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) { nativeOptions(tool) ?? NSMenu() }
         }
     }
+
+    /// Each row's Options menu, named for its tool so VoiceOver's rotor tells the seven apart.
+    private func optionsName(_ tool: WorkbenchControlTool) -> String { "\(tool.title) options" }
 
     /// Native option menus, built when clicked. The surface gallery lists these same menus.
     func nativeOptions(_ tool: WorkbenchControlTool) -> NSMenu? {
@@ -311,6 +319,13 @@ extension StageNoticePage {
     }
 }
 
+private extension View {
+    /// Where the gallery reads this control's place; nothing listens in the app.
+    func reportsFrame(_ id: String, to frames: ((String, CGRect) -> Void)?) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames?(id, $0) }
+    }
+}
+
 /// One sentence and a door in the panel's status rows: the panel says what happened, and the
 /// page that owns it says the rest with its recovery (#134).
 struct PanelRecoveryRow: View {
@@ -321,9 +336,11 @@ struct PanelRecoveryRow: View {
     var body: some View {
         let name = WorkbenchHome.name(of: page)
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(Self.headline(message)).font(.caption)
-                .foregroundStyle(warning ? Color.orange : Color.secondary)
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true).help(message)
+            // A warning colours only its symbol: orange words fail contrast on the light panel.
+            Group {
+                if warning { WorkbenchNote(Self.headline(message), font: .caption, selectable: false).lineLimit(2) }
+                else { Text(Self.headline(message)).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true) }
+            }.help(message)
             Spacer(minLength: 4)
             Button("Open \(name)…") { open(page) }
                 .buttonStyle(.plain).font(.caption).foregroundStyle(Workbench.accent).fixedSize()
@@ -438,12 +455,15 @@ struct PanelSwitch: NSViewRepresentable {
 
 struct NativeControlMenu: NSViewRepresentable {
     var title: String
+    /// What VoiceOver reads when the visible title alone is ambiguous, such as a row's
+    /// "Snap options" beside six other Options menus (#335).
+    var accessibilityName: String? = nil
     var makeMenu: () -> NSMenu
     func makeNSView(context: Context) -> Button { Button() }
     func updateNSView(_ view: Button, context: Context) {
         view.title = title + " ⌄"; view.font = .systemFont(ofSize: 11)
         view.contentTintColor = NSColor(Workbench.accent); view.isBordered = false
-        view.makeMenu = makeMenu; view.setAccessibilityLabel(title)
+        view.makeMenu = makeMenu; view.setAccessibilityLabel(accessibilityName ?? title)
     }
     final class Button: NSButton {
         var makeMenu: (() -> NSMenu)?

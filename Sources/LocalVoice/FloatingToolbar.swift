@@ -177,7 +177,7 @@ struct FloatingToolbar: View {
     /// live camera, so the camera is one click from the revealed pill.
     func accessory(_ live: ToolbarLiveState) -> ToolbarAccessory? {
         if live.mode == .persona { return stage.personaPicker == nil ? nil : .personaPicker }
-        return ToolbarAccessory.offered(for: live, selectedPersonaCopy: live.mode == .persona && stage.selectedPersonaCopy != nil)
+        return ToolbarAccessory.offered(for: live)
     }
     var quickControl: ToolbarQuickControl? {
         if live.mode == .present, stage.isPresenting { return .presentationView }
@@ -216,13 +216,14 @@ struct FloatingToolbar: View {
 
     var body: some View {
         let state = viewState
+        let isResult = controls.revealsResult
         let operation = ToolbarNextAction.resolve(live).operation
         content(state)
             // The host sizes its window from these reports (#152). A preference written
             // from a background GeometryReader never reached onPreferenceChange once the
             // row held conditional content, so every window kept its seed size.
             .onGeometryChange(for: ToolbarMeasurement.self) {
-                ToolbarMeasurement(tier: state.tier, anchor: state.anchor, isResult: controls.revealsResult,
+                ToolbarMeasurement(tier: state.tier, anchor: state.anchor, isResult: isResult,
                                    accessoryAvailable: state.accessoryCount > 0, accessoryShown: state.showsAccessory,
                                    accessoryCount: state.accessoryCount, size: $0.size)
             } action: { measurement in

@@ -193,6 +193,13 @@ enum HandoffJobStore {
     static let maximumText = 500_000
     static let maximumImages = 100
     static let maximumImageBytes = 256 * 1_024 * 1_024
+    /// A task that asks an assistant for one transcript's details is named as the door that
+    /// starts it. A follow-up, or a task the person edited, keeps its skill's name.
+    static let detailsTitle = "Suggest details"
+
+    static func suggestsDetails(task: String, items: [HandoffInputRecord]) -> Bool {
+        task == MetadataSuggestionReview.task && items.count == 1 && items.first?.reference.kind == .transcript
+    }
 
     /// The folder itself, not only what is inside it, must be an ordinary
     /// folder: a task folder swapped for a symbolic link would lead every read
@@ -318,7 +325,8 @@ enum HandoffJobStore {
             try privateDirectory(url.deletingLastPathComponent())
             try write(files[path]!, to: url)
         }
-        let job = HandoffJob(id: id, createdAt: now, updatedAt: now, title: review?.title ?? skill.reference.name,
+        let title = review?.title ?? (suggestsDetails(task: task, items: records) ? detailsTitle : skill.reference.name)
+        let job = HandoffJob(id: id, createdAt: now, updatedAt: now, title: title,
             fingerprint: fingerprint, provider: nil, status: .ready,
             detail: "Ready. Nothing has been sent.", attempts: 0, itemCount: records.count,
             inputFiles: files.keys.sorted(), inputDigest: digest(files),
@@ -369,6 +377,56 @@ enum HandoffJobStore {
         }
     }
 
+    /// A two-sided meeting saves its conversation, one labelled turn per paragraph, as its
+    /// text and the same words unlabelled as its original. That original adds no wording, so
+    /// a prompt carries the meeting once; a cleanup, a later edit or other recognition keeps it.
+    /// The words are compared in place, without copies: the review rebuilds its prompt as the
+    /// person types, and a two-hour call is over 100,000 characters.
+    static func originalAddsWording(text: String, original: String) -> Bool {
+        guard original != text else { return false }
+        let labels = LiveVoiceSource.allCases.map { Array(($0.label + ": ").utf8) }
+        var text = text, original = original
+        return text.withUTF8 { said in
+            original.withUTF8 { heard in
+                var turns = Words(bytes: said, labels: labels), words = Words(bytes: heard, labels: [])
+                while let word = turns.next() {
+                    guard let other = words.next(), word.elementsEqual(other) else { return true }
+                }
+                return words.next() != nil
+            }
+        }
+    }
+
+    /// Whitespace-separated words of UTF-8 text. With labels, a turn label that opens the text
+    /// or a paragraph after a blank line is not a word. Only ASCII whitespace separates and
+    /// bytes must match exactly, so a stricter reading can keep an original, never drop wording.
+    private struct Words {
+        let bytes: UnsafeBufferPointer<UInt8>
+        let labels: [[UInt8]]
+        var index = 0
+        var turnStart = true
+
+        mutating func next() -> Slice<UnsafeBufferPointer<UInt8>>? {
+            var newlines = 0
+            while true {
+                if turnStart, let label = labels.first(where: { bytes[index...].starts(with: $0) }) { index += label.count }
+                turnStart = false
+                guard index < bytes.count, Self.isSpace(bytes[index]) else { break }
+                // "\r\n" is one line break, as a String reads it, so it never pairs with a following "\n".
+                let crlf = bytes[index] == 0x0D && index + 1 < bytes.count && bytes[index + 1] == 0x0A
+                newlines = bytes[index] == 0x0A ? newlines + 1 : 0
+                index += crlf ? 2 : 1
+                if newlines == 2 { newlines = 0; turnStart = true }
+            }
+            guard index < bytes.count else { return nil }
+            let start = index
+            while index < bytes.count, !Self.isSpace(bytes[index]) { index += 1 }
+            return bytes[start..<index]
+        }
+
+        static func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || (0x09...0x0D).contains(byte) }
+    }
+
     static func prompt(snapshot: HandoffSnapshotRecord, skill: String, folder: URL, manual: Bool, manualRequiresFolder: Bool = true) -> String {
         let delivery = manualRequiresFolder
             ? "Use the chosen skill and its files in the selected work folder: " + folder.path + ". Read selection.json for per-item roles and source references, and handoff.json for portable transcript inputs. Write the requested outputs inside outputs/. Do not send, publish or change the inputs."
@@ -403,7 +461,8 @@ enum HandoffJobStore {
                 : ""
             parts.append("\n--- " + (item.role == .instructions ? "MY INSTRUCTIONS" : "REFERENCE") + " ---\n"
                 + item.title + "\nSource ID: " + item.reference.kind.rawValue + ":" + item.reference.id.uuidString + timing
-                + "\nText:\n" + item.text + (item.originalText == item.text ? "" : "\nOriginal wording:\n" + item.originalText))
+                + "\nText:\n" + item.text
+                + (originalAddsWording(text: item.text, original: item.originalText) ? "\nOriginal wording:\n" + item.originalText : ""))
             if let notes = item.captureNotes, !notes.isEmpty {
                 let guidance = snapshot.task == MetadataSuggestionReview.task
                     ? "Recording limitations are preserved separately by Workbench. Do not turn these into tags or add JSON fields:"
@@ -809,7 +868,9 @@ final class HandoffJobsModel: ObservableObject {
 
     func isMetadataSuggestion(_ job: HandoffJob) -> Bool {
         guard let snapshot = files(job)?.inputs else { return false }
-        return snapshot.problem == nil && snapshot.task == MetadataSuggestionReview.task && snapshot.items.count == 1
-            && snapshot.items.first?.reference.kind == .transcript
+        return snapshot.problem == nil && HandoffJobStore.suggestsDetails(task: snapshot.task, items: snapshot.items)
     }
+    /// What History and the running bars call a task. A details suggestion saved before it
+    /// had its own name is named from its frozen task; the receipt is not rewritten.
+    func title(_ job: HandoffJob) -> String { isMetadataSuggestion(job) ? HandoffJobStore.detailsTitle : job.title }
 }

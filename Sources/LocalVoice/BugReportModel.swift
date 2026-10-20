@@ -115,8 +115,10 @@ final class BugReportModel: ObservableObject {
     @Published private(set) var transcript: String?
     @Published private(set) var problem: String?
     @Published private(set) var problemAction: ProblemAction?
-    /// A screenshot or voice note problem shows beside those controls, where the person acted.
-    @Published private(set) var problemNearEvidence = false
+    /// Where the problem shows: a screenshot or voice note problem beside that control, where the
+    /// person acted; anything else with the form.
+    @Published private(set) var problemPlacement: ProblemPlacement = .form
+    enum ProblemPlacement { case form, screenshot, voice }
     /// A quiet line after an action that worked, such as Save a copy.
     @Published private(set) var note: String?
     @Published private(set) var sending = false
@@ -319,15 +321,15 @@ final class BugReportModel: ObservableObject {
         do {
             // A voice note being recorded lives in the draft folder before it counts as content.
             if draft.isEmpty { if !recording { try store.clearDraft() } } else { try store.saveDraft(draft) }
-        } catch { problem = "Your draft couldn't be saved on this Mac. Keep this window open, or save a copy." }
+        } catch { show("Your draft couldn't be saved on this Mac. Keep this window open, or save a copy.") }
     }
 
     // MARK: Screenshot
 
     func addScreenshot() async {
         guard !capturing, !recording else { return }
-        if let reason = services.screenshotAdmission() { show(reason, nearEvidence: true); return }
-        guard services.screenCaptureGranted() else { show(Self.screenAccessOff, action: .screenAccess, nearEvidence: true); return }
+        if let reason = services.screenshotAdmission() { show(reason, near: .screenshot); return }
+        guard services.screenCaptureGranted() else { show(Self.screenAccessOff, action: .screenAccess, near: .screenshot); return }
         capturing = true; services.onBusyChange()
         problem = nil; problemAction = nil; note = nil
         defer { capturing = false; services.onBusyChange() }
@@ -335,7 +337,7 @@ final class BugReportModel: ObservableObject {
             guard let image = try await services.captureScreenshot() else { return }
             try setScreenshot(image)
         } catch {
-            show(error.localizedDescription + " You can choose an image instead.", action: .chooseImage, nearEvidence: true)
+            show(error.localizedDescription + " You can choose an image instead.", action: .chooseImage, near: .screenshot)
         }
     }
 
@@ -346,7 +348,7 @@ final class BugReportModel: ObservableObject {
             guard size <= BugReportLimits.importBytes else { throw BugReportError.message("Choose a PNG or JPEG image under 25 MB and 40 megapixels.") }
             try setScreenshot(try BugReportMedia.image(try Data(contentsOf: url), scale: 1, sourceLimit: BugReportLimits.importBytes))
             problem = nil; problemAction = nil
-        } catch { show(error.localizedDescription, nearEvidence: true) }
+        } catch { show(error.localizedDescription, near: .screenshot) }
     }
 
     func setScreenshot(_ image: BugReportImage) throws {
@@ -369,21 +371,21 @@ final class BugReportModel: ObservableObject {
         if recording { stopRecording(); return }
         guard !capturing, let recorder else { return }
         stopPlayback()
-        if let reason = services.microphoneAdmission() { show(reason, nearEvidence: true); return }
+        if let reason = services.microphoneAdmission() { show(reason, near: .voice); return }
         switch services.microphoneStatus() {
         case .authorized: break
         case .notDetermined:
             guard await services.requestMicrophone(), services.microphoneStatus() == .authorized else {
-                show("Microphone access is off for Workbench. You can still send words and a screenshot.", action: .microphoneSettings, nearEvidence: true); return
+                show("Microphone access is off for Workbench. You can still send words and a screenshot.", action: .microphoneSettings, near: .voice); return
             }
-            if let reason = services.microphoneAdmission() { show(reason, nearEvidence: true); return }
+            if let reason = services.microphoneAdmission() { show(reason, near: .voice); return }
         default:
-            show("Microphone access is off for Workbench. You can still send words and a screenshot.", action: .microphoneSettings, nearEvidence: true); return
+            show("Microphone access is off for Workbench. You can still send words and a screenshot.", action: .microphoneSettings, near: .voice); return
         }
         do {
             try recorder.start(to: try store.prepareRecording())
         } catch {
-            show("The microphone could not start. Check that an input device is connected; your words and screenshot are kept.", nearEvidence: true); return
+            show("The microphone could not start. Check that an input device is connected; your words and screenshot are kept.", near: .voice); return
         }
         recording = true; recordingElapsed = 0; transcript = nil
         problem = nil; problemAction = nil; note = nil
@@ -405,7 +407,7 @@ final class BugReportModel: ObservableObject {
         do {
             try setVoice(try BugReportFiles.read(store.recordingURL, maximum: 64 * 1_024 * 1_024))
         } catch {
-            show((error as? BugReportError)?.errorDescription ?? "The voice note couldn't be kept. Record it again.", nearEvidence: true)
+            show((error as? BugReportError)?.errorDescription ?? "The voice note couldn't be kept. Record it again.", near: .voice)
         }
     }
 
@@ -427,7 +429,7 @@ final class BugReportModel: ObservableObject {
 
     func togglePlayback() {
         if playing { stopPlayback(); return }
-        guard let data = store.draftVoice(), let player = try? AVAudioPlayer(data: data) else { show("The voice note couldn't be played.", nearEvidence: true); return }
+        guard let data = store.draftVoice(), let player = try? AVAudioPlayer(data: data) else { show("The voice note couldn't be played.", near: .voice); return }
         let delegate = BugReportPlayerDelegate { [weak self] in self?.stopPlayback() }
         player.delegate = delegate
         self.player = player; playerDelegate = delegate
@@ -449,8 +451,8 @@ final class BugReportModel: ObservableObject {
         do {
             let text = try await services.transcribe(store.draftFolder.appendingPathComponent(BugReportAttachment.voice))
             transcript = text.isEmpty ? nil : text
-            if text.isEmpty { show("No words were recognised in the voice note. The recording is still attached.", nearEvidence: true) }
-        } catch { show("The voice note couldn't be transcribed. The recording is still attached.", nearEvidence: true) }
+            if text.isEmpty { show("No words were recognised in the voice note. The recording is still attached.", near: .voice) }
+        } catch { show("The voice note couldn't be transcribed. The recording is still attached.", near: .voice) }
     }
 
     func addTranscript() {
@@ -558,8 +560,8 @@ final class BugReportModel: ObservableObject {
         services.reveal(folder)
     }
 
-    private func show(_ message: String, action: ProblemAction? = nil, nearEvidence: Bool = false) {
-        problem = message; problemAction = action; problemNearEvidence = nearEvidence; note = nil
+    private func show(_ message: String, action: ProblemAction? = nil, near placement: ProblemPlacement = .form) {
+        problem = message; problemAction = action; problemPlacement = placement; note = nil
     }
 
     /// Quit or update: keep a recording in progress and the typed words. Delivery needs nothing;

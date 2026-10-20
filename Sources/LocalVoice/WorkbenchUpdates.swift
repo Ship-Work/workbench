@@ -127,9 +127,17 @@ final class WorkbenchUpdates: NSObject, ObservableObject {
         }
         #endif
     }
-    func copyDetails() {
+    /// Copy build details' four-second “Copied”, under the Settings button's row; from the app menu,
+    /// VoiceOver hears it, or why the copy failed. Checks give it their own clock.
+    var copyFeedback = TranscriptReviewFeedback()
+    /// Where the details go. Checks write to a private pasteboard, or refuse.
+    var writeDetails: (String) -> Bool = { details in
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(build.details, forType: .string)
+        return NSPasteboard.general.setString(details, forType: .string)
+    }
+    func copyDetails() {
+        if writeDetails(build.details) { copyFeedback.finish("Copied") }
+        else { copyFeedback.fail(heard: "Build details could not be copied. Try again.") }
     }
     var panelTitle: String {
         if !build.released { return "Update · Local Build" }
@@ -231,6 +239,8 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
         status = "No compatible update was found."
     }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        // Read before the session ends: an offer or a chosen install means the update, not the check, failed.
+        let wasUpdating = installRequested || availableVersion != nil
         deferredInstall = nil; restartWaiting = false
         finishUpdateSession()
         let error = error as NSError
@@ -241,8 +251,39 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
                 (error.localizedRecoverySuggestion ?? error.localizedDescription)
         } else {
             checkedCurrent = false
-            status = "Update check: \(error.localizedDescription)"
+            status = Self.failureStatus(error, wasUpdating: wasUpdating)
         }
+    }
+    /// One line for a failed check or update: the real reason, and the fix where a person has one.
+    /// Sparkle nests the cause (a download error wraps the connection error), so up to four
+    /// underlying errors are read. Its own alert keeps the original error.
+    static func failureStatus(_ error: NSError, wasUpdating: Bool) -> String {
+        var chain = [error]
+        while chain.count <= 4, let next = chain.last?.userInfo[NSUnderlyingErrorKey] as? NSError { chain.append(next) }
+        func sparkle(_ codes: SUError...) -> NSError? {
+            chain.first { $0.domain == SUSparkleErrorDomain && codes.map { Int($0.rawValue) }.contains($0.code) }
+        }
+        func url(_ codes: Int...) -> Bool { chain.contains { $0.domain == NSURLErrorDomain && codes.contains($0.code) } }
+        if let location = sparkle(.runningTranslocated, .runningFromDiskImageError) {
+            // Sparkle's own suggestion names /Applications; a first install belongs in the home folder's.
+            return "\(location.localizedDescription) Quit Workbench and move it into Applications (for a first install, "
+                + "Finder › Go › Home › Applications; otherwise replace the existing copy there), open that copy, then choose Check for Updates…"
+        }
+        if sparkle(.installationCanceledError) != nil {
+            return "Update not installed: authorization was cancelled. This version and your work are unchanged. "
+                + "Choose Check for Updates… to try again."
+        }
+        if url(NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut,
+               NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed) {
+            return "Couldn’t reach the update server. Check your connection and try again; nothing was changed."
+        }
+        if url(NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateHasBadDate, NSURLErrorServerCertificateUntrusted,
+               NSURLErrorServerCertificateHasUnknownRoot, NSURLErrorServerCertificateNotYetValid,
+               NSURLErrorClientCertificateRejected, NSURLErrorClientCertificateRequired) {
+            return "The update server’s secure connection couldn’t be verified. Nothing was changed."
+        }
+        let suggestion = error.localizedRecoverySuggestion.map { " \($0)" } ?? ""
+        return "\(wasUpdating ? "Update not finished" : "Update check"): \(error.localizedDescription)\(suggestion)"
     }
     func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
         guard activity().busy else { installing = true; return false }
@@ -258,6 +299,7 @@ extension WorkbenchUpdates: SPUUpdaterDelegate {
 
 struct WorkbenchUpdateSettings: View {
     @ObservedObject private var updates = WorkbenchUpdates.shared
+    @ObservedObject private var copyFeedback = WorkbenchUpdates.shared.copyFeedback
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(updates.build.label)
@@ -277,6 +319,16 @@ struct WorkbenchUpdateSettings: View {
                 Button("Copy build details") { updates.copyDetails() }
                 Button("Release notes and downloads") { NSWorkspace.shared.open(URL(string: "https://github.com/Ship-Work/workbench/releases")!) }
                     .buttonStyle(.workbenchLink)
+            }
+            .onAppear {
+                // A refusal from the app menu while Settings was closed was heard then; a visit starts clear.
+                if copyFeedback.problem != nil { copyFeedback.finish(nil) }
+            }
+            // Confirmed under its control, in space kept for it, so the row never shifts (Fit rule 7).
+            if let problem = copyFeedback.problem {
+                WorkbenchNote(problem, font: .caption)
+            } else {
+                ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied"])
             }
         }
     }

@@ -13,26 +13,28 @@ struct SnapDraft: Identifiable {
     var edit: SnapEdit
 }
 
-/// A save or export that actually wrote, confirmed for four seconds beside
+/// A save, copy or export that actually wrote, confirmed for four seconds beside
 /// the Snap page's and History's own controls (#134 T5).
 enum SnapConfirmation: String, Equatable {
     case saved = "Saved to History"
     case savedAndCopied = "Saved and copied"
+    case copied = "Image copied"
     case exported = "Image exported"
-    static let texts = [saved.rawValue, savedAndCopied.rawValue, exported.rawValue]
+    static let texts = [saved.rawValue, savedAndCopied.rawValue, copied.rawValue, exported.rawValue]
 }
 
-/// What the last save or export did, classified where it happened rather than
+/// What the last save, copy or export did, classified where it happened rather than
 /// read back from `notice` text. Only full successes are timed; a save whose
 /// copy failed is a partial failure, and its notice stays.
 enum SnapOutcome: Equatable {
-    case saved, savedAndCopied, exported
+    case saved, savedAndCopied, copied, exported
     case savedButCopyFailed, failed
 
     var confirmation: SnapConfirmation? {
         switch self {
         case .saved: return .saved
         case .savedAndCopied: return .savedAndCopied
+        case .copied: return .copied
         case .exported: return .exported
         case .savedButCopyFailed, .failed: return nil
         }
@@ -57,7 +59,7 @@ final class SnapModel: ObservableObject {
     /// other notice clears it; it is set only where the failure happens, never read from words.
     @Published private(set) var failureCode: String?
     @Published private(set) var lastOutcome: SnapOutcome?
-    /// ✓ Saved to History, Saved and copied or Image exported, gone after four
+    /// ✓ Saved to History, Saved and copied, Image copied or Image exported, gone after four
     /// seconds. Expiry clears only this; no timer closes an editor or save panel.
     @Published private(set) var confirmation: LocalConfirmation<SnapConfirmation>?
     let clock: MonotonicClock
@@ -536,7 +538,7 @@ final class SnapModel: ObservableObject {
         } catch { finish(.failed, notice: "Snap was not saved. \(error.localizedDescription)", code: "snap.save_failed"); return false }
     }
 
-    /// One place classifies each save or export: a success gets its four-second
+    /// One place classifies each save, copy or export: a success gets its four-second
     /// confirmation, anything else keeps a notice that stays.
     private func finish(_ outcome: SnapOutcome, notice: String?, code: String? = nil) {
         lastOutcome = outcome
@@ -569,8 +571,11 @@ final class SnapModel: ObservableObject {
     }
 
     func copy(_ id: UUID) {
-        do { let snapshot = try store.snapshot(id); notice = copyBytes(snapshot.imagePNG) ? "Image copied. Paste it where you need it." : "The image could not be copied. Try again." }
-        catch { notice = error.localizedDescription }
+        do {
+            let snapshot = try store.snapshot(id)
+            if copyBytes(snapshot.imagePNG) { finish(.copied, notice: nil) }
+            else { finish(.failed, notice: "The image could not be copied. Try again.", code: "snap.copy_failed") }
+        } catch { finish(.failed, notice: error.localizedDescription, code: "snap.copy_failed") }
     }
     /// Checks replace the pasteboard write to exercise a failed copy; the app never sets it.
     var copyImage: ((Data) -> Bool)?

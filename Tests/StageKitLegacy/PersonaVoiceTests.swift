@@ -56,6 +56,24 @@ final class PersonaVoiceTests {
                            savedColor: { defaults.color }, saveColor: { defaults.color = $0 },
                            openMicrophoneSettings: { microphones.settingsOpened += 1 })
     }
+    /// The app's access keeps React to my voice and its colour in the store it is given, the stage
+    /// settings' own, so an isolated gallery or check never reads or writes the presenter's.
+    func testSystemAccessKeepsTheChoiceInTheStoreItIsGiven() throws {
+        let suite = FileManager.default.temporaryDirectory.appendingPathComponent("PersonaVoiceTests." + UUID().uuidString).path
+        let scratch = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("PersonaVoice-" + UUID().uuidString)
+        defer { scratch.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        let system = PersonaVoiceAccess.system(defaults: scratch), colour = InkColor(0.25, 0.5, 0.75)
+        XCTAssertFalse(system.savedChoice()); XCTAssertTrue(system.savedColor() == nil, "A fresh store remembers nothing")
+        system.saveChoice(true); system.saveColor(colour)
+        XCTAssertTrue(scratch.bool(forKey: "persona.voiceRing"))
+        XCTAssertEqual(scratch.array(forKey: "persona.voiceColor") as? [Double], [0.25, 0.5, 0.75])
+        XCTAssertTrue(system.savedChoice()); XCTAssertEqual(system.savedColor(), colour)
+        let library = PersonaLibrary(root: root, sessionPanelFactory: { Display() }, sessionHUDEnabled: false, voice: system)
+        defer { library.shutdown() }
+        XCTAssertTrue(library.voiceRing, "Persona starts with the choice from its own store")
+        XCTAssertEqual(library.voiceColor, colour)
+    }
     private func fixture(_ microphones: Microphones, _ defaults: Choice, _ displays: Displays) throws -> (URL, PersonaLibrary, UUID, [UUID]) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("PersonaVoice-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

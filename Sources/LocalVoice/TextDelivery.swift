@@ -37,7 +37,7 @@ final class TextDelivery {
     }
     /// One wording for text that was copied and not pasted, shared by dictation
     /// and Saved Prompts. Missing approval is not a fault: it reads as plain copying.
-    static let copiedMessage = "Copied. Paste with ⌘V."
+    nonisolated static let copiedMessage = "Copied. Paste with ⌘V."
     static func copiedDetail(_ failure: FailureKind?) -> String {
         switch failure {
         case .focusChanged: return "The field changed, so nothing was pasted. Paste with ⌘V when ready."

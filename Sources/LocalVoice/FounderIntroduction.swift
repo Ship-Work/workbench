@@ -24,21 +24,10 @@ enum FounderIntroductionDraft {
 
 @MainActor
 final class FounderIntroductionModel: ObservableObject {
-    private static let dismissalKey = "workbench.founderIntroduction.dismissed.v1"
-    private let defaults: UserDefaults
-    @Published private(set) var isDismissed: Bool
     @Published private(set) var isOpening = false
     @Published private(set) var message: String?
     @Published private(set) var hasError = false
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        isDismissed = defaults.bool(forKey: Self.dismissalKey)
-    }
-    func dismiss() {
-        defaults.set(true, forKey: Self.dismissalKey)
-        isDismissed = true
-    }
     func openDraft() {
         guard !isOpening else { return }
         message = nil; hasError = false
@@ -71,7 +60,6 @@ final class FounderIntroductionModel: ObservableObject {
 
 struct FounderIntroductionCard: View {
     @ObservedObject var model: FounderIntroductionModel
-    var canDismiss = true
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: "envelope").font(.system(size: 25)).foregroundStyle(Workbench.accent).padding(.top, 2)
@@ -86,11 +74,13 @@ struct FounderIntroductionCard: View {
                         Button("Copy addresses") { model.copy(addressesOnly: true) }
                         Button("Copy email draft") { model.copy(addressesOnly: false) }
                     }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Copy founder email addresses or draft")
-                    if canDismiss { Button("Not now") { model.dismiss() }.buttonStyle(.workbenchLink) }
                 }
                 if let message = model.message {
-                    Text(message).font(.caption).foregroundStyle(model.hasError ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if model.hasError {
+                        WorkbenchNote(message, font: .caption)
+                    } else {
+                        Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }.workbenchCard()

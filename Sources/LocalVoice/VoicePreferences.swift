@@ -42,6 +42,8 @@ struct VoiceShortcut: Codable, Equatable {
         }
         return label + "Key \(keyCode)"
     }
+    /// The key to teach, only while it is on and macOS registered it (#76): otherwise nil.
+    func usableLabel(failure: String?) -> String? { enabled && failure == nil ? label : nil }
     init(keyCode: UInt32 = UInt32(kVK_Space), modifiers: UInt32 = UInt32(controlKey | optionKey), enabled: Bool = true) { self.keyCode = keyCode; self.modifiers = modifiers; self.enabled = enabled }
     init(event: NSEvent) {
         keyCode = UInt32(event.keyCode); modifiers = 0

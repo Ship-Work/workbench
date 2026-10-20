@@ -312,7 +312,7 @@ final class ToolbarNativeTests: XCTestCase {
         for anchor in ToolbarAnchor.allCases {
             for mode in ToolbarMode.allCases {
                 let state = ToolbarViewState(name: "hit-test", tier: .revealed, anchor: anchor, mode: mode,
-                    accessory: .offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: true))
+                    accessory: .offered(for: ToolbarLiveState(mode: mode)))
                 let row = ToolbarRow(state: state)
                 let size = NSHostingView(rootView: row).fittingSize
                 let host = NSHostingView(rootView: row.pinnedToDock(anchor))
@@ -339,7 +339,7 @@ final class ToolbarNativeTests: XCTestCase {
         for anchor in ToolbarAnchor.allCases {
             for mode in ToolbarMode.allCases {
                 var state = ToolbarViewState(name: "hover-hit", tier: .resting, anchor: anchor, mode: mode,
-                    accessory: .offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: true),
+                    accessory: .offered(for: ToolbarLiveState(mode: mode)),
                     captureChoices: mode == .snap || mode == .snapAndTalk ? ToolbarCaptureKind.allCases : [])
                 let host = NSHostingView(rootView: ToolbarRow(state: state).pinnedToDock(anchor))
                 host.sizingOptions = []
@@ -409,7 +409,7 @@ final class ToolbarNativeTests: XCTestCase {
             for anchor in ToolbarAnchor.allCases {
                 for mode in ToolbarMode.allCases {
                     var state = ToolbarViewState(name: "motion-hit", tier: .resting, anchor: anchor, mode: mode,
-                        accessory: .offered(for: ToolbarLiveState(mode: mode), selectedPersonaCopy: true),
+                        accessory: .offered(for: ToolbarLiveState(mode: mode)),
                         captureChoices: mode == .snap || mode == .snapAndTalk ? ToolbarCaptureKind.allCases : [])
                     let host = NSHostingView(rootView: ToolbarRow(state: state).pinnedToDock(anchor))
                     host.sizingOptions = []
@@ -450,7 +450,7 @@ final class ToolbarNativeTests: XCTestCase {
         for mode in ToolbarMode.allCases {
             var received: [String] = []
             var state = ToolbarViewState(name: "dispatch", tier: .revealed, mode: mode,
-                accessory: .offered(for: ToolbarLiveState(mode: mode, captureCount: 2), selectedPersonaCopy: true))
+                accessory: .offered(for: ToolbarLiveState(mode: mode, captureCount: 2)))
             func row() -> some View {
                 ToolbarRow(state: state, openAccessory: { _ in received.append("toolbar.accessory") },
                     action: { received.append("toolbar.primary") }, openChooser: { _ in received.append("toolbar.launcher") },

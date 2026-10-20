@@ -146,11 +146,7 @@ struct DemoScenesView: View {
                             Button("Centre") { position(0.5) }.disabled(!scene.showsPhone)
                             Button("Right") { position(0.88) }.disabled(!scene.showsPhone)
                             Spacer()
-                            Button("Reset layout") {
-                                var reset = scene; reset.backgroundX = 0.5; reset.backgroundY = 0.5; reset.zoom = 1
-                                reset.phoneX = 0.5; reset.phoneY = 0.5; reset.phoneHeight = 0.88; reset.viewport = .phone
-                                model.update(reset)
-                            }.buttonStyle(.workbenchLink)
+                            Button("Reset layout") { model.resetLayout() }.buttonStyle(.workbenchLink)
                         }.font(.caption)
                         handControls(scene)
                         }.padding(.top, 10)
@@ -223,8 +219,8 @@ struct DemoScenesView: View {
                         presentOptions
                         #endif
                         Spacer(minLength: 0)
-                        Text(model.usesSharedControls ? "Share the Workbench presentation window in your call. Command-/ focuses the floating toolbar."
-                             : "Share the Workbench presentation window in your call. Esc ends it.")
+                        Text(model.usesSharedControls ? "Share the Workbench presentation window in your call; to include Draw, the Timer or a floating persona, share your entire display. Command-/ focuses the floating toolbar."
+                             : "Share the Workbench presentation window in your call; to include Draw, the Timer or a floating persona, share your entire display. Esc ends it.")
                             .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                     }
                 }.padding(.horizontal, DemoScenesLayout.padding).padding(.vertical, 12).background(Workbench.surface)
@@ -273,10 +269,7 @@ struct DemoScenesView: View {
         }
         .sheet(isPresented: $model.choosingPersonas) {
             if let id = model.personaSceneID {
-                PersonaLibraryView(library: model.personas, onChoose: { persona in
-                    model.usePersona(persona, in: id)
-                    model.choosingPersonas = false
-                })
+                PersonaSceneChooser(model: model, sceneID: id)
             } else {
                 PersonaLibraryView(library: model.personas)
             }
@@ -506,7 +499,7 @@ struct DemoScenesView: View {
                         .accessibilityLabel("Logo size")
                 }.font(.caption)
                 if model.logoImage(for: scene) == nil {
-                    Text("Logo missing — replace or remove it to export this scene.").font(.caption).foregroundStyle(.orange)
+                    PersonaNote("Logo missing — replace or remove it to export this scene.")
                 }
             }
         } else {

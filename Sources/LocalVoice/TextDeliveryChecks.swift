@@ -68,6 +68,10 @@ enum TextDeliveryChecks {
             guard condition else { throw VoiceError.message("TEXT DELIVERY CHECK FAILED: " + name) }
             passed += 1
         }
+        // A delivery names its destination from NSRunningApplication, which knows this process's
+        // name only once AppKit has checked it in, as the app always has. Check it in here rather
+        // than relying on an earlier check having built a menu item.
+        _ = NSApplication.shared
         let board = NSPasteboard(name: .init("Workbench.DeliveryChecks." + UUID().uuidString))
         defer { board.releaseGlobally() }
         guard TextDelivery.copy("earlier synthetic content", to: board) != nil else {

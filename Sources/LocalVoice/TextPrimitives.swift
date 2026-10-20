@@ -17,6 +17,8 @@ enum TextRules {
         return result
     }
     static func wordCount(_ text: String) -> Int { text.split(whereSeparator: { $0.isWhitespace }).count }
+    /// "1 word" or "N words", for a count shown beside a transcript.
+    static func wordCountLabel(_ count: Int) -> String { count == 1 ? "1 word" : "\(count) words" }
 }
 
 struct Transcript: Codable, Identifiable {
@@ -39,11 +41,5 @@ enum TranscriptHistory {
         // leaves history only when someone removes it. Saving an existing id
         // updates that one record instead of adding a second copy of it.
         [capture] + history.filter { $0.id != capture.id }
-    }
-    static func matching(_ history: [Transcript], query: String) -> [Transcript] {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty ? history : history.filter {
-            $0.text.localizedCaseInsensitiveContains(query) || ($0.rawText?.localizedCaseInsensitiveContains(query) ?? false)
-        }
     }
 }

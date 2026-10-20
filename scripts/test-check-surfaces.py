@@ -161,6 +161,22 @@ class SurfaceTests(unittest.TestCase):
         self.file.write_text(self.file.read_text().replace('func options', 'func rowOptions'))
         self.assertEqual(before, {e['surface']: e['id'] for e in self.entries()})
 
+    def test_a_view_an_offer_embeds_keeps_its_panel_status_rows(self):
+        self.write('LocalVoice/Kit.swift', 'struct KitNote: View { let text: String; var body: some View { HStack { Image(systemName: "x"); Text(text) } } }')
+        self.file.write_text(PANEL % 'KitNote(message); Button("Read") { read() }')
+        before = [e for e in self.entries() if e['surface'] == 'quick panel status rows']
+        self.assertEqual(1, len(before))
+        self.write('LocalVoice/FounderIntroduction.swift',
+                   'struct FounderIntroductionCard: View { var body: some View { KitNote(error); Button("Open email draft") {} } }')
+        entries = self.entries()
+        self.assertEqual(before, [e for e in entries if e['surface'] == 'quick panel status rows'])
+        self.assertIn('Open email draft', [e['label'] for e in entries])
+        # The panel collects it once however often it shows it, and a view that embeds itself ends.
+        self.write('LocalVoice/Kit.swift', 'struct KitNote: View { let text: String; var body: some View { '
+                   'HStack { Image(systemName: "x"); Text(text); ForEach(more) { KitNote(text: $0) } } } }')
+        self.file.write_text(PANEL % 'KitNote(message); KitNote(other); Button("Read") { read() }')
+        self.assertEqual(before, [e for e in self.entries() if e['surface'] == 'quick panel status rows'])
+
     def test_the_header_switch_row_is_a_header_control(self):
         self.file.write_text(PANEL % '''
           PanelSwitch(title: "Floating toolbar", isOn: $visible, help: help).fixedSize()
@@ -505,6 +521,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertNotIn('Recording', self.labels())
 
     def test_an_enum_showing_another_enums_words_records_that_enum(self):
+        # A synthetic wrapper: no app enum has this form today, and this keeps the generic bridging covered.
         self.write('StageKit/PersonaAppearance.swift', '''struct PersonaAppearance {
           enum Shape: String, CaseIterable {
             case circle, card
@@ -512,12 +529,12 @@ class SurfaceTests(unittest.TestCase):
           }
         }''')
         owner = self.write('StageKit/StageKitController.swift', '''final class StageKitController {
-          public enum PersonaShape: String, CaseIterable {
+          public enum ShapeChoice: String, CaseIterable {
             case circle, card
             public var title: String { PersonaAppearance.Shape(rawValue: rawValue)?.title ?? rawValue }
           }
           func makePersonaMenu() -> NSMenu {
-            for shape in PersonaShape.allCases { menu.addItem(StageMenuAction(shape.title) { set(shape) }) }
+            for shape in ShapeChoice.allCases { menu.addItem(StageMenuAction(shape.title) { set(shape) }) }
             return menu
           }
         }''')
@@ -526,8 +543,8 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual([('choices.PersonaAppearance.Shape.card', 'Card'), ('choices.PersonaAppearance.Shape.circle', 'Circle')], choices())
         # A case the other enum lacks would show its raw value: the words are its own, at runtime.
         owner.write_text(owner.read_text().replace('case circle, card', 'case circle, card, star'))
-        self.assertEqual([('choices.StageKitController.PersonaShape.card', None), ('choices.StageKitController.PersonaShape.circle', None),
-                          ('choices.StageKitController.PersonaShape.star', None)], choices())
+        self.assertEqual([('choices.StageKitController.ShapeChoice.card', None), ('choices.StageKitController.ShapeChoice.circle', None),
+                          ('choices.StageKitController.ShapeChoice.star', None)], choices())
 
     def test_registry_schema_and_duplicate_ids(self):
         entry = {**self.registry()[0], 'kind': 'mystery', 'belongsTo': 'workspace'}
@@ -684,6 +701,26 @@ class SurfaceTests(unittest.TestCase):
         entries = {e['id']: e for e in self.entries()}
         self.assertEqual('New action', entries['shortcut.voice.8']['label'])
         self.assertEqual('Break timer', entries['shortcut.stage.timer']['label'])
+
+    def test_a_presenter_keys_own_name_beats_its_tools(self):
+        self.write('StageKit/Core.swift', '''enum DrawingTool: String, CaseIterable {
+          case pen, arrow, ellipse
+          var title: String { rawValue == "ellipse" ? "Oval" : rawValue.capitalized }
+        }''')
+        self.write('StageKit/Settings.swift', '''enum Action: String, CaseIterable {
+          case pen, arrow, ellipse, undo
+          var tool: DrawingTool? { DrawingTool(rawValue: rawValue) }
+          var title: String {
+            switch self {
+            case .pen: return "Draw"
+            case .undo: return "Undo"
+            default: return tool?.title ?? rawValue.capitalized
+            }
+          }
+        }''')
+        entries = {e['id']: e['label'] for e in self.entries() if e['id'].startswith('shortcut.stage.')}
+        self.assertEqual({'shortcut.stage.pen': 'Draw', 'shortcut.stage.arrow': 'Arrow',
+                          'shortcut.stage.ellipse': 'Oval', 'shortcut.stage.undo': 'Undo'}, entries)
 
     def test_missing_owner_is_an_error(self):
         with self.assertRaisesRegex(ValueError, 'Missing surface owner'):

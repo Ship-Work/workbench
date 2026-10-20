@@ -64,10 +64,6 @@ public enum ToolbarShortcut: Equatable, Sendable {
         case .unavailable: return "Shortcut unavailable"
         }
     }
-    public var isUsable: Bool {
-        if case .assigned = self { return true }
-        return false
-    }
     /// Gesture words are part of the hint, so a release is never described as a press.
     public static func actionHint(key: String, holdToStart: Bool = false, releaseToFinish: Bool = false) -> String {
         if releaseToFinish { return "Release " + key }
@@ -119,7 +115,7 @@ public enum ToolbarAnchor: String, CaseIterable, Sendable {
 }
 
 /// The one contextual accessory beside the next action (#134 part B): what the chosen tool offers
-/// most often, when it applies. Dictate, Read and Snap have no accessory; Snap's source
+/// most often, when it applies. Dictate and Snap have no accessory; Snap's source
 /// actions replace its primary, while its editing stays on its page.
 public enum ToolbarAccessory: String, CaseIterable, Sendable {
     /// Snap & Talk: the open session's review. Its help carries the capture count.
@@ -159,26 +155,19 @@ public enum ToolbarAccessory: String, CaseIterable, Sendable {
     /// Opens a list, a menu or the picker, rather than going somewhere at once.
     public var opensList: Bool { self != .review }
 
-    /// What VoiceOver and the tooltip say for Appearance in place of its title: whose appearance
-    /// it changes, and that the copy is hidden when it is.
-    public static func appearanceDescription(copyHidden: Bool) -> String {
-        "Appearance of the selected persona" + (copyHidden ? ", hidden" : "")
-    }
-
     /// What the chosen tool offers now: Snap & Talk's Review once a session is open, Draw's Tools,
     /// Present's Prompts, and Persona's picker. The cards and the live camera are always Persona's
     /// choices, so its picker is one click away whatever is live; a prepared set offers its sets
     /// while it shows. Preparation stays reachable through the chooser's workspace door.
-    public static func offered(for live: ToolbarLiveState, selectedPersonaCopy: Bool) -> ToolbarAccessory? {
+    public static func offered(for live: ToolbarLiveState) -> ToolbarAccessory? {
         switch live.mode {
         case .snapAndTalk: return live.captureCount != nil ? .review : nil
         case .draw: return .tools
         case .present: return .prompts
         case .persona:
             switch live.persona {
-            case .session: return selectedPersonaCopy ? .personaPicker : nil
             case .sessionHidden: return nil
-            case .none, .shown, .cameraStarting, .cameraShown, .cameraHidden, .cameraFailed: return .personaPicker
+            case .none, .shown, .session, .cameraStarting, .cameraShown, .cameraHidden, .cameraFailed: return .personaPicker
             }
         case .dictate, .snap: return nil
         }
@@ -221,7 +210,7 @@ public struct ToolbarViewState: Equatable, Sendable {
     /// work, and their keys (#134).
     public var choices: [ToolbarToolChoice]
     /// The chosen tool's main contextual control, when it applies. None unless given: the
-    /// host decides it from the live state, with `ToolbarAccessory.offered(for:selectedPersonaCopy:)`.
+    /// host decides it from the live state, with `ToolbarAccessory.offered(for:)`.
     public var accessory: ToolbarAccessory?
     /// What VoiceOver and the tooltip say for it in place of its title, when the title alone
     /// would not say enough, such as the current frozen Persona label or capture count.

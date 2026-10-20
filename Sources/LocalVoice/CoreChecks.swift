@@ -60,9 +60,20 @@ enum CoreChecks {
         try TranscriptExport.write(exportCapture, version: .cleaned, to: exportURL)
         try check(String(decoding: try Data(contentsOf: exportURL), as: UTF8.self) == exportCapture.text,
                   "plain-text export preserves UTF-8 Unicode and line breaks")
-        try check(TranscriptExport.defaultFilename == "Workbench Transcript.txt"
-                  && !TranscriptExport.defaultFilename.localizedCaseInsensitiveContains("café"),
-                  "transcript export filename does not reveal captured words")
+        // The suggested name says which transcript it is, from purpose and time only (#357).
+        let utc = TimeZone(secondsFromGMT: 0)!
+        var gregorian = Calendar(identifier: .gregorian); gregorian.timeZone = utc
+        let ten = gregorian.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 10, minute: 0))!
+        try check(TranscriptExport.filename(purpose: .meeting, date: ten, timeZone: utc) == "Meeting 2026-10-15 at 10.00.txt",
+                  "transcript export suggests its purpose and capture time")
+        let exportNames = [TranscriptExport.filename(purpose: .meeting, date: ten, timeZone: utc),
+                           TranscriptExport.filename(purpose: .meeting, date: ten.addingTimeInterval(60), timeZone: utc),
+                           TranscriptExport.filename(purpose: .prompt, date: ten, timeZone: utc),
+                           TranscriptExport.filename(purpose: .prompt, date: exportCapture.date)]
+        try check(Set(exportNames.prefix(3)).count == 3
+                  && exportNames.allSatisfy { !$0.contains("/") && !$0.contains(":") && $0.hasSuffix(".txt") && !$0.localizedCaseInsensitiveContains("café") },
+                  "transcript export names differ by purpose and minute, with no '/', ':' or captured words")
+        try check(TranscriptExportVersion.cleaned.rawValue == "Current text", "the current export is named current text, as Review transcript names it")
         try rejects("transcript export reports filesystem write errors") {
             try TranscriptExport.write(exportCapture, version: .cleaned, to: directory.appendingPathComponent("missing/export.txt"))
         }
@@ -78,8 +89,6 @@ enum CoreChecks {
         try store.save(SavedState(draft: "Independently edited draft", history: captures))
         let recovered = try store.load()
         try check(recovered.history.map(\.id) == captures.map(\.id) && recovered.history.last?.rawText == earlier.rawText, "multiple captures and originals survive saving an unrelated draft")
-        try check(TranscriptHistory.matching(captures, query: "UM,").map(\.id) == [earlier.id], "search finds original wording without requiring exact case")
-        try check(TranscriptHistory.matching(captures, query: " ").count == 2, "clearing history search restores every capture")
         try check(restored.replacements == original.replacements && restored.voice == "Daniel" && restored.rate == 210, "dictionary and voice preferences restored")
         let permissions = try FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as? NSNumber
         try check(permissions?.intValue == 0o600, "state file private to current user")
@@ -100,6 +109,10 @@ enum CoreChecks {
         try rejects("damaged state reports an error") { _ = try store.load() }
         try check(String(contentsOf: store.url, encoding: .utf8) == "not json", "damaged state is not silently erased")
         try check(TextRules.wordCount(" one\n two\tthree ") == 3, "word count handles mixed whitespace")
+        try check(TextRules.wordCountLabel(0) == "0 words" && TextRules.wordCountLabel(1) == "1 word" && TextRules.wordCountLabel(2) == "2 words",
+                  "word count label agrees with its number")
+        try check(TranscriptExportVersion.original.exportTitle == "Export original wording…" && TranscriptExportVersion.cleaned.exportTitle == "Export current text…",
+                  "Review transcript's export says History's words for the same export")
         try check(time(65.8) == "1:05" && time(-1) == "0:00", "recording duration formatting")
         print("CORE_CHECKS_OK: \(passed) checks passed")
     }

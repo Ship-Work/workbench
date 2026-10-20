@@ -252,15 +252,15 @@
     "label": "Microphone Settings…",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality: a dictation refused the microphone opens its System Settings pane where the person acted, in place of Open Workbench; Snap, Snap & Talk and Camera already offer their settings."
+    "note": "Quality: a dictation refused the microphone opens its System Settings pane where the person acted, in place of Open Dictate…; Snap, Snap & Talk and Camera already offer their settings."
   },
   {
-    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-workbench",
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-dictate",
     "surface": "floating toolbar live controls",
-    "label": "Open Workbench",
+    "label": "Open Dictate…",
     "kind": "action",
-    "belongsTo": "app",
-    "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself."
+    "belongsTo": "dictate",
+    "note": "Quality rename (Fit 6): the failure card's door opens Dictate, so it carries the name the panel's recovery row and the toolbar chooser already give that door; it was Open Workbench, the name of the panel footer's door to Home and the app menu's to the current page. Same control in the same result view (#134 T4)."
   },
   {
     "id": "LocalVoice.CapturePanel.DictationResultView.Button.record-again",
@@ -287,6 +287,14 @@
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself. Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed."
+  },
+  {
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.sound-settings",
+    "surface": "floating toolbar live controls",
+    "label": "Sound Settings…",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality (#156): a second silent dictation in a row opens Sound settings where the person acted, in place of Open Dictate…, the same label and pane as Meetings."
   },
   {
     "id": "LocalVoice.CleanupModelSettingsView.CleanupModelSettingsView.Button.cancel",
@@ -469,13 +477,6 @@
     "belongsTo": "app"
   },
   {
-    "id": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now",
-    "surface": "proactive offer FounderIntroductionCard",
-    "label": "Not now",
-    "kind": "action",
-    "belongsTo": "app"
-  },
-  {
     "id": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.runtime-73394fb2f10a",
     "surface": "proactive offer FounderIntroductionCard",
     "label": null,
@@ -619,7 +620,7 @@
     "kind": "action",
     "belongsTo": "dictate",
     "aliasOf": "dictate",
-    "note": "Contextual dismissal inside the meeting offer; the founder card uses the same words."
+    "note": "Contextual dismissal inside the meeting offer; Home's speech setup uses the same words."
   },
   {
     "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.review",
@@ -1340,13 +1341,6 @@
     "note": "Review opens where the words are kept: History for a transcript and Library for a prompt; for an undelivered result, History for a transcript's words and the Dictate page for the draft's (#134 T5)."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.Button.show-cue",
-    "surface": "quick panel status rows",
-    "label": "Show cue",
-    "kind": "action",
-    "belongsTo": "dictate"
-  },
-  {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.Label.runtime-2a193c56060b",
     "surface": "quick panel status rows",
     "label": null,
@@ -1356,13 +1350,13 @@
     "note": "Quality: the shelf's title is the receipt's own title, such as Copied, so the panel, Home and the floating receipt agree (#165). Runtime label from receipt . title; no rendered text assumed."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-036523842dab",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-041b2865004f",
     "surface": "quick panel status rows",
     "label": null,
-    "expression": "\"\\(receipt.wordCount) \\(receipt.wordCount == 1 ? \"word\" : \"words\")\"",
+    "expression": "TextRules . wordCountLabel ( receipt . wordCount )",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165). Runtime label; no rendered text assumed."
+    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165), from the one wordCountLabel that Dictate, History and Transcript review use, so one word reads 1 word everywhere (#357). Runtime label; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-09d99a85b0f2",
@@ -1641,7 +1635,15 @@
     "label": "Models…",
     "kind": "action",
     "belongsTo": "settings",
-    "note": "Quality: was Speech settings; the door names the Settings section it opens, Models (Fit rule 6; 1 Oct)."
+    "note": "Quality: the engine banner's door again, beside the writing model's download or failure in Current work while speech is ready, as Dictate and the menu-bar panel show that line; Cancel and Download again stay in Models (#335)."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.models.2",
+    "surface": "window home",
+    "label": "Models…",
+    "kind": "action",
+    "belongsTo": "settings",
+    "note": "Quality: was Speech settings; the door names the Settings section it opens, Models (Fit rule 6; 1 Oct). The engine banner, which also carries the writing model's line while speech is not ready (#335)."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.open-in-history",
@@ -1652,11 +1654,11 @@
     "note": "Option: a door on Home to History, shown once right after the first dictation so its result can be found again; it opens History on Transcripts, where that dictation is newest (#15). Same words as the recent transcript's Open in Dictate."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-690989861a19",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-424786ff12f9",
     "surface": "window home",
     "label": null,
-    "expression": "model . phase == . requesting ? \"Cancel\" : model . phase == . recording ? \"Stop\" : \"Start dictating\"",
-    "note": "Option: the guided first dictation; label follows phase as the Dictate page does (#134 W9).",
+    "expression": "dictationTitle",
+    "note": "Option: the guided first dictation; label follows phase as the Dictate page's microphone does (#134 W9): Start dictating, Finish dictation or Cancel, and VoiceOver speaks the words shown, with Cancel heard as Cancel microphone request, as on Dictate (#357). Finish dictation is the toolbar's word too; the toolbar's Dictate and Cancel request differ, and that difference is left to the Names decision.",
     "kind": "capability",
     "belongsTo": "dictate"
   },
@@ -1694,12 +1696,12 @@
     "note": "Option: hides Home's first-dictation guide and saves that choice with the Dictate preferences; Show me a first dictation brings it back until the first dictation (#15)."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.finish-dictation",
     "surface": "window home",
-    "label": "Stop",
+    "label": "Finish dictation",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9)."
+    "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Quality rename (#357): Stop became the toolbar's and panel's Finish dictation for the same action, as the strip's other rows name theirs in full."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.stop-drawing",
@@ -1732,6 +1734,24 @@
     "kind": "action",
     "belongsTo": "timer",
     "note": "Option: live strip action, the one way to end what is running from Home (#134 W9). Reuses the Timer menu (Pause, Stop, Reset)."
+  },
+  {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+  },
+  {
+    "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996.2",
+    "surface": "quick panel status rows",
+    "label": null,
+    "expression": "text",
+    "kind": "status",
+    "belongsTo": "app",
+    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.PanelRecoveryRow.Button.runtime-27f7b4321a3d",
@@ -2363,11 +2383,27 @@
     "belongsTo": "draw"
   },
   {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.copy-board",
+    "surface": "Draw menu",
+    "label": "Copy Board",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
+  },
+  {
     "id": "StageKit.AnnotationMenu.AnnotationMenu.command.drawing-controls",
     "surface": "Draw menu",
     "label": "Drawing Controls…",
     "kind": "action",
     "belongsTo": "draw"
+  },
+  {
+    "id": "StageKit.AnnotationMenu.AnnotationMenu.command.save-board-png",
+    "surface": "Draw menu",
+    "label": "Save Board PNG…",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: board export (#31) was reachable only from the Draw page, which a full-screen board covers on one display; same owner, same words, shown only while a board is open."
   },
   {
     "id": "StageKit.DemoPresentation.DemoPresentation.LiveSettings.Button.end-presentation",
@@ -3411,9 +3447,18 @@
     "belongsTo": "timer"
   },
   {
-    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.chime-when-finished",
+    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.runtime-be26e978c967",
     "surface": "Timer menu",
-    "label": "Chime When Finished",
+    "label": null,
+    "expression": "\"\\(chosen.formatted(.number)) min\"",
+    "kind": "option",
+    "belongsTo": "timer",
+    "note": "Duration's readback (#174): shown, checked, only while the saved duration matches none of the presets, such as the Timer page's 3 min or a typed 20 or 2.5, so the menu shows what Start will run. Choosing it keeps that duration. Runtime label from \"\\(chosen.formatted(.number)) min\"; no rendered text assumed."
+  },
+  {
+    "id": "StageKit.StageKitController.StageKitController.StageMenuAction.chime-when-time-is-up",
+    "surface": "Timer menu",
+    "label": "Chime When Time Is Up",
     "kind": "action",
     "belongsTo": "timer"
   },
@@ -3890,7 +3935,8 @@
     "label": "Rectangle",
     "case": "rectangle",
     "kind": "option",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Pending Names decision (#76): this tool's presenter key is named Shape (shortcut.stage.rectangle) and Snap's editor calls its tool Box. The tool's own name is unchanged until the maintainer chooses one name."
   },
   {
     "id": "choices.DrawingTool.text",
@@ -4158,10 +4204,11 @@
   {
     "id": "shortcut.stage.clear",
     "surface": "global shortcuts",
-    "label": "Clear & return to demo",
+    "label": "Clear",
     "case": "clear",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Clear & return to demo to Clear, the name Home teaches for this presenter key and Quick Controls uses, so Settings › Keyboard, the shortcut editors and conflict messages say the same; the Clear item in Draw's menu now reads Clear too. The action and its saved shortcut are unchanged."
   },
   {
     "id": "shortcut.stage.color1",
@@ -4315,10 +4362,11 @@
   {
     "id": "shortcut.stage.pen",
     "surface": "global shortcuts",
-    "label": "Pen",
+    "label": "Draw",
     "case": "pen",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Pen to Draw, the name Home teaches for this presenter key (hold it to draw with the pen), so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Draw's tool list keeps the tool's own name, Pen (choices.DrawingTool.pen)."
   },
   {
     "id": "shortcut.stage.personaNext",
@@ -4356,10 +4404,11 @@
   {
     "id": "shortcut.stage.rectangle",
     "surface": "global shortcuts",
-    "label": "Rectangle",
+    "label": "Shape",
     "case": "rectangle",
     "kind": "action",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality (#76; 15 October): renamed from Rectangle to Shape, the name Home teaches for this presenter key, so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Deliberate, pending split: Draw's tool list keeps the tool's own name, Rectangle (choices.DrawingTool.rectangle), and Snap's editor calls its tool Box. One name for this tool is a Names decision left to the maintainer; the check compares labels only across owners, so it cannot see this split."
   },
   {
     "id": "shortcut.stage.redo",
@@ -4613,12 +4662,29 @@
     "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner."
   },
   {
-    "id": "StageKit.PersonaLibraryView.PersonaLibraryView.Button.use-in-scene",
-    "surface": "Persona workspace",
-    "label": "Use in scene",
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.cancel",
+    "surface": "Present persona chooser",
+    "label": "Cancel",
+    "kind": "action",
+    "belongsTo": "present",
+    "aliasOf": "present",
+    "note": "Quality (#276): closes Present's selection-only persona chooser and changes nothing; the existing contextual dismissal wording."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.open-persona",
+    "surface": "Present persona chooser",
+    "label": "Open Persona…",
     "kind": "action",
     "belongsTo": "persona",
-    "note": "Existing scene chooser callback, now included by the Persona route scanner while registering Me. Uses the selected saved Persona in the preparing scene and starts nothing."
+    "note": "Quality (#276; mac-foundation §1): replaces the add, edit, group and appearance controls the embedded library offered here with one route to Persona, in the panel's words for the same door. It closes the chooser first; without a Persona page it opens the library sheet."
+  },
+  {
+    "id": "StageKit.PersonaLibraryView.PersonaSceneChooser.Button.use-in-scene",
+    "surface": "Present persona chooser",
+    "label": "Use in scene",
+    "kind": "action",
+    "belongsTo": "present",
+    "note": "Quality (#276): moved from the embedded Persona library to Present's selection-only chooser. Places the chosen saved card's own copy in the scene and starts nothing; it never changes Persona's selection, prepared group or cards."
   },
   {
     "id": "LocalVoice.DemoLibraryView.DemoLibraryView.Button.add-local-file.2",
@@ -5341,15 +5407,6 @@
     "note": "Quality (#15 / foundation J): deliberate speech setup, cached-only retry, deferral or cancellation through the existing recognition owner; no capture starts on completion."
   },
   {
-    "id": "LocalVoice.ModelSettingsView.ModelSettingsView.Button.not-now",
-    "surface": "settings page",
-    "label": "Not now",
-    "kind": "action",
-    "belongsTo": "settings",
-    "note": "Quality (#15): contextual deferral of speech setup, using the existing Not now grammar; keeps saved work and unrelated tools usable and starts no capture.",
-    "aliasOf": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now"
-  },
-  {
     "id": "LocalVoice.ModelSettingsView.ModelSettingsView.Button.retry-saved-files",
     "surface": "settings page",
     "label": "Retry saved files",
@@ -5388,7 +5445,7 @@
     "kind": "action",
     "belongsTo": "settings",
     "note": "Quality (#15): contextual deferral of speech setup, using the existing Not now grammar; keeps saved work and unrelated tools usable and starts no capture.",
-    "aliasOf": "LocalVoice.FounderIntroduction.FounderIntroductionCard.Button.not-now"
+    "aliasOf": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.not-now"
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-90b2ee8a5505",
@@ -5451,10 +5508,9 @@
     "note": "Quality: the Permissions panel's fold, Done for now (saved) or Hide details once all is allowed; only something that turns off after folding opens it again (docs/desktop.md § Home)."
   },
   {
-    "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-75e0f179ac0c",
+    "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.copy-permission-details",
     "surface": "window home",
-    "label": null,
-    "expression": "copiedDetails ? \"Copied\" : \"Copy permission details\"",
+    "label": "Copy permission details",
     "kind": "action",
     "belongsTo": "app",
     "note": "Quality (8 Oct 2026, work-Mac permissions): copies what Workbench needs by macOS version (PPPC and macOS 27 App Settings), this edition's identity and what this Mac reports, for an IT team; no words or files, only the app the last paste went to. Local to the panel (docs/desktop.md § Home)."

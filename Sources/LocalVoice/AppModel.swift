@@ -16,8 +16,9 @@ final class AppModel: NSObject, ObservableObject {
         guard ready else { throw VoiceError.message("Open Workbench and finish preparing the speech model, then run this shortcut again.") }
         guard phase == .idle else { throw VoiceError.message("Workbench is busy. Finish the current recording first.") }
         guard !meetings.isBusy else { throw VoiceError.message("Finish the meeting recording or transcription first.") }
+        guard loaded || !captureRecovery.hasRecovery else { throw VoiceError.message(Self.savingOffRefusal) }
         guard !captureRecovery.hasRecovery else { throw CaptureRecoveryError.pending }
-        let file = try AVAudioFile(forReading: url)
+        let file = try ImportedAudio.open(url)
         let duration = Double(file.length) / file.processingFormat.sampleRate
         guard duration > 0, duration <= 1800 else { throw VoiceError.message("Choose an audio recording up to 30 minutes long.") }
         return try await withTaskCancellationHandler {
@@ -58,10 +59,7 @@ final class AppModel: NSObject, ObservableObject {
     /// receipt and saved with the session, so hiding or clearing the receipt,
     /// or quitting, cannot resolve it (T5).
     @Published private(set) var undelivered = UnresolvedDeliverySlot() { didSet { if undelivered != oldValue { persist() } } }
-    @Published private(set) var captureOutputModeLabel = "Light cleanup"
-    @Published private(set) var captureShortcutInstruction = "Use Stop to finish"
     @Published var captureFailure: String?
-    var captureDestinationName: String? { destination?.app.localizedName }
     var canCancelCurrentCapture: Bool {
         [.requesting, .recording].contains(phase) || ([.transcribing, .cleaning].contains(phase) && transcriptionTask != nil)
     }
@@ -74,8 +72,6 @@ final class AppModel: NSObject, ObservableObject {
     }
     @Published var rawTranscript = ""
     @Published var cleanupMethod = ""
-    @Published var editingShortcut: UInt32?
-    @Published var shortcutRecordingMessage: String?
     @Published var previewingPanel = false
     let promptInsertion = PromptInsertion()
     /// The floating toolbar's mode follows the journey: starting anything from
@@ -116,6 +112,8 @@ final class AppModel: NSObject, ObservableObject {
     /// to exercise cancellation without constructing any audio capture.
     var readSpeechAdmission: @MainActor (RecognitionEngine) async -> Bool = { await $0.isReady }
     var openMicrophonePrivacy: () -> Bool = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!) }
+    /// Meetings' Sound pane, where Dictate's input is chosen: it records from the system default (#156).
+    var openSoundSettingsPane: () -> Bool = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
     /// The writing model's one download, Ollama's, owned here as Parakeet's setup is: leaving
     /// Settings › Models changes nothing, and its line reaches wherever readiness shows (#134).
     private(set) lazy var cleanupModels: CleanupModelManager = {
@@ -216,8 +214,6 @@ final class AppModel: NSObject, ObservableObject {
     var onShowAnnotationMenu: (() -> Void)?
     var onMenuRecording: (() -> Void)?
     var onCloseMenu: (() -> Void)?
-    var onCancelShortcut: (() -> Void)?
-    var onResetShortcuts: (() -> Void)?
     var onResetPanel: (() -> Void)?
     var microphoneStartFailure: ((TextDelivery.Target?) -> String?)?
 
@@ -230,6 +226,8 @@ final class AppModel: NSObject, ObservableObject {
         let engine = self.engine, sink = ModelProgressSink(self)
         if startSpeechLifecycle {
             Task { await engine.observe { state in Task { @MainActor in sink.model?.acceptRecognition(state) } } }
+            // Speech does not depend on the saved session: with saving off, a downloaded model still prepares.
+            Task { await prepare() }
         }
         appActivation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.refreshMicrophoneAuthorization(); self?.meetings.refreshAdmission() }
@@ -264,7 +262,6 @@ final class AppModel: NSObject, ObservableObject {
         // With the draft settled: a delivery that did not finish comes back
         // only while its record still holds its words (#134 T5).
         undelivered.restore(savedUndelivered, loadedDraftRevision: loadedDraftRevision, in: deliveryRecords)
-        if startSpeechLifecycle { Task { await prepare() } }
     }
 
     /// Reject observer deliveries that crossed on their way back to the main actor.
@@ -318,9 +315,11 @@ final class AppModel: NSObject, ObservableObject {
     /// Record again, from a failure's own controls or More: only ever a start. They were drawn, or
     /// More was built, while nothing ran, so a recording begun since, by the shortcut say, is left
     /// alone rather than cancelled or stopped by the toggle, as Home's Quick start does (#211).
-    func recordAgain() {
+    /// `target` gives the field the toolbar's own start delivers to (#337). It is read only after
+    /// that guard, so a stale press neither starts nor moves the keyboard.
+    func recordAgain(target: () -> TextDelivery.Target? = { nil }) {
         guard phase == .idle else { return }
-        toggleRecording()
+        toggleRecording(target: target())
     }
     /// `time` is the key event's own timestamp (NSEvent or Carbon), in
     /// seconds since the Mac started. A hold is timed from the press that
@@ -381,7 +380,7 @@ final class AppModel: NSObject, ObservableObject {
                 if liveCapture === capture { liveCapture = nil }
                 let deliveryProblem = cancelLiveDictation()
                 if deliveryProblem == nil { _ = discardRecordingRecovery() }
-                else { canRetry = true; status = deliveryProblem! }
+                else { canRetry = true; reportLiveTextKept(deliveryProblem!) }
                 if phase == .cancelling { phase = .idle; onPhaseChange?() }
                 return
             }
@@ -409,7 +408,7 @@ final class AppModel: NSObject, ObservableObject {
             liveCapture = nil
             if recordingAttempt != attempt {
                 let deliveryProblem = cancelLiveDictation()
-                if deliveryProblem == nil { _ = discardRecordingRecovery() } else { canRetry = true }
+                if deliveryProblem == nil { _ = discardRecordingRecovery() } else { canRetry = true; reportLiveTextKept(deliveryProblem!) }
                 phase = .idle; voiceSession = LiveVoiceSnapshot(); status = deliveryProblem ?? "Recording cancelled."; onPhaseChange?(); return
             }
             voiceSession.phase = .recoverableFailure
@@ -439,7 +438,7 @@ final class AppModel: NSObject, ObservableObject {
                 if let checkpoint { self.voiceSession.segments = LiveVoiceTurns.group(checkpoint.orderedSegments) }
                 if Task.isCancelled || self.phase == .cancelling {
                     let deliveryProblem = self.cancelLiveDictation()
-                    if deliveryProblem == nil { _ = self.discardRecordingRecovery() } else { self.canRetry = true }
+                    if deliveryProblem == nil { _ = self.discardRecordingRecovery() } else { self.canRetry = true; self.reportLiveTextKept(deliveryProblem!) }
                     self.phase = .idle
                     self.voiceSession.phase = .idle; self.status = deliveryProblem ?? "Recording cancelled."; self.onPhaseChange?(); return
                 }
@@ -518,6 +517,7 @@ final class AppModel: NSObject, ObservableObject {
                 liveCapture?.requestStop(); status = "Cancelling…"; onPhaseChange?(); return
             }
             let deliveryProblem = cancelLiveDictation()
+            if let deliveryProblem { reportLiveTextKept(deliveryProblem) }
             shortcutRequest.cancel(); recordingAttempt = nil; phase = .idle; status = deliveryProblem ?? "Capture cancelled. Use the shortcut again when microphone permission is ready."; onPhaseChange?(); return
         }
         guard phase == .recording else { return }
@@ -531,7 +531,7 @@ final class AppModel: NSObject, ObservableObject {
                 self.liveCapture = nil
                 let deliveryProblem = self.cancelLiveDictation()
                 let discarded = deliveryProblem == nil && self.discardRecordingRecovery()
-                if deliveryProblem != nil { self.canRetry = true }
+                if let deliveryProblem { self.canRetry = true; self.reportLiveTextKept(deliveryProblem) }
                 self.phase = .idle; self.level = 0; self.voiceSession = LiveVoiceSnapshot()
                 self.status = deliveryProblem ?? (discarded ? "Recording discarded." : "Recording stopped. Recovery files are kept for review.")
                 self.onPhaseChange?()
@@ -543,7 +543,7 @@ final class AppModel: NSObject, ObservableObject {
         meter?.invalidate(); meter = nil
         let deliveryProblem = cancelLiveDictation()
         let discarded = deliveryProblem == nil && discardRecordingRecovery()
-        if deliveryProblem != nil { canRetry = true }
+        if let deliveryProblem { canRetry = true; reportLiveTextKept(deliveryProblem) }
         phase = .idle; level = 0
         status = deliveryProblem ?? (discarded ? "Recording discarded." : "Recording stopped. Recovery files could not be discarded; open Workbench to review them.")
         onPhaseChange?()
@@ -564,6 +564,13 @@ final class AppModel: NSObject, ObservableObject {
         let owned = liveDictation; liveDictation = nil
         return owned?.cancel()
     }
+    /// Cancel could not take back live words: the result says so where the person
+    /// acted, with Retry and Dismiss, not only in the status. Not fail(): each
+    /// caller still ends its own phase, after this so the toolbar shows the result.
+    private func reportLiveTextKept(_ problem: String) {
+        captureFailure = problem; status = problem
+        report(problem, on: .dictate, code: "dictate.cancel_live_text_kept")
+    }
 
     func importAudio() {
         guard !meetings.isBusy else { report("Finish the meeting recording or transcription first.", on: .dictate); return }
@@ -577,7 +584,7 @@ final class AppModel: NSObject, ObservableObject {
         guard !meetings.isBusy else { report("Finish the meeting recording or transcription first.", on: .dictate); return }
         guard phase == .idle, ready else { return }
         do {
-            let file = try AVAudioFile(forReading: url)
+            let file = try ImportedAudio.open(url)
             let duration = Double(file.length) / file.processingFormat.sampleRate
             guard duration > 0, duration <= 1800 else { throw VoiceError.message("Choose an audio file between 1 second and 30 minutes long.") }
             // Importing the current recovery is a retry, not a new capture whose
@@ -587,7 +594,7 @@ final class AppModel: NSObject, ObservableObject {
             }
             guard admitNewCapture() else { return }
             destination = nil; transcribe(url, duration: duration, temporary: false)
-        } catch { fail("Could not read this audio file. \(error.localizedDescription)", code: "dictate.audio_unreadable") }
+        } catch { fail(error.localizedDescription, code: "dictate.audio_unreadable") }
     }
     func retryTranscription() {
         guard phase == .idle else { return }
@@ -605,12 +612,7 @@ final class AppModel: NSObject, ObservableObject {
 
     private func captureSettings() -> CaptureSettings {
         rememberedCorrection = nil
-        let settings = CaptureSettings(preferences: preferences, cleanup: CleanupConfigurationStore().snapshot(), replacements: replacements)
-        captureOutputModeLabel = settings.outputLabel
-        captureShortcutInstruction = captureUsesHoldShortcut
-            ? "Release \(settings.preferences.dictationShortcut.label) to finish"
-            : (settings.preferences.dictationShortcut.enabled ? "Stop or \(settings.preferences.dictationShortcut.label) to finish" : "Use Stop to finish")
-        return settings
+        return CaptureSettings(preferences: preferences, cleanup: CleanupConfigurationStore().snapshot(), replacements: replacements)
     }
 
     private func transcribe(_ url: URL, duration: Double, temporary: Bool, settings: CaptureSettings? = nil, heldShortcut: Bool = false, recognizedText: String? = nil) {
@@ -678,11 +680,12 @@ final class AppModel: NSObject, ObservableObject {
                     if let owned = liveDictation {
                         outcome = owned.finish(result, restoreClipboard: settings.preferences.restoreClipboard)
                         liveDictation = nil
-                        // History already owns the result. Only confirmed field delivery
-                        // releases its original; uncertainty keeps it in Saved recordings.
+                        // History already owns the result. Confirmed field delivery, or a
+                        // field never written, releases its original; only a write that was
+                        // attempted and not confirmed keeps it in Saved recordings.
                         if let pending = captureRecovery.pending, pending.id == captureID {
                             do {
-                                if outcome.wasPasted { try captureRecovery.clear(captureID) }
+                                if outcome.wasPasted || !outcome.pasteWasAttempted { try captureRecovery.clear(captureID) }
                                 else { _ = try captureRecovery.keepAudioForLater(committedCapture: captureID) }
                                 recordURL = nil; canRetry = false
                             } catch {
@@ -698,6 +701,8 @@ final class AppModel: NSObject, ObservableObject {
                     let delivered = noteAutomaticPaste(outcome, viaPaste: pasted)
                     status = delivered.message
                     clipboardReceipt.record(outcome: delivered, wordCount: TextRules.wordCount(result))
+                    // The cue's own words, heard once without interrupting; a confirmed paste stays quiet (#165).
+                    if clipboardReceipt.isHUDVisible, let receipt = clipboardReceipt.receipt { announceFeedback(receipt.spokenText) }
                     undelivered.note(outcome, text: result, from: .transcript(captureID), in: deliveryRecords)
                 }
                 phase = .idle; voiceSession.phase = .completed; onPhaseChange?()
@@ -707,7 +712,7 @@ final class AppModel: NSObject, ObservableObject {
                     if let shortcutID { shortcutRequest.finish(id: shortcutID, result: .failure(error)) }
                     let deliveryProblem = cancelLiveDictation()
                     let discarded = deliveryProblem == nil && (!temporary || discardRecordingRecovery())
-                    if deliveryProblem != nil { canRetry = temporary }
+                    if let deliveryProblem { canRetry = temporary; reportLiveTextKept(deliveryProblem) }
                     phase = .idle
                     status = deliveryProblem ?? (discarded ? "Transcription cancelled. No text was added." : "Transcription cancelled. Recovery files are still kept; open Workbench to review them.")
                     onPhaseChange?(); return
@@ -716,6 +721,10 @@ final class AppModel: NSObject, ObservableObject {
             }
         }
     }
+
+    /// With automatic saving off, Retry saving cannot succeed and is not offered, so a new start
+    /// names the door that is there: Discard recovery…, in Dictate and in a Shortcuts error.
+    private static let savingOffRefusal = "Automatic saving is off for this session, and a dictation is kept in Dictate. Copy its words, then use Discard recovery… to dictate again, or reopen Workbench."
 
     private func admitNewCapture() -> Bool {
         guard captureRecovery.hasRecovery else { return true }
@@ -730,7 +739,8 @@ final class AppModel: NSObject, ObservableObject {
                 captureFailure = message; report(message, on: .dictate); status = message; onPhaseChange?(); return false
             }
         }
-        let message = captureRecovery.problem?.localizedDescription ?? "A previous capture is kept. Use \(retryCaptureLabel) before starting another capture."
+        let message = captureRecovery.problem?.localizedDescription
+            ?? (loaded ? "A previous capture is kept. Use \(retryCaptureLabel) before starting another capture." : Self.savingOffRefusal)
         captureFailure = message; report(message, on: .dictate); status = message; onPhaseChange?(); return false
     }
 
@@ -761,7 +771,16 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     @discardableResult private func savePendingCapture() -> Bool {
-        guard loaded, let record = captureRecovery.pending, let capture = record.capture else { return false }
+        // A session that could not be opened or backed up saves nothing. The dictation stops with
+        // that reason, never on Tidying your words…, and a Shortcuts run gets its one error.
+        guard loaded else {
+            canRetry = false
+            // Live words may already be in the field; fail() says so, so this does not claim nothing was sent.
+            let notSaved = liveDictation?.attempted == true ? "was not added to History" : "was not added to History or sent to your app"
+            fail("Automatic saving is off for this session, so this dictation \(notSaved). The words are in Dictate. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
+            captureFailure = self.error; onPhaseChange?(); return false
+        }
+        guard let record = captureRecovery.pending, let capture = record.capture else { return false }
         var journalError: Error?
         do { try captureRecovery.retain(record) } catch { journalError = error }
         let nextHistory = TranscriptHistory.adding(capture, to: history)
@@ -857,15 +876,20 @@ final class AppModel: NSObject, ObservableObject {
     }
     /// What the shelf shows of the undelivered result, judged against those records now.
     var unresolvedDelivery: UnresolvedDelivery? { undelivered.shown(in: deliveryRecords) }
-    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference) {
-        guard !text.isEmpty else { return }
+    /// What the copy wrote, so a page can confirm it in place; nil when there were no words to
+    /// copy and nothing was attempted, which leaves `status` saying whatever it said before.
+    @discardableResult
+    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference,
+                                     pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        guard !text.isEmpty else { return nil }
         captureFailure = nil; dismissCaptureCue()
-        let count = TextDelivery.copy(text)
+        let count = TextDelivery.copy(text, to: pasteboard)
         let outcome = TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage, clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
         status = outcome.message
         clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(text))
         // Copying the same words from anywhere resolves an undelivered result.
         undelivered.note(outcome, text: text, from: reference, in: deliveryRecords)
+        return outcome
     }
     /// Copy again, for a result whose copy failed or was never pasted: the
     /// words its record holds now, never whatever the draft became.
@@ -895,11 +919,14 @@ final class AppModel: NSObject, ObservableObject {
         }
     }
     func savePrompt(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; showLibrary(); library.newPrompt(text) }
-    func copyCapture(_ item: Transcript) { copyTextWithReceipt(item.text, of: .transcript(item.id)) }
+    @discardableResult
+    func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        copyTextWithReceipt(item.text, of: .transcript(item.id), pasteboard: pasteboard)
+    }
     func showPanelPreview() {
         guard phase == .idle else { return }
         captureUsesHoldShortcut = false
-        _ = captureSettings()
+        rememberedCorrection = nil
         previewingPanel = true; onPhaseChange?()
     }
     func closePanelPreview() { previewingPanel = false; onPhaseChange?() }
@@ -938,7 +965,7 @@ final class AppModel: NSObject, ObservableObject {
         // The wait is said on History, where Open was clicked.
         let wait = "Finish the current dictation or processing before replacing its draft."
         guard phase == .idle else { report(wait, on: .history); return }
-        // History's notice has no Dismiss, so an Open that goes ahead takes its earlier wait away.
+        // An Open that goes ahead takes its earlier wait away, so the person need not dismiss it.
         if attention == Attention(message: wait, page: .history) { attention = nil }
         page = "dictate"
         if (!transcript.isEmpty || !rawTranscript.isEmpty) && (transcript != item.text || rawTranscript != (item.rawText ?? item.text)) {
@@ -1030,6 +1057,22 @@ final class AppModel: NSObject, ObservableObject {
         }
         dismissCaptureFailure()
     }
+    /// Two silent dictations in a row name System Settings › Sound, so that failure opens it (#156).
+    /// It follows the typed code the card's failure was raised with, kept beside the card's words:
+    /// dismissing Dictate's banner leaves the card and its door, and any other failure ends it.
+    var canOpenSoundSettings: Bool {
+        guard let captureFailure, let raisedCaptureFailure else { return false }
+        return raisedCaptureFailure == Attention(message: captureFailure, page: .dictate, code: Self.repeatedSilenceCode)
+    }
+    /// The card's failure as fail() raised it, with its typed code (#156).
+    var raisedCaptureFailure: Attention?
+    func openSoundSettings() {
+        guard openSoundSettingsPane() else {
+            let message = "System Settings could not be opened. Open it manually and choose Sound › Input."
+            captureFailure = message; report(message, on: .dictate); return
+        }
+        dismissCaptureFailure()
+    }
     func exportTranscript() -> String? {
         let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Transcript.txt"
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
@@ -1041,11 +1084,11 @@ final class AppModel: NSObject, ObservableObject {
     @discardableResult func exportCapture(_ item: Transcript, version: TranscriptExportVersion) -> Bool? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = TranscriptExport.defaultFilename
+        panel.nameFieldStringValue = TranscriptExport.filename(purpose: historyLibrary.metadata(for: item.id).purpose, date: item.date)
         panel.title = "Export saved transcript"
         panel.message = version == .original
             ? "Save the original recognised wording as a UTF-8 text file."
-            : "Save the cleaned transcript as a UTF-8 text file."
+            : "Save the current text as a UTF-8 text file."
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         do {
             try TranscriptExport.write(item, version: version, to: url)
@@ -1220,7 +1263,7 @@ final class AppModel: NSObject, ObservableObject {
     }
     func fail(_ text: String, code: String = "dictate.failed") {
         dismissCaptureCue()
-        if phase != .idle { captureFailure = text }
+        if phase != .idle { raisedCaptureFailure = Attention(message: text, page: .dictate, code: code); captureFailure = text }
         if let id = shortcutRequest.id { shortcutRequest.finish(id: id, result: .failure(VoiceError.message(text))) }
         let message = liveDictation?.attempted == true ? text + " Live text may remain in your app. Review it before copying the kept result." : text
         report(message, on: .dictate, code: code); phase = .idle; status = "Dictation stopped"; onPhaseChange?()
@@ -1235,15 +1278,18 @@ final class AppModel: NSObject, ObservableObject {
     private var captureCueClock: CaptureCueClock?
     private var captureCueExpiry: Task<Void, Never>?
     var announceForAccessibility: (String) -> Void = { CaptureCueAnnouncement.post($0) }
+    /// Where a dictation's words went, for VoiceOver: medium priority, so it waits for current speech (#165).
+    var announceFeedback: (String) -> Void = { FeedbackAnnouncement.post($0) }
     /// Silent captures in a row. A second is more likely a muted or wrong
     /// microphone, or a closed lid, than a pause, so it gets the explicit panel
     /// that says where to look instead of another brief cue.
     private var quietCapturesInARow = 0
+    static let repeatedSilenceCode = "dictate.no_speech_repeated"
     func endWithoutSpeech(_ reason: CaptureCue.Reason, teachesHold: Bool = false) {
         if case .tooQuiet = reason { quietCapturesInARow += 1 } else { quietCapturesInARow = 0 }
         if quietCapturesInARow >= 2 {
             quietCapturesInARow = 0
-            fail("No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook.", code: "dictate.no_speech_repeated")
+            fail("No speech heard twice in a row. Check the input in System Settings › Sound, and open the lid of a MacBook.", code: Self.repeatedSilenceCode)
             return
         }
         if let id = shortcutRequest.id {

@@ -370,8 +370,9 @@ enum ReadbackScreenCapture {
             throw ReadbackError.message("The display under the pointer is not currently available for capture.")
         }
         let configuration = SCStreamConfiguration()
-        configuration.width = display.width
-        configuration.height = display.height
+        let pixels = SnapRendering.capturePixelSize(points: CGSize(width: display.width, height: display.height), scale: screen.backingScaleFactor)
+        configuration.width = pixels.width
+        configuration.height = pixels.height
         configuration.showsCursor = true
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
@@ -382,6 +383,20 @@ enum ReadbackScreenCapture {
         return ReadbackScreenshot(data: data, displayName: screen.localizedName, screenFrame: screen.frame)
     }
 }
+
+/// A narration recorder. The app uses AVAudioRecorder; checks supply one that writes a synthetic take.
+@MainActor
+protocol NarrationRecording: AnyObject {
+    var currentTime: TimeInterval { get }
+    func prepareToRecord() -> Bool
+    func record() -> Bool
+    func stop()
+    func updateMeters()
+    func peakPower(forChannel channelNumber: Int) -> Float
+    func averagePower(forChannel channelNumber: Int) -> Float
+}
+
+extension AVAudioRecorder: NarrationRecording {}
 
 @MainActor
 final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
@@ -440,7 +455,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var unavailableSessions: [String: String] = [:]
     var currentSessionProblem: String? { sessionURL.flatMap { unavailableSessions[$0.standardizedFileURL.path] } }
     @Published private(set) var isCapturing = false
-    @Published private(set) var isRecording = false
+    @Published private(set) var isRecording = false {
+        // The question asked about a take never outlives it, including after the 300 s auto-stop.
+        didSet { if !isRecording { pendingCancelNarration = nil } }
+    }
     @Published private(set) var recordingSectionID: UUID?
     @Published private(set) var recordingElapsed = 0.0
     @Published private(set) var recordingLevel = 0.0
@@ -454,6 +472,12 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published var notice: String? {
         didSet { handoffFeedbackGeneration = UUID() }
     }
+    /// The take that "Discard this narration?" asks about, from the page's Cancel or the toolbar's.
+    @Published var pendingCancelNarration: String?
+    /// The page's Capture area for Capture & narrate, Replace and Redo. It outlives the page, so leaving
+    /// and returning keeps it, but only for this run: a relaunch starts on Screen. Toolbar, shortcut
+    /// and panel captures pass their own source and never change it.
+    @Published var captureArea: SnapCapture.Mode = .screen
     private var handoffFeedbackGeneration = UUID()
     // Platform seams let checks exercise this action without the global clipboard,
     // Finder or LaunchServices. Production keeps the existing local handoff path.
@@ -513,9 +537,20 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
         return nil
     }
-    var shortcutLabel: String { VoicePreferences.load().shortcut(5).label }
+    /// The Snap & Talk key, only while it is on and registered; Off or a key in use is never named (#342).
+    var usableShortcutLabel: String? {
+        let shortcut = VoicePreferences.load(from: defaults).shortcut(5)
+        return shortcut.enabled && shortcutFailure == nil ? shortcut.label : nil
+    }
+
+    /// Names the key that stops narration only when it works, as Dictate's "Use Stop to finish" does.
+    static func narrationNotice(section: Int, shortcut: String?) -> String {
+        "Narrating section \(section)." + (shortcut.map { " Use \($0) again to stop." } ?? " Use Stop narration to finish.")
+    }
 
     private let transcribeAudio: @MainActor (URL) async throws -> String
+    /// True while the speech model loads or downloads; queued takes wait for it.
+    private let speechPreparing: @MainActor () async -> Bool
     private let screenAccess: ScreenCaptureAccess
     /// Back from Screen Recording settings with access still off: macOS may
     /// need Workbench to reopen before a grant applies.
@@ -531,7 +566,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private var captureAccessRequest: UUID?
     private var captureAccessVisit = UUID()
     private var captureRequest: UUID?
-    private var recorder: AVAudioRecorder?
+    private let makeNarrationRecorder: ((URL, [String: Any]) throws -> NarrationRecording)?
+    private var recorder: NarrationRecording?
     private var meter: Timer?
     private var peakPower: Float = -160
     private var recordingContext: RecordingContext?
@@ -549,15 +585,18 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
          skillPacks: ReadbackSkillPackStore? = nil, screenAccess: ScreenCaptureAccess = .system,
          captureSelection: (any SnapImageSource)? = nil,
          microphoneAccess: @escaping () -> AVAuthorizationStatus = { AVCaptureDevice.authorizationStatus(for: .audio) },
-         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { await AVCaptureDevice.requestAccess(for: .audio) }) {
+         requestMicrophoneAccess: @escaping @MainActor () async -> Bool = { await AVCaptureDevice.requestAccess(for: .audio) },
+         makeNarrationRecorder: ((URL, [String: Any]) throws -> NarrationRecording)? = nil) {
         self.screenAccess = screenAccess
         self.transcribeAudio = transcribeAudio ?? { try await engine.transcribe($0) }
+        self.speechPreparing = { await engine.snapshot().isPreparing }
         self.defaults = defaults
         self.skillPacks = skillPacks ?? ReadbackSkillPackStore(root: Workbench.supportDirectory(component: "SnapTalkSkillPacks"))
         self.captureDisplay = captureDisplay
         self.captureSelection = captureSelection ?? SnapCapture()
         self.microphoneAccess = microphoneAccess
         self.requestMicrophoneAccess = requestMicrophoneAccess
+        self.makeNarrationRecorder = makeNarrationRecorder
         super.init()
         microphonePermission = microphoneAccess()
         screenPermissionGranted = screenAccess.isGranted()
@@ -744,14 +783,6 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         catch { newSessionStyleProblem = error.localizedDescription }
     }
 
-    func installServiceNowPack() {
-        do {
-            let installed = try skillPacks.installServiceNow()
-            selectNewSessionStyle(.serviceNow)
-            skillPackNotice = "ServiceNow \(installed.version) installed for new sessions. Existing sessions keep their current style."
-        } catch { skillPackNotice = error.localizedDescription; refreshSkillPacks() }
-    }
-
     func uninstallServiceNowPack() {
         do {
             try skillPacks.uninstallServiceNow()
@@ -900,14 +931,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         }
         var retainedInSnapHistory = false
         do {
-            let selected = try await withTaskCancellationHandler {
-                try await captureImage(mode, fromEditor: fromEditor, request: request)
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    guard self?.captureRequest == request else { return }
-                    self?.cancelCapture()
-                }
-            }
+            let selected = try await ownedCapture(mode, fromEditor: fromEditor, request: request)
             guard captureRequest == request, !Task.isCancelled else { return }
             guard let capture = selected else { notice = nil; return }
             if let reason = mayBeginCapture?() { throw ReadbackError.message(reason) }
@@ -966,13 +990,18 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         guard let root = sessionURL, let sessionID = manifest?.id else {
             notice = "Create or open a Snap & Talk session, then add your selected Snaps."; stateChanged(); return
         }
+        // History lists newest first; a narrated session runs in the order the screens were captured.
+        let ordered = snapshots.sorted { $0.createdAt == $1.createdAt ? $0.id.uuidString < $1.id.uuidString : $0.createdAt < $1.createdAt }
         do {
-            let result = try SnapReadback.importSnapshots(snapshots, at: root, expectedSessionID: sessionID)
+            let result = try SnapReadback.importSnapshots(ordered, at: root, expectedSessionID: sessionID)
             publish(result.manifest, for: root)
-            if result.added > 0, let added = activeSections.last { reviewSection(added.id) }
+            // The batch's first step opens for narration, not its last.
+            if result.added > 0, let first = activeSections.suffix(result.added).first { reviewSection(first.id) }
+            let added = result.added == 1 ? "Added 1 Snap." : "Added \(result.added) Snaps."
+            let skipped = result.alreadyAdded == 1 ? " 1 already present was skipped." : " \(result.alreadyAdded) already present were skipped."
             notice = result.warning ?? (result.added == 0
-                ? "These Snaps are already in this session, including Recently Deleted. Restore a deleted section there."
-                : "Added \(result.added) Snaps. Narration is optional; type notes or choose Record narration." + (result.alreadyAdded > 0 ? " \(result.alreadyAdded) already present were skipped." : ""))
+                ? (result.alreadyAdded == 1 ? "This Snap is" : "These Snaps are") + " already in this session, including Recently Deleted. Restore a deleted section there."
+                : added + " Narration is optional; type notes or choose Record narration." + (result.alreadyAdded > 0 ? skipped : ""))
         } catch { notice = "Snaps could not be added. \(error.localizedDescription)" }
         stateChanged()
     }
@@ -1006,18 +1035,19 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         let pending = folder.appendingPathComponent("narration-pending-\(UUID().uuidString).wav")
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
-        let capture = try AVAudioRecorder(url: pending, settings: settings)
-        capture.delegate = self; capture.isMeteringEnabled = true
+        let capture = try makeNarrationRecorder?(pending, settings) ?? audioRecorder(url: pending, settings: settings)
         guard capture.prepareToRecord(), capture.record() else { throw ReadbackError.message("The microphone could not start. Check that an input device is connected.") }
         recorder = capture; recordingContext = RecordingContext(root: root, sectionID: sectionID, pendingURL: pending, previousSection: current.sections[index])
         recordingElapsed = 0; recordingLevel = 0; peakPower = -160; isRecording = true; recordingSectionID = sectionID
         current.sections[index].status = .recording; current.sections[index].failure = nil
         try ReadbackStore.save(current, at: root); publish(current, for: root)
-        notice = "Narrating section \(current.sections.filter { $0.deletedAt == nil }.firstIndex(where: { $0.id == sectionID }).map { $0 + 1 } ?? 1). Use \(shortcutLabel) again to stop."
+        notice = Self.narrationNotice(section: current.sections.filter { $0.deletedAt == nil }.firstIndex(where: { $0.id == sectionID }).map { $0 + 1 } ?? 1,
+                                      shortcut: usableShortcutLabel)
         meter = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let recorder = self.recorder else { return }
-                recorder.updateMeters(); self.recordingElapsed = recorder.currentTime
+                // A recorder that stopped by itself reads 0; the take's length never goes back.
+                recorder.updateMeters(); self.recordingElapsed = max(self.recordingElapsed, recorder.currentTime)
                 self.peakPower = max(self.peakPower, recorder.peakPower(forChannel: 0))
                 self.recordingLevel = max(0, min(1, Double(recorder.averagePower(forChannel: 0) + 55) / 55))
                 if self.recordingElapsed >= 300 { self.stopNarration() }
@@ -1027,37 +1057,81 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         stateChanged()
     }
 
-    func stopNarration() {
+    private func audioRecorder(url: URL, settings: [String: Any]) throws -> NarrationRecording {
+        let capture = try AVAudioRecorder(url: url, settings: settings)
+        capture.delegate = self; capture.isMeteringEnabled = true
+        return capture
+    }
+
+    func stopNarration() { keepNarration(cue: true) }
+
+    /// AVAudioRecorder also ends a take itself, when an input device goes away or a write fails.
+    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
+        Task { @MainActor in self.narrationRecorderEnded(recorder) }
+    }
+    nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
+        Task { @MainActor in self.narrationRecorderEnded(recorder) }
+    }
+
+    /// A take whose recorder stopped by itself is kept as Stop keeps it. The callback that follows
+    /// Stop, Cancel or Quit, or arrives once a newer take has begun, changes nothing.
+    func narrationRecorderEnded(_ ended: AnyObject) {
+        guard isRecording, let recorder, ended === recorder else { return }
+        keepNarration(cue: true, saved: "The microphone stopped, so narration ended. What was recorded was kept.")
+    }
+
+    /// Stop and Quit keep a take the same way; quitting only skips the routine no-speech cue.
+    private func keepNarration(cue: Bool, saved: String = "Narration saved. You can capture the next section while this one transcribes.") {
         guard isRecording, let context = recordingContext else { return }
-        let duration = recorder?.currentTime ?? recordingElapsed
+        let duration = max(recordingElapsed, recorder?.currentTime ?? 0)
         recorder?.stop(); recorder = nil; meter?.invalidate(); meter = nil
         isRecording = false; recordingSectionID = nil; recordingContext = nil; recordingLevel = 0
         do {
             guard duration >= 0.35, peakPower > -55 else {
                 try? FileManager.default.removeItem(at: context.pendingURL)
                 restoreNarration(context, message: "No clear speech was captured. The screenshot and any earlier narration were kept.")
-                onNarrationNotHeard?()
+                if cue { onNarrationNotHeard?() }
                 return
             }
             var current = try ReadbackStore.load(from: context.root)
             guard let index = current.sections.firstIndex(where: { $0.id == context.sectionID }) else { throw ReadbackError.message("The section was removed before its narration could be saved.") }
-            try archiveNarrationFiles(section: current.sections[index], root: context.root)
+            // The earlier audio and its original belong together and give way to the new take.
+            // The notes or edited narration stay linked until words replace them (#342).
+            try archiveTake(section: current.sections[index], root: context.root)
             let relative = current.sections[index].directory + "/narration.wav"
             let destination = try ReadbackStore.safeURL(root: context.root, relative: relative)
             if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
             try FileManager.default.moveItem(at: context.pendingURL, to: destination)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
             current.sections[index].audio = relative
-            current.sections[index].originalTranscript = nil; current.sections[index].transcript = nil
+            current.sections[index].originalTranscript = nil
             current.sections[index].status = .queued; current.sections[index].failure = nil
             try ReadbackStore.save(current, at: context.root); publish(current, for: context.root)
-            transcriptDrafts.removeValue(forKey: context.sectionID)
             enqueue(Job(root: context.root, sectionID: context.sectionID))
-            notice = "Narration saved. You can capture the next section while this one transcribes."
+            notice = saved
         } catch {
             markNeedsNarration(root: context.root, sectionID: context.sectionID, message: "The narration could not be saved. \(error.localizedDescription)")
         }
         stateChanged()
+    }
+
+    /// Stop keeps a take and Cancel discards it, so every door asks first past ten seconds.
+    static func cancelAsksFirst(elapsed: Double) -> Bool { elapsed > 10 }
+
+    /// Cancel from any door: a short take is discarded at once; a longer one asks the page's
+    /// question about this take and keeps recording meanwhile. True when it asked.
+    @discardableResult func requestCancelNarration() -> Bool {
+        guard isRecording, let take = narrationIdentity else { return false }
+        guard Self.cancelAsksFirst(elapsed: recordingElapsed) else { cancelNarration(); return false }
+        pendingCancelNarration = take; stateChanged()
+        return true
+    }
+
+    /// Discard answers for the take it was asked about, never a newer one.
+    func confirmCancelNarration(_ take: String) {
+        pendingCancelNarration = nil
+        guard narrationIdentity == take else { return }
+        cancelNarration()
     }
 
     func cancelNarration() {
@@ -1077,11 +1151,24 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         stateChanged()
     }
 
-    func replaceScreenshot(_ sectionID: UUID) async {
-        guard !isCapturing, !isRecording, let root = sessionURL else { return }
+    /// Replace and Redo use the page's Capture area and own their capture as Capture & narrate
+    /// does: Escape changes nothing, and closing the session or quitting discards a late image.
+    func replaceScreenshot(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
+        guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
+        // Replacing records no audio, so it needs only Screen Recording.
+        guard screenPermissionGranted else { notice = permissionsProblem; stateChanged(); return }
+        let request = UUID(); captureRequest = request
         isCapturing = true; stateChanged()
+        defer {
+            if captureRequest == request { captureRequest = nil; isCapturing = false; stateChanged() }
+        }
         do {
-            let capture = try await captureScreen(fromEditor: true)
+            let selected = try await ownedCapture(mode, fromEditor: true, request: request)
+            guard captureRequest == request, !Task.isCancelled else { return }
+            guard let capture = selected else { notice = nil; return }
+            guard sessionURL?.standardizedFileURL == root.standardizedFileURL, manifest?.id == sessionID else {
+                throw ReadbackError.message("The session changed during capture. Capture again in the selected session.")
+            }
             var current = try ReadbackStore.load(from: root)
             guard let index = current.sections.firstIndex(where: { $0.id == sectionID && $0.deletedAt == nil }) else { throw ReadbackError.message("The section is no longer available.") }
             try archiveFile(relative: current.sections[index].screenshot, label: "screen", root: root, section: current.sections[index])
@@ -1089,19 +1176,30 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].capturedAt = Date(); current.sections[index].displayName = capture.displayName
             try ReadbackStore.save(current, at: root); publish(current, for: root)
             notice = "Screenshot replaced. Its narration was kept."
-        } catch { notice = "The screenshot was not replaced. \(error.localizedDescription)" }
-        isCapturing = false; stateChanged()
+        } catch {
+            guard captureRequest == request else { return }
+            if Task.isCancelled { notice = nil; return }
+            notice = "The screenshot was not replaced. \(error.localizedDescription)"
+        }
     }
 
-    func redoBoth(_ sectionID: UUID) async {
+    func redoBoth(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before replacing it."; return }
-        guard !isCapturing, !isRecording, let root = sessionURL else { return }
+        guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
         if let reason = mayBeginCapture?() { notice = reason; stateChanged(); return }
+        // Redo narrates the new image, so a selector never opens for a take it cannot record.
+        guard permissionsReady else { notice = permissionsProblem; stateChanged(); return }
+        let request = UUID(); captureRequest = request
         isCapturing = true; stateChanged()
+        defer {
+            if captureRequest == request { captureRequest = nil; isCapturing = false; stateChanged() }
+        }
         do {
-            let capture = try await captureScreen(fromEditor: true)
+            let selected = try await ownedCapture(mode, fromEditor: true, request: request)
+            guard captureRequest == request, !Task.isCancelled else { return }
+            guard let capture = selected else { notice = nil; return }
             if let reason = mayBeginCapture?() { throw ReadbackError.message(reason) }
-            guard sessionURL?.standardizedFileURL == root.standardizedFileURL else {
+            guard sessionURL?.standardizedFileURL == root.standardizedFileURL, manifest?.id == sessionID else {
                 throw ReadbackError.message("The session changed during capture. Capture again in the selected session.")
             }
             var current = try ReadbackStore.load(from: root)
@@ -1111,8 +1209,15 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             current.sections[index].capturedAt = Date(); current.sections[index].displayName = capture.displayName
             try ReadbackStore.save(current, at: root); publish(current, for: root)
             recordingThumbnail = NSImage(data: capture.data); recordingScreenFrame = capture.screenFrame
-            isCapturing = false; try startNarration(root: root, sectionID: sectionID)
-        } catch { isCapturing = false; notice = "The section was not replaced. \(error.localizedDescription)"; stateChanged() }
+            isCapturing = false
+            // The new image is saved by now, so a recorder that cannot start must not say otherwise.
+            do { try startNarration(root: root, sectionID: sectionID) }
+            catch { notice = "The screenshot was replaced and its narration was kept, but recording could not start. \(error.localizedDescription)"; stateChanged() }
+        } catch {
+            guard captureRequest == request else { return }
+            if Task.isCancelled { notice = nil; return }
+            isCapturing = false; notice = "The section was not replaced. \(error.localizedDescription)"; stateChanged()
+        }
     }
 
     func retryTranscription(_ sectionID: UUID) {
@@ -1143,6 +1248,11 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if let transcriptWriter { try transcriptWriter(Data(text.utf8), url) }
             else { try ReadbackStore.writePrivate(Data(text.utf8), to: url) }
             current.sections[index].transcript = relative
+            // A typed note finishes a section with no narration to wait for; it is never demoted.
+            if current.sections[index].audio == nil, current.sections[index].status == .needsNarration,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                current.sections[index].status = .ready; current.sections[index].failure = nil
+            }
             if let transcriptManifestWriter { try transcriptManifestWriter(current, root) }
             else { try ReadbackStore.save(current, at: root) }
             transcriptSaveFailures.removeValue(forKey: sectionID)
@@ -1249,23 +1359,26 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func shutdown() {
         cancelCapture()
-        if isRecording { cancelNarration() }
+        // A take in progress is kept as Stop keeps it; the next launch transcribes it.
+        if isRecording { keepNarration(cue: false) }
         if let activeJob { markQueued(activeJob) }
         processor?.cancel(); processor = nil
     }
 
-    private func captureScreen(fromEditor: Bool) async throws -> ReadbackScreenshot {
-        if fromEditor {
-            onHideForEditorCapture?()
+    /// The request's image; cancelling the task cancels its selector while the request is still owned.
+    private func ownedCapture(_ mode: SnapCapture.Mode, fromEditor: Bool, request: UUID) async throws -> ReadbackScreenshot? {
+        try await withTaskCancellationHandler {
+            try await captureImage(mode, fromEditor: fromEditor, request: request)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.captureRequest == request else { return }
+                self?.cancelCapture()
+            }
         }
-        // isCapturing synchronously hides the shared toolbar for every entry
-        // point. Give WindowServer a frame before acquiring the display.
-        defer { if fromEditor { onRestoreAfterEditorCapture?() } }
-        try await Task.sleep(nanoseconds: 250_000_000)
-        return try await captureDisplay()
     }
 
-    /// Screen keeps the existing capture and shortcut path. Apple's selectors supply a
+    /// Screen keeps the existing capture and shortcut path; isCapturing synchronously hides the
+    /// shared toolbar, so Screen gives WindowServer a frame first. Apple's selectors supply a
     /// region or window through Snap's source; Escape supplies no image and starts no audio.
     private func captureImage(_ mode: SnapCapture.Mode, fromEditor: Bool, request: UUID) async throws -> ReadbackScreenshot? {
         if fromEditor { onHideForEditorCapture?() }
@@ -1287,8 +1400,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         isCapturing = false; notice = nil; stateChanged()
     }
 
-    private func archiveNarrationFiles(section: ReadbackSection, root: URL) throws {
-        for (path, label) in [(section.audio, "audio"), (section.originalTranscript, "original-transcript"), (section.transcript, "edited-transcript")] {
+    private func archiveTake(section: ReadbackSection, root: URL) throws {
+        for (path, label) in [(section.audio, "audio"), (section.originalTranscript, "original-transcript")] {
             if let path { try archiveFile(relative: path, label: label, root: root, section: section) }
         }
     }
@@ -1323,6 +1436,9 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     private func drainQueue() async {
         while !Task.isCancelled, !queue.isEmpty {
+            // A take kept at Quit, or stopped while the model loads, waits for speech and
+            // then transcribes; a model that could not be prepared still fails it with its reason.
+            if await speechPreparing() { try? await Task.sleep(nanoseconds: 500_000_000); continue }
             let job = queue.removeFirst(); activeJob = job; updateQueueCount()
             await process(job)
             activeJob = nil; updateQueueCount()
@@ -1340,9 +1456,16 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             try ReadbackStore.save(current, at: job.root); publish(current, for: job.root)
             let audioURL = try ReadbackStore.safeURL(root: job.root, relative: audio)
             let result = try await transcribeAudio(audioURL)
-            guard !result.isEmpty else { throw ReadbackError.message("No speech was recognised. Record the narration again.") }
             current = try ReadbackStore.load(from: job.root)
             guard let freshIndex = current.sections.firstIndex(where: { $0.id == job.sectionID && $0.deletedAt == nil }) else { return }
+            guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                try keepEarlierWords(&current, at: freshIndex, root: job.root); return
+            }
+            // Words replace the section's earlier text, which Stop left linked.
+            let earlier = current.sections[freshIndex]
+            for (path, label) in [(earlier.originalTranscript, "original-transcript"), (earlier.transcript, "edited-transcript")] {
+                if let path { try archiveFile(relative: path, label: label, root: job.root, section: earlier) }
+            }
             let original = current.sections[freshIndex].directory + "/narration-original.txt"
             let edited = current.sections[freshIndex].directory + "/narration.txt"
             try ReadbackStore.writePrivate(Data(result.utf8), to: ReadbackStore.safeURL(root: job.root, relative: original))
@@ -1353,6 +1476,10 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             if sessionURL?.standardizedFileURL == job.root.standardizedFileURL { transcriptDrafts[job.sectionID] = result; notice = "Narration transcribed. The section is ready for slides." }
         } catch {
             if Task.isCancelled { markQueued(job); return }
+            // Preparation began after the queue last looked: wait with the queue instead of failing.
+            if (error as? RecognitionFailure)?.kind == .missingAssets, await speechPreparing() {
+                markQueued(job); queue.insert(job, at: 0); return
+            }
             if error.localizedDescription.localizedCaseInsensitiveContains("already running") {
                 markQueued(job); queue.append(job); updateQueueCount()
                 try? await Task.sleep(nanoseconds: 800_000_000)
@@ -1363,6 +1490,24 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             try? ReadbackStore.save(current, at: job.root); publish(current, for: job.root)
             if sessionURL?.standardizedFileURL == job.root.standardizedFileURL { notice = "Transcription failed. The screenshot and audio were kept for retry." }
         }
+    }
+
+    /// A take that heard no words ends as Stop's quiet take does, except that its audio goes to
+    /// history: any earlier notes or narration stay, and nothing offers a retry that cannot work.
+    private func keepEarlierWords(_ current: inout ReadbackManifest, at index: Int, root: URL) throws {
+        if let silent = current.sections[index].audio {
+            try archiveFile(relative: silent, label: "audio", root: root, section: current.sections[index])
+        }
+        current.sections[index].audio = nil
+        if current.sections[index].transcript != nil {
+            current.sections[index].status = .ready; current.sections[index].failure = nil
+        } else {
+            current.sections[index].status = .needsNarration; current.sections[index].failure = "No speech was heard. Record the narration again."
+        }
+        try ReadbackStore.save(current, at: root); publish(current, for: root)
+        // A later take may already be recording: its notice says how to stop it, and this one would
+        // read as if that take were unheard. The section itself shows what was kept.
+        if sessionURL?.standardizedFileURL == root.standardizedFileURL, !isRecording { notice = "No speech heard. The screenshot and any earlier narration were kept." }
     }
 
     private func markQueued(_ job: Job) {

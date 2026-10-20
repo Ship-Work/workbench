@@ -42,6 +42,8 @@ final class CaptureHUDControls: ObservableObject {
     private var observation: AnyCancellable?
     var releaseKeyboardFocus: (() -> Void)?
     var promptDestination: (() -> TextDelivery.Target?)?
+    /// The field a dictation started from the toolbar delivers to, as the toolbar's own start uses.
+    var dictationTarget: () -> TextDelivery.Target? = { nil }
     var cancelDrag: (() -> Void)?
     var focusFirstControl: (() -> Void)?
     var dragActions = ToolbarDragActions()
@@ -84,8 +86,6 @@ final class CaptureHUDControls: ObservableObject {
         }
         if previous != preferredToolbarSize { resize?() }
     }
-    /// The revealed row's last measured size, for deciding whether its accessory fits.
-    var rowSize: NSSize { ToolbarLayout.oriented(measuredRowSize, for: rowAnchor) }
     func focusToolbar() { toolbar.send(.holdBegan(.keyboard)) }
     func unfocusToolbar() { toolbar.send(.holdEnded(.keyboard)) }
     func endKeyboardInteraction() { unfocusToolbar(); releaseKeyboardFocus?() }
@@ -102,8 +102,8 @@ final class CaptureHUDControls: ObservableObject {
     /// the row opens, and only for the pointer's own reveal, a dwell or a click on the mark: a
     /// failure or receipt that arrives while the row is open never replaces it under the pointer,
     /// and waits as the mark's status until the person reveals it. Keyboard entry keeps the
-    /// launcher row, with the result's own commands first in More (#211 F1), and a row that Keep
-    /// open brings back waits for the checks the kept-open swap makes (#211 F8).
+    /// launcher row, with the result's own commands under its tool in the chooser (#211 F1),
+    /// and a row that Keep open brings back waits for the checks the kept-open swap makes (#211 F8).
     @Published private(set) var revealsResult = false
     /// A result is waiting for the person; the host answers from its owners.
     var resultPending: () -> Bool = { false }
@@ -236,10 +236,6 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
     var isAnimatingToolbar: Bool { motion.target != nil }
     /// The gallery reads where the chooser opened and opens it invisibly (#134).
     var chooserFrame: NSRect? { chooser.shownFrame }
-    var chooserOffscreenForChecks: Bool {
-        get { chooser.offscreenForChecks }
-        set { chooser.offscreenForChecks = newValue }
-    }
     /// Where the tools rest: a named dock, or a free position with its side.
     var toolsPosition: ToolbarPosition {
         if controls.anchor == nil, let freePosition { return .free(freePosition) }
@@ -291,6 +287,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
             guard let self else { return nil }
             return self.window?.isKeyWindow == true ? self.keyboardTarget : TextDelivery.capture()
         }
+        controls.dictationTarget = { [weak self] in self?.targetForDictation() }
         controls.dragActions = ToolbarDragActions(begin: { [weak self] in self?.beginDragging() },
             move: { [weak self] in self?.previewDragging() }, end: { [weak self] in self?.finishDragging() },
             cancel: { [weak self] in self?.cancelDragging() }, isCancelled: { [weak self] in self?.dragging != true },
@@ -628,8 +625,8 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
     }
 
     /// Draw and measure the row for its centre or inward edge, then place its native
-    /// window on that same reference (#152, #163, #134). The accessory waits in More
-    /// when the row with it would not fit.
+    /// window on that same reference (#152, #163, #134). The accessory is left off the
+    /// row when the row with it would not fit; the chooser still opens its workspace.
     private func placeTools(previous: NSRect?, preferred: NSRect, animated: Bool) {
         let screen = toolsScreen(previous: previous, preferred: preferred)
         let rowAnchor = ToolbarGeometry.rowAnchor(toolsPosition)
@@ -852,7 +849,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
         coachPanel.hide()
         controls.resize = nil; controls.choosePosition = nil; controls.showPosition = nil
         controls.openChooser = nil; controls.chooserChoicesChanged = nil; controls.revealFromRest = nil
-        controls.chooserActivitiesChanged = nil; controls.chooserPerform = nil
+        controls.chooserActivitiesChanged = nil; controls.chooserPerform = nil; controls.dictationTarget = { nil }
         if model?.toolbarControls === controls { model?.toolbarControls = nil }
         positionControl.close(); chooser.close()
         controls.suspendToolbar(); cancelDragging(); releaseKeyboardFocus()
@@ -1047,7 +1044,7 @@ final class DragHandleView: NSView {
 }
 
 /// A dictation's result, revealed from the toolbar's place (#134 T4): the failure that needs
-/// attention, with Retry, Record again or Open Workbench and Dismiss, or the clipboard receipt
+/// attention, with Retry, Record again or Open Dictate… and Dismiss, or the clipboard receipt
 /// with Review, its pin and its dismiss. Each keeps the message and commands it had in the
 /// dictation panel; recording and processing are the toolbar row's own now.
 struct DictationResultView: View {
@@ -1114,7 +1111,7 @@ struct DictationResultView: View {
                     .focused($focused, equals: .retry).resultAction("Retry", controls)
             }
             if model.canRecordAgain {
-                Button("Record again") { model.recordAgain() }
+                Button("Record again") { model.recordAgain(target: controls.dictationTarget) }
                     .buttonStyle(.bordered).help("Keep this audio in Saved recordings and start a new capture")
                     .focused($focused, equals: .recordAgain).resultAction("Record again", controls)
             } else if !model.canRetry && model.canOpenMicrophoneSettings {
@@ -1123,11 +1120,17 @@ struct DictationResultView: View {
                     Text("Microphone Settings…").font(.system(size: 12)).frame(minHeight: 28)
                 }.buttonStyle(.bordered).help("Open Privacy & Security › Microphone in System Settings")
                     .focused($focused, equals: .openWorkbench).resultAction("Microphone Settings…", controls)
+            } else if !model.canRetry && model.captureFailure != nil && model.canOpenSoundSettings {
+                // Two silent dictations in a row name Sound, where Dictate's input is chosen (#156).
+                Button { model.openSoundSettings() } label: {
+                    Text("Sound Settings…").font(.system(size: 12)).frame(minHeight: 28)
+                }.buttonStyle(.bordered).help("Open Sound in System Settings to check the input")
+                    .focused($focused, equals: .openWorkbench).resultAction("Sound Settings…", controls)
             } else if !model.canRetry || model.hasCaptureRecovery {
                 Button { model.dismissCaptureFailure(); model.onShowEditor?("dictate") } label: {
-                    Text("Open Workbench").font(.system(size: 12)).frame(minHeight: 28)
+                    Text("Open Dictate…").font(.system(size: 12)).frame(minHeight: 28)
                 }.buttonStyle(.bordered)
-                    .focused($focused, equals: .openWorkbench).resultAction("Open Workbench", controls)
+                    .focused($focused, equals: .openWorkbench).resultAction("Open Dictate…", controls)
             }
             Button { model.dismissCaptureFailure() } label: { Image(systemName: "xmark").frame(width: 28, height: 28) }
                 .buttonStyle(.plain).accessibilityLabel("Dismiss dictation error")
@@ -1221,7 +1224,7 @@ struct ClipboardCueHUD: View {
             .contentShape(Rectangle())
             .background(PointerPresence { hovering = $0; receipts.holdHUD($0 || voiceOverFocused) })
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(receipt.title + ". " + receipt.detail)
+            .accessibilityLabel(receipt.spokenText)
             .accessibilityFocused($voiceOverFocused)
             .onChange(of: voiceOverFocused) { _, focused in receipts.holdHUD(focused || hovering) }
             .onDisappear { receipts.holdHUD(false) }

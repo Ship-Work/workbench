@@ -20,7 +20,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     let settings: SettingsStore
     let hotkeys = HotkeyManager()
     /// Only the app's own storage gets the real microphone for React to my voice.
-    lazy var demoScenes = DemoScenes(readOnlyReason: migrationFailure, personaVoice: usesAppStorage ? .system : nil)
+    lazy var demoScenes = DemoScenes(readOnlyReason: migrationFailure, personaVoice: usesAppStorage ? .system(defaults: settings.defaults) : nil)
     private let migrationFailure: String?
     @Published var tool = DrawingTool.pen
     @Published var isDrawing = false
@@ -51,7 +51,9 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     @Published private(set) var postedNotice: StageNotice?
     /// The notice's words, as Draw's controls show them.
     var notice: String? { postedNotice?.text }
-    func post(_ text: String, on page: StageNoticePage) { postedNotice = StageNotice(text: text, page: page) }
+    func post(_ text: String, on page: StageNoticePage, tone: StageNotice.Tone = .problem) {
+        postedNotice = StageNotice(text: text, page: page, tone: tone)
+    }
     func clearNotice() { postedNotice = nil }
     @Published var launchAtLogin = false
     /// Adds or removes Workbench as a login item and returns what macOS decided. Checks replace it,
@@ -99,6 +101,19 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     private var countdown = Countdown()
     /// The countdown's clock. Checks move it instead of waiting.
     var timerClock: () -> Date = { Date() }
+    /// Keeps the display awake while a break countdown is on screen (#174), apart from the
+    /// stage's own hold. Checks count these instead of touching the Mac's power state.
+    var beginTimerKeepAwake: () -> NSObjectProtocol = {
+        ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled], reason: "Showing a Workbench break timer")
+    }
+    var endTimerKeepAwake: (NSObjectProtocol) -> Void = { ProcessInfo.processInfo.endActivity($0) }
+    /// How long Time is up keeps the display awake, so a forgotten timer cannot keep the Mac
+    /// awake and unlocked until someone stops it.
+    static let timeUpKeepAwake: TimeInterval = 300
+    private var timerKeepAwake: NSObjectProtocol?
+    private var timerFinishedAt: Date?
+    /// The one re-evaluation when Time is up's keep-awake ends. It exists only while it holds.
+    private(set) var timeUpKeepAwakeEnd: Timer?
     @Published private(set) var timerSessionStarted = false
     private var storageBlocked = false
     private let archiveURL: URL
@@ -173,6 +188,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         hideQuickControls()
         stopDrawing(); saveWork?.cancel(); saveBoards()
         hotkeys.unregister(); effectTimer?.invalidate(); countdownTimer?.invalidate()
+        timeUpKeepAwakeEnd?.invalidate(); timeUpKeepAwakeEnd = nil
+        if let timerKeepAwake { endTimerKeepAwake(timerKeepAwake); self.timerKeepAwake = nil }
         hotkeys.setEscapeEnabled(false)
         if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
@@ -392,6 +409,14 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         return boards.count == 1 ? boards.keys.first : nil
     }
     var canExportBoard: Bool { exportableBoardID != nil && !boardExportInProgress }
+    /// Board export from Draw's menus, which stay reachable above a full-screen board: the Draw
+    /// page's export, and like every other menu action never during Screenshot, keyboard
+    /// practice or recording a shortcut (#31).
+    var canExportBoardFromMenu: Bool {
+        canExportBoard && !screenshotHandoffActive && !shortcutsSuspended && recordingAction == nil
+    }
+    /// Where Copy board puts the image; checks give it a private pasteboard.
+    var boardPasteboard: NSPasteboard = .general
     func boardImageExport() throws -> BoardImageExport {
         guard let id = exportableBoardID, let style = boards[id], let canvas = canvases[id],
               let history = history(for: id) else { throw BoardExportError.noBoard }
@@ -403,7 +428,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func copyBoard() {
         guard !boardExportInProgress else { return }
-        do { try boardImageExport().copy(); post("Board copied as an image.", on: .draw) }
+        do { try boardImageExport().copy(to: boardPasteboard); post("Board copied as an image.", on: .draw, tone: .done) }
         catch { post(error.localizedDescription, on: .draw) }
     }
     func saveBoardPNG() {
@@ -425,7 +450,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             boardSavePanel = nil; boardExportInProgress = false
             guard !shuttingDown else { return }
             if result == .OK, let url = panel.url {
-                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw) }
+                do { try data.write(to: url, options: .atomic); post("Saved \(url.lastPathComponent).", on: .draw, tone: .done) }
                 catch { post("Board image could not be saved: \(error.localizedDescription)", on: .draw) }
             }
             refreshWindows(); refreshPalette(); refreshEffects()
@@ -457,8 +482,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
             overlayHistory.values.forEach { $0.pauseFade(by: duration) }
         }
         screenshotHandoffActive = false
-        post(error.map { "Screenshot could not open: \($0.localizedDescription)" }
-            ?? "Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw)
+        if let error { post("Screenshot could not open: \(error.localizedDescription)", on: .draw) }
+        else { post("Screenshot closed. Your annotations are still available; choose a drawing tool to continue.", on: .draw, tone: .done) }
         for canvas in canvases.values { canvas.needsDisplay = true }
         refreshWindows(); refreshPalette(); refreshEffects(); updateStatus()
         if error != nil { showControls(tab: "Drawing", preservingCanvas: true) }
@@ -648,7 +673,16 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func windowWillClose(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window === mainWindow { finishRecording() }
-        if let window = notification.object as? NSWindow, window === timerWindow { timerPositionPanel.close(); timerShown = false }
+        if let window = notification.object as? NSWindow, window === timerWindow {
+            timerPositionPanel.close(); timerShown = false; updateTimerKeepAwake()
+        }
+    }
+    /// A minimised timer window shows no countdown, so it lets the display sleep (#174).
+    func windowDidMiniaturize(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === timerWindow { updateTimerKeepAwake() }
+    }
+    func windowDidDeminiaturize(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === timerWindow { updateTimerKeepAwake() }
     }
     private func refreshPalette() {
         let shouldShow = !embedded && !boardExportInProgress && isDrawing && (!boards.isEmpty ? settings.value.boardPalette != .hide : settings.value.showDrawingPalette)
@@ -700,7 +734,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         onBeginActivity?()
         timerCountdown += 1
         timerSessionStarted = true
-        countdown.start(seconds: settings.value.timerMinutes * 60, now: timerClock()); timerFinished = false
+        countdown.start(seconds: settings.value.timerMinutes * 60, now: timerClock()); timerFinished = false; timerFinishedAt = nil
         ensureCountdownTimer(); updateCountdown(); showTimer()
     }
     /// Pause and Resume act only on a started countdown that has time left. A new
@@ -723,10 +757,10 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     }
     func resetTimer() {
         timerSessionStarted = false
-        countdown.reset(seconds: settings.value.timerMinutes * 60); timerFinished = false
+        countdown.reset(seconds: settings.value.timerMinutes * 60); timerFinished = false; timerFinishedAt = nil
         countdownTimer?.invalidate(); countdownTimer = nil; updateCountdown()
     }
-    func hideTimer() { timerPositionPanel.close(); timerWindow?.orderOut(nil); timerShown = false }
+    func hideTimer() { timerPositionPanel.close(); timerWindow?.orderOut(nil); timerShown = false; updateTimerKeepAwake() }
     /// Show timer: the window of a started countdown, which keeps running meanwhile.
     func revealTimer() { guard timerSessionStarted else { return }; showTimer() }
     /// Position is a Timer option, so it is kept even before the window first opens:
@@ -774,15 +808,40 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         let now = now ?? timerClock()
         let remaining = countdown.remaining(at: now)
         let text = Countdown.formatted(remaining)
+        // Each of these publishes, and the whole stage redraws on a publication, so only a change
+        // is assigned: about once a second while it runs, not on every update. The bar follows
+        // the shown second, so it steps with the digits.
         if text != timerText { timerText = text }
-        timerRunning = countdown.isRunning
-        timerProgress = min(1, remaining / max(1, countdown.duration))
+        if timerRunning != countdown.isRunning { timerRunning = countdown.isRunning }
+        let progress = min(1, ceil(remaining) / max(1, countdown.duration))
+        if progress != timerProgress { timerProgress = progress }
         if countdown.isRunning && remaining <= 0 {
-            countdown.pause(now: now); timerRunning = false; timerFinished = true
+            countdown.pause(now: now); timerRunning = false; timerFinished = true; timerFinishedAt = now
             countdownTimer?.invalidate(); countdownTimer = nil
             if settings.value.timerChime { NSSound(named: "Glass")?.play() }
         }
         updateStatus()
+        updateTimerKeepAwake(now: now)
+    }
+    /// The display stays awake while the timer's window shows a running countdown, and for
+    /// timeUpKeepAwake after Time is up; Pause, Hide, Stop, minimising and closing the window let
+    /// it sleep (#174). Decided from the current state each time, so a stale re-evaluation cannot end a
+    /// newer countdown's hold, and only a change begins or ends the one activity.
+    private func updateTimerKeepAwake(now: Date? = nil) {
+        let now = now ?? timerClock()
+        let timeUpLeft = timerFinished ? timerFinishedAt.map { Self.timeUpKeepAwake - now.timeIntervalSince($0) } ?? 0 : 0
+        let onScreen = timerShown && timerWindow?.isMiniaturized != true
+        let wanted = !shuttingDown && onScreen && (timerRunning || timeUpLeft > 0)
+        timeUpKeepAwakeEnd?.invalidate(); timeUpKeepAwakeEnd = nil
+        if wanted && !timerRunning {
+            let end = Timer(timeInterval: timeUpLeft, repeats: false) { [weak self] _ in self?.updateTimerKeepAwake() }
+            RunLoop.main.add(end, forMode: .common); timeUpKeepAwakeEnd = end
+        }
+        if wanted, timerKeepAwake == nil {
+            timerKeepAwake = beginTimerKeepAwake()
+        } else if !wanted, let timerKeepAwake {
+            endTimerKeepAwake(timerKeepAwake); self.timerKeepAwake = nil
+        }
     }
     private func showTimer() {
         if timerWindow == nil {
@@ -796,6 +855,7 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
         }
         restoreTimerPosition()
         timerWindow?.alphaValue = settings.value.timerOpacity; timerWindow?.orderFrontRegardless(); timerShown = true
+        updateTimerKeepAwake()
     }
     private func timerDisplay(containing frame: NSRect) -> BreakTimerDisplay? {
         let displays = availableTimerDisplays()
@@ -912,7 +972,8 @@ final class AppCoordinator: NSObject, ObservableObject, NSWindowDelegate, NSPopo
     func refreshShortcutRegistration() {
         guard !shortcutsSuspended, recordingAction == nil else { return }
         let conflicts = StageShortcutSettings.registrationFailures(in: StageShortcutSettings.descriptors(for: settings.value), validateExternal: validateExternalShortcut)
-        guard conflicts != registeredShortcutConflicts else { return }
+        // A key macOS refused is tried again while none is held, since its holder may have let it go.
+        guard conflicts != registeredShortcutConflicts || (!hotkeys.failures.isEmpty && heldAction == nil) else { return }
         registerShortcuts()
     }
     private func registerShortcuts() {

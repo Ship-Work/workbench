@@ -49,7 +49,74 @@ import SwiftUI
                    "delayed words do not claim capture stopped")
         try expect(MeetingFollowUp.task.contains("Do not send, schedule or change anything")
             && MeetingFollowUp.task.contains("no follow-up"), "follow-up drafts allow no-action calls and retain review")
+        try checkLongTranscriptLayout(expect)
         print("Live voice experience: \(count) checks passed")
+    }
+
+    /// A two-hour call keeps the page responsive: the clock's once-a-second relayout must not
+    /// measure every turn. Synthetic words only, hosted offscreen like the renders.
+    private static func checkLongTranscriptLayout(_ expect: (Bool, String) throws -> Void) throws {
+        _ = NSApplication.shared
+        let words = Array(repeating: "word", count: 13).joined(separator: " ")
+        let turns = (0..<1_200).map { index in
+            LiveVoiceSegment(source: index.isMultiple(of: 2) ? .app : .microphone, start: Double(index * 6),
+                             end: Double(index * 6 + 5), text: "Turn \(index) " + words, isFinal: true)
+        }
+        let snapshot = LiveVoiceSnapshot(sessionID: UUID(), phase: .listening, elapsed: 7_200, segments: turns)
+        let saved = turns.map { "\($0.source.label): \($0.text)" }.joined(separator: "\n\n")
+        for completedText in [nil, saved] {
+            let view = NSHostingView(rootView: TranscriptLayoutProbe(caption: "0:00", snapshot: snapshot, completedText: completedText))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 948, height: 800),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = view; window.isReleasedWhenClosed = false
+            view.layoutSubtreeIfNeeded()
+            var timings: [Double] = []
+            for second in 1...3 {
+                view.rootView = TranscriptLayoutProbe(caption: "0:0\(second)", snapshot: snapshot, completedText: completedText)
+                let started = Date()
+                view.layoutSubtreeIfNeeded()
+                timings.append(Date().timeIntervalSince(started))
+            }
+            // Measuring every turn took about 20 s here; the clamp takes 0.1 to 0.25 s, the upper end on a
+            // shared CI runner. A second keeps that twentyfold margin without failing on a slow machine.
+            let median = timings.sorted()[1], kind = completedText == nil ? "live" : "saved"
+            try expect(median < 1.0, "a 1,200-turn \(kind) transcript relayouts for the clock in under a second (median \(Int(median * 1000)) ms)")
+            try expect(transcriptScroll(in: view)?.frame.height == LiveTranscriptText.maximumHeight,
+                       "a 1,200-turn \(kind) transcript stays clamped at 360 pt")
+            window.close()
+        }
+        let short = Array(turns.prefix(3))
+        let view = NSHostingView(rootView: TranscriptLayoutProbe(caption: "0:25",
+            snapshot: LiveVoiceSnapshot(sessionID: UUID(), phase: .listening, elapsed: 25, segments: short), completedText: nil))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 602, height: 470),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view; window.isReleasedWhenClosed = false
+        view.layoutSubtreeIfNeeded()
+        let hosted = transcriptScroll(in: view)
+        let whole = (hosted?.documentView as? NSTextView)?.attributedString() ?? NSAttributedString()
+        let measured = ceil(whole.boundingRect(with: NSSize(width: hosted?.frame.width ?? 0, height: .greatestFiniteMagnitude),
+                                               options: [.usesLineFragmentOrigin, .usesFontLeading]).height) + 8
+        try expect(whole.length > 0 && hosted?.frame.height == min(LiveTranscriptText.maximumHeight, max(LiveTranscriptText.minimumHeight, measured)),
+                   "a three-turn transcript keeps the height of its whole text")
+        window.close()
+    }
+
+    private static func transcriptScroll(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView, scroll.documentView is NSTextView { return scroll }
+        for child in view.subviews { if let found = transcriptScroll(in: child) { return found } }
+        return nil
+    }
+
+    private struct TranscriptLayoutProbe: View {
+        let caption: String
+        let snapshot: LiveVoiceSnapshot
+        let completedText: String?
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(caption).font(.caption).monospacedDigit()
+                LiveVoiceTranscriptView(snapshot: snapshot, conversation: true, completedText: completedText)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
     }
 
     private final class ActivityFixture: MeetingProcessSource {

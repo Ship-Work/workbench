@@ -162,7 +162,7 @@ struct WorkbenchControlState {
     }
 
     /// Home's Persona controls use the same own-capability projection as the
-    /// menu: another input operation cannot claim its Hide or Show action.
+    /// menu: another capability's live work cannot claim its Hide or Show action.
     var personaAction: ToolbarNextAction { nextAction(.persona)! }
 
     /// What the Persona action does, for its tooltip. It follows the same
@@ -170,7 +170,7 @@ struct WorkbenchControlState {
     var personaDetail: String {
         switch personaAction.operation {
         case .pauseOverlays: return "Hide the set without ending it."
-        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish the current input operation before showing the set again."
+        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish Dictate, Snap & Talk or the shortcut change before showing the set again."
         case .hidePersona: return "Hide the persona without ending the scene."
         case .cancelPersonaCamera: return "Cancel the camera request."
         case .hidePersonaCamera: return "Hide the bubble and release the camera."
@@ -229,10 +229,9 @@ struct WorkbenchControlState {
     }
 }
 
-/// Home's Persona row and tile (#134). Every live word, the tooltip and the
-/// click come from the shared Persona action, so a hidden prepared set reads
-/// Show personas on Home as it does on the toolbar and panel. Only the idle
-/// tile keeps a description, as Home's other tiles do.
+/// Home's Persona row (#134). Every live word, the tooltip and the click come
+/// from the shared Persona action, so a hidden prepared set reads Show personas
+/// on Home as it does on the toolbar and panel.
 struct HomePersonaControl {
     let action: ToolbarNextAction
     let help: String
@@ -245,8 +244,6 @@ struct HomePersonaControl {
     }
     /// The live strip's button.
     var rowTitle: String { action.title }
-    /// The tile's second line.
-    var tileVerb: String { action.operation == .start(.persona) ? "Show a card over your apps" : action.title }
     var operation: ToolbarOperation { action.operation }
     var isEnabled: Bool { action.isEnabled }
     func isAdmitted(in state: WorkbenchControlState) -> Bool {
