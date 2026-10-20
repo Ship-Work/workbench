@@ -1,0 +1,31 @@
+{
+ "build": "Workbench Preview\nVersion: 2.5.0 (20261015062021)\nSource: 59753fc5898fc9426cff30b8a3f43443caaf3da5\nBuild: Local development\nModified source: yes\nmacOS: Version 26.5.1 (Build 25F80)",
+ "check: admission allows Start: Ready to record ": true,
+ "check: app audio only is the prepared source": true,
+ "elapsedSeconds": 13.556,
+ "failures": [
+  "The tap delivered only silence for 10 s. Audio Recording is not allowed for this identity (com.ethdawg.workbench.preview), and macOS shows no prompt for it. Run the check from the signed app: open -n -W -a \"Workbench Preview.app\" --args --check-meeting-capture-native NEW_FOLDER"
+ ],
+ "fixtureSeconds": 26.68675736961451,
+ "fixtureVoices": [
+  "Daniel",
+  "Samantha"
+ ],
+ "fixtureWords": 74,
+ "identity": "com.ethdawg.workbench.preview",
+ "macOS": "Version 26.5.1 (Build 25F80)",
+ "modelPrepareSeconds": 0.328,
+ "playerCompileSeconds": 0.662,
+ "playerLaunch": "LaunchServices",
+ "playerListedSeconds": 0.637,
+ "playerPID": 63614,
+ "selfEnd": false,
+ "startSeconds": 0.057,
+ "summary": [
+  "Meeting capture native check \u00b7 Preview 2.5.0 (20261015062021) \u00b7 source 59753fc5898fc9426cff30b8a3f43443caaf3da5 \u00b7 identity com.ethdawg.workbench.preview",
+  "Fixture: 74 words, 26.7 s, voices Daniel and Samantha",
+  "Parakeet ready from cache in 0.3 s",
+  "Fixture player launched: pid 63614, bundle dev.workbench.meeting-fixture-player, LaunchServices",
+  "Recording after 0.06 s \u00b7 Recording. Your original audio is being saved."
+ ]
+}

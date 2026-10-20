@@ -136,6 +136,7 @@ enum HandoffJobsChecks {
                 role: .reference, images: [image])
         ]
         let skill = try TranscriptHandoffSkills.followUpSnapshot()
+        let meetingTask = TranscriptHandoffSkill.builtIns.first { $0.id == MeetingFollowUp.skillID }?.defaultTask ?? "Prepare notes and a follow-up message from this conversation."
         let store = HandoffJobsModel(directory: root)
         let first = try store.prepare(sources: sources, task: "Summarize the decision.", skill: skill)
         let again = try store.prepare(sources: sources, task: "Summarize the decision.", skill: skill)
@@ -176,7 +177,7 @@ enum HandoffJobsChecks {
         let calls = HandoffJobsModel(directory: root.appendingPathComponent("call"))
         let callJob = try calls.prepare(sources: [HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: UUID()),
             title: "Synthetic call", capturedAt: Date(timeIntervalSince1970: 200), text: call.conversation, originalText: call.text,
-            role: .reference, seconds: 3_720)], task: MeetingFollowUp.task, skill: skill)
+            role: .reference, seconds: 3_720)], task: meetingTask, skill: skill)
         let callFolder = calls.folder(callJob)
         let callSnapshot = try HandoffJobStore.read(HandoffSnapshotRecord.self, at: callFolder.appendingPathComponent("selection.json"))
         let callPrompts = [true, false].map { HandoffJobStore.prompt(snapshot: callSnapshot, skill: followUpText, folder: callFolder, manual: $0) }
@@ -326,7 +327,7 @@ enum HandoffJobsChecks {
         let recaps = HandoffJobsModel(directory: root.appendingPathComponent("home-recap"), switches: ({ _ in false }, { _, _ in }))
         var recapClock = Date(timeIntervalSince1970: 1_000)
         recaps.clock = { recapClock.addTimeInterval(1); return recapClock }
-        let meetingFollowUp = try recaps.prepare(sources: [sources[0]], task: MeetingFollowUp.task, skill: skill)
+        let meetingFollowUp = try recaps.prepare(sources: [sources[0]], task: meetingTask, skill: skill)
         let laterDetails = try recaps.prepare(sources: [sources[0]], task: MetadataSuggestionReview.task, skill: skill)
         await recaps.loadTaskFiles(recaps.jobs)
         let recapInputs = { (job: HandoffJob) in recaps.files(job)?.inputs.items.map(\.reference) ?? [] }

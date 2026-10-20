@@ -7,6 +7,8 @@ struct HandoffReviewRequest: Identifiable {
     var evidenceURL: URL? = nil
     var snapReview = false
     var savedSelectionID: UUID? = nil
+    /// Opened from a meeting's own Prepare follow-up…: the review offers the bundled meeting skill first.
+    var meetingFollowUp = false
 }
 
 struct MetadataSuggestionReview: Identifiable {

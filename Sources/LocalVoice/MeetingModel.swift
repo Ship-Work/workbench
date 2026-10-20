@@ -80,6 +80,9 @@ final class MeetingModel: ObservableObject {
     /// Checks replace this so they never fill the person's Trash.
     var moveToTrash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     var onStateChange: (() -> Void)?
+    /// Quit while a meeting records asks first (#280). Checks answer here; the app delegate's
+    /// alert answers when this is nil.
+    var approveQuitWhileRecording: (() -> MeetingQuitChoice)?
 
     static let detectionKey = "workbench.meeting.detect.v1"
     nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
@@ -95,6 +98,9 @@ final class MeetingModel: ObservableObject {
     private let captureFactory: () -> MeetingCapture
     /// The running recording's evidence of call audio, finished when the recording ends.
     private var callAudioEvidence: CallAudioEvidence?
+    /// The chosen app's silence explained on its source line (MeetingSilenceHint), owned here because
+    /// live snapshots replace the sources and the model reapplies its own line after each one.
+    private var silenceHint: String?
     private let startupNoticeDelayNanoseconds: UInt64
     private var generation = UUID()
     var recordingIdentity: UUID? { isRecording ? generation : nil }
@@ -278,7 +284,7 @@ final class MeetingModel: ObservableObject {
         let token = UUID(); generation = token
         let microphone = includeMicrophone, kind = purpose == "call" ? "call" : "meeting"
         setProblem(nil); offer = nil; elapsed = 0; pendingTranscriptNotes = []; completedTranscriptID = nil; completedTranscriptText = nil; keptWithoutSpeech = nil; receipt = nil
-        autoFinish = MeetingAutoFinish(); autoFinishSeconds = nil; recordingApp = app
+        autoFinish = MeetingAutoFinish(); autoFinishSeconds = nil; recordingApp = app; silenceHint = nil
         notice = microphone ? "Waiting for microphone access…" : "Starting app audio… macOS may ask for Audio Recording access."
         phase(starting: true)
         voiceSession = LiveVoiceSnapshot(phase: .preparing)
@@ -448,6 +454,7 @@ final class MeetingModel: ObservableObject {
         guard voiceSession.sessionID == snapshot.sessionID, activeSession != nil else { return }
         voiceSession = snapshot
         voiceSession.elapsed = max(elapsed, snapshot.elapsed)
+        applySilenceHint()
         if isProcessing { voiceSession.phase = .finishing }
         else if isRecording && voiceSession.phase == .recoverableFailure { voiceSession.phase = .listening }
         else if activeCapture?.isPaused == true {
@@ -652,9 +659,15 @@ final class MeetingModel: ObservableObject {
                 if self.elapsed >= MeetingSegmentPlan.maximumMeetingSeconds { reason = "The two-hour recording limit was reached." }
                 ticks += 1
                 if ticks % 4 == 0, let app = self.recordingApp {
-                    self.autoFinishSeconds = self.autoFinish.observe(self.detector.activity(for: app),
+                    let activity = self.detector.activity(for: app)
+                    let settled = !capture.isPaused && capture.recoveryMessage == nil
+                    self.autoFinishSeconds = self.autoFinish.observe(activity,
                         now: ProcessInfo.processInfo.systemUptime,
-                        suspended: !self.automaticallyFinishCalls || capture.isPaused || capture.recoveryMessage != nil)
+                        suspended: !self.automaticallyFinishCalls || !settled)
+                    // A paused or reconnecting source is not silent for want of permission.
+                    self.silenceHint = MeetingSilenceHint.message(appName: app.name, elapsed: self.elapsed,
+                        heard: self.callAudioEvidence?.hasHeardSound ?? true, activity: settled ? activity : .unknown)
+                    self.applySilenceHint()
                 }
                 if ticks % 10 == 0 {
                     let root = self.directory
@@ -671,6 +684,12 @@ final class MeetingModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private func applySilenceHint() {
+        guard let index = voiceSession.sources.firstIndex(where: { $0.source == .app }),
+              voiceSession.sources[index].message != silenceHint else { return }
+        voiceSession.sources[index].message = silenceHint
     }
 
     private func phase(starting: Bool = false, recording: Bool = false, processing: Bool = false) {
@@ -807,6 +826,9 @@ final class CallAudioEvidence: @unchecked Sendable {
     }
     private let defaults: UserDefaults
     init(_ defaults: UserDefaults) { self.defaults = defaults }
+    /// Whether the app has delivered a sample carrying sound. A refused tap never sets it, which is
+    /// why the recording watcher can explain silence without claiming a refusal.
+    var hasHeardSound: Bool { lock.lock(); defer { lock.unlock() }; return heard }
     func hear(_ samples: [Float]) {
         lock.lock(); let done = heard; lock.unlock()
         guard !done, samples.contains(where: { $0 != 0 }) else { return }
@@ -814,5 +836,45 @@ final class CallAudioEvidence: @unchecked Sendable {
         guard !heard else { return }
         heard = true
         defaults.set(CallAudioRecord.allowed.rawValue, forKey: CallAudioRecord.key)
+    }
+}
+
+/// What Quit does while a meeting is recording (#280). The question is the app delegate's alert;
+/// the buttons, their order and what each one does live here so --check-meetings can hold them.
+enum MeetingQuitChoice: CaseIterable, Equatable {
+    case finishMeeting, keepRecording, quitAndKeepForLater
+    static let message = "A meeting is recording."
+    static let detail = "Finish meeting saves the transcript, then quits. Keep for later keeps the audio to transcribe next time."
+    /// The alert's buttons in order; the first is the default and Keep recording answers Escape.
+    static let buttons: [MeetingQuitChoice] = [.finishMeeting, .keepRecording, .quitAndKeepForLater]
+    var title: String {
+        switch self {
+        case .finishMeeting: return "Finish meeting"
+        case .keepRecording: return "Keep recording"
+        case .quitAndKeepForLater: return "Quit and keep for later"
+        }
+    }
+    static func choice(for response: NSApplication.ModalResponse) -> MeetingQuitChoice {
+        switch response {
+        case .alertFirstButtonReturn: return .finishMeeting
+        case .alertThirdButtonReturn: return .quitAndKeepForLater
+        default: return .keepRecording
+        }
+    }
+    struct Plan: Equatable {
+        /// Whether Workbench quits; Keep recording cancels the quit.
+        var quits: Bool
+        /// Whether the meeting is finished and its transcript saved before the other shutdowns;
+        /// otherwise the audio is kept for later, as Quit always did.
+        var finishesMeeting: Bool
+    }
+    /// The delegate's rule: only a recording meeting is asked; anything else quits as before.
+    static func plan(recording: Bool, ask: () -> MeetingQuitChoice) -> Plan {
+        guard recording else { return Plan(quits: true, finishesMeeting: false) }
+        switch ask() {
+        case .finishMeeting: return Plan(quits: true, finishesMeeting: true)
+        case .keepRecording: return Plan(quits: false, finishesMeeting: false)
+        case .quitAndKeepForLater: return Plan(quits: true, finishesMeeting: false)
+        }
     }
 }
