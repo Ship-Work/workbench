@@ -24,7 +24,7 @@ Meetings keeps its existing `start()`, `stop()`, `cancel()` (keep for later), re
 
 The session remains open across a device change. Unavailable audio is represented on its real timeline and reported; audio is never compressed across a missing interval. Pause creates no speech. Stop flushes the remaining speech before saving. Capture and confirmed words remain recoverable if recognition fails.
 
-One-click offers are available only for sources the metadata detector can identify. Browser capture can include its other tabs. Safari's page and call audio plays in WebKit's media process, which belongs to Safari only when macOS holds Safari responsible for it, so another app's WebKit audio is never offered or recorded as Safari; FaceTime and Phone recordings also tap the Mac calling service, where their calls play (#377). The app name is not a meeting title or participant identity. Microphone-only recording remains an explicit choice. Detection stays off until enabled and never starts recording itself.
+One-click offers are available only for sources the metadata detector can identify. Browser capture can include its other tabs. Safari is offered when macOS attributes the WebKit helper to Safari; this is not yet observed on a real Safari call. Another app's WebKit audio is never offered or recorded as Safari, and where attribution is unavailable Safari's entry says its calls are not supported on this Mac ([the decision](desktop.md#decisions)). FaceTime and Phone recordings also tap the Mac calling service, where their calls play (#377). The app name is not a meeting title or participant identity. Microphone-only recording remains an explicit choice. Detection stays off until enabled and never starts recording itself.
 
 ## Recognition and recovery
 
