@@ -302,15 +302,27 @@ enum MeetingChecks {
             .init(speaker: .others, start: 5, end: 6, text: "Thanks")]
         try expect(MeetingConversation.conversation(heard) == "Others: Can you send the draft by Friday\n\nYou: Yes I will and copy Sam\n\nOthers: Thanks",
                    "speaker turns are chronological, a speaker echo is dropped and a reply is kept")
-        // A short microphone fragment inside a long remote utterance is the same echo (#377). A reply the
-        // other side did not say then is kept, even "Yes" when they said it at the start of their turn.
+        // A fragment of three words or more inside a long remote utterance, where the other side said
+        // those words, is the same echo (#377). A one-word reply is kept, even "Yes" when they said it
+        // at the start of their turn.
         let longTurn = "Yes we need to agree the plan today so first the budget needs to go to finance by Friday and then the slides go to Sam next week"
         let fragments: [MeetingConversation.Utterance] = [
             .init(speaker: .others, start: 0, end: 20, text: longTurn),
-            .init(speaker: .you, start: 6.8, end: 8.4, text: "the budget needs to go"),
+            .init(speaker: .you, start: 7.6, end: 10.9, text: "the budget needs to go"),
             .init(speaker: .you, start: 18.5, end: 18.9, text: "Yes")]
         try expect(MeetingConversation.conversation(fragments) == "Others: \(longTurn)\n\nYou: Yes",
                    "an echoed fragment of a long utterance is dropped and a reply the other side did not say then is kept")
+        // With headphones the microphone hears only you: one- and two-word replies over their long turn
+        // are kept, even when they said that word nearby (#377).
+        let planTurn = "so the plan is that we finish the draft this week okay and then if Friday works we send it to legal and Sam reviews the numbers on Monday"
+        let headphoneReplies: [MeetingConversation.Utterance] = [
+            .init(speaker: .others, start: 0, end: 20, text: planTurn),
+            .init(speaker: .you, start: 3.0, end: 3.5, text: "Right"),
+            .init(speaker: .you, start: 9.0, end: 9.5, text: "Okay"),
+            .init(speaker: .you, start: 12.0, end: 12.6, text: "Friday?"),
+            .init(speaker: .you, start: 16.0, end: 16.6, text: "Sam, yes")]
+        try expect(MeetingConversation.conversation(headphoneReplies) == "Others: \(planTurn)\n\nYou: Right\n\nYou: Okay\n\nYou: Friday?\n\nYou: Sam, yes",
+                   "short replies over a long turn are kept when the other side said the same word nearby")
 
         var talk = manifest()
         let talkSession = try MeetingStore.create(root: storeRoot, manifest: talk)

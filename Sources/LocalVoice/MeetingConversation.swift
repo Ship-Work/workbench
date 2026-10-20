@@ -26,7 +26,7 @@ enum MeetingConversation {
 
     static let frameSeconds = 0.03
     static let minimumSpeechSeconds = 0.4
-    /// Live words are cut into utterances by the same two values, so both paths judge echoes alike.
+    /// Live words are cut into utterances by the same two values, so both paths order turns alike.
     static let joinSilenceSeconds = SpeakerEcho.pauseSeconds
     static let maximumUtteranceSeconds = SpeakerEcho.longestSeconds
     static let maximumUtterances = 2_000
@@ -113,8 +113,8 @@ enum MeetingConversation {
     }
 
     /// On laptop speakers the microphone also hears the other side. Drop a "You" utterance
-    /// that mostly overlaps an "Others" utterance and repeats its words, by the rule live words
-    /// use too (SpeakerEcho): a short fragment inside a long utterance is dropped as well (#377).
+    /// that mostly overlaps an "Others" utterance and repeats its words (SpeakerEcho.isEcho):
+    /// a fragment of three words or more inside a long utterance is dropped as well (#377).
     static func withoutEchoes(_ utterances: [Utterance]) -> [Utterance] {
         func heard(_ utterance: Utterance) -> SpeakerEcho.Utterance { .init(start: utterance.start, end: utterance.end, text: utterance.text) }
         let mine = utterances.indices.filter { utterances[$0].speaker == .you }
