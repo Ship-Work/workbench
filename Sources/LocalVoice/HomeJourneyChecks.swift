@@ -405,6 +405,14 @@ enum HomeJourneyChecks {
                   && HomeMeetings.followUpState(.completed) == "Follow-up completed" && HomeMeetings.followUpState(.failed) == "Follow-up failed"
                   && HomeMeetings.followUpState(.cancelled) == "Follow-up cancelled",
                   "a prepared follow-up never reads as ready; the others read as History's badges")
+        // A follow-up only prepared, as Copy instructions leaves one, has no way back but Start task,
+        // so its door stays Prepare follow-up…; one that ran opens in History (#377).
+        var prepared = newerFollowUp
+        prepared.status = .ready; prepared.attempts = 0
+        try check(!HomeMeetings.opensFollowUp(prepared) && !HomeMeetings.opensFollowUp(nil)
+                  && [HandoffJobStatus.running, .completed, .failed, .cancelled, .interrupted].allSatisfy { status in
+                      var ran = newerFollowUp; ran.status = status; return HomeMeetings.opensFollowUp(ran) },
+                  "a follow-up only prepared keeps Prepare follow-up…, and one that ran becomes Open follow-up")
         var finished = newerFollowUp
         finished.updatedAt = newerFollowUp.updatedAt.addingTimeInterval(30); finished.status = .completed
         try check(HomeMeetings.taskStamps([unrelated, newerFollowUp]) != HomeMeetings.taskStamps([unrelated, finished])

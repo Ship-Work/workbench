@@ -5496,7 +5496,7 @@
     "kind": "action",
     "belongsTo": "history",
     "aliasOf": "history",
-    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6)."
+    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6). Stays while the follow-up is only prepared, so Start task can run that same task and bring its result to the tile (#377)."
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-fe289c1404ed",
@@ -5661,7 +5661,7 @@
     "label": "Open follow-up",
     "kind": "action",
     "belongsTo": "history",
-    "note": "Option: once a follow-up was made from the newest meeting, opens that task in History, where Copy result copies it."
+    "note": "Option: once a follow-up from the newest meeting has run in Workbench (finished or not), opens that task in History, where Copy result, Retry… and its receipt are. A follow-up only prepared, such as one copied to the person's own assistant, keeps Prepare follow-up… (#377)."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.review-transcript",
