@@ -126,7 +126,9 @@ final class MeetingModel: ObservableObject {
     private var activeManifest: MeetingManifest?
     private var processingSessionID: UUID?
     private var shuttingDown = false
-    private var liveEngine: RecognitionEngine?
+    /// Live words come from this engine; the app's initializer sets it, and the finish check
+    /// (MeetingFinishCheck) sets it beside its recorded lanes.
+    var liveEngine: RecognitionEngine?
     private var liveVoice: LiveVoiceService?
 
     convenience init(engine: RecognitionEngine, directory: URL, defaults: UserDefaults = .standard) {
