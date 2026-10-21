@@ -130,7 +130,9 @@ struct LiveVoiceWindow {
             var sum: Float = 0
             for index in (levels.count * frame)..<((levels.count + 1) * frame) { sum += samples[index] * samples[index] }
             let level = 20 * log10(max((sum / Float(frame)).squareRoot(), 1e-9))
-            floor = level < floor ? level : floor + (level - floor) * 0.001
+            // Digital silence, a padded gap or a call app's own, says nothing about the room's floor;
+            // following it down would make steady noise read as speech for a minute after.
+            if level > -120 { floor = level < floor ? level : floor + (level - floor) * 0.001 }
             levels.append(level); quiet.append(level <= max(floor + Self.speechAboveFloor, Self.quietestSpeech))
         }
     }
@@ -247,6 +249,13 @@ struct LiveVoiceWindow {
         guard let earliest = words.map(\.start).min() else { return true }
         return request.audioStart + earliest - sounding > phrasing.missedStartSeconds
     }
+    /// Whether a reading's first `seconds` are quiet, so a second reading can start after them
+    /// without losing a word.
+    func opensQuietly(_ request: Request, seconds: Double) -> Bool {
+        let first = Int(((request.audioStart - start) * rate).rounded()) / frame
+        let count = Int((seconds / Self.frameSeconds).rounded(.up))
+        return first >= 0 && first + count <= quiet.count && quiet[first..<(first + count)].allSatisfy { $0 }
+    }
     @discardableResult mutating func accept(_ request: Request) -> Bool {
         previewed = max(previewed, request.endFrame)
         guard let cut = pending else { return false }
@@ -290,9 +299,14 @@ struct LiveVoiceWindow {
 /// Live words degrade instead of dying (#280). Each kind is noted once per pass; the pass is then
 /// incomplete and the saved transcript comes from the original audio at finish.
 enum LiveVoiceDegradation: Hashable {
-    case backlog
+    case backlog, doubtfulEnding
     func note(at seconds: Double) -> String {
-        "Live text fell behind at \(Int(seconds.rounded())) s; the words from the original audio replace it at finish."
+        switch self {
+        case .backlog:
+            return "Live text fell behind at \(Int(seconds.rounded())) s; the words from the original audio replace it at finish."
+        case .doubtfulEnding:
+            return "Live words may have missed the last words from \(Int(seconds.rounded())) s; the recording is transcribed instead."
+        }
     }
 }
 
@@ -327,8 +341,12 @@ final class LiveVoiceService: @unchecked Sendable {
     let input = LiveVoiceInput()
     private let task: Task<LiveVoiceCheckpoint, Never>
 
-    init(id: UUID, sources: [LiveVoiceSourceStatus], journal: URL?, recognize: @escaping Recognize,
-         update: @escaping @Sendable (LiveVoiceSnapshot) -> Void) {
+    /// `doubtfulEndingIsIncomplete`: a last reading still doubted after its second reading leaves the
+    /// pass incomplete, so the saved recording is transcribed instead. Dictate sets it, where that
+    /// costs one short reading; Meetings does not, where it would cost the whole meeting for every
+    /// call that ends on a cough or typing.
+    init(id: UUID, sources: [LiveVoiceSourceStatus], journal: URL?, doubtfulEndingIsIncomplete: Bool = false,
+         recognize: @escaping Recognize, update: @escaping @Sendable (LiveVoiceSnapshot) -> Void) {
         let input = input
         task = Task.detached(priority: .utility) {
             defer { input.close() }
@@ -386,11 +404,20 @@ final class LiveVoiceService: @unchecked Sendable {
                             var words = samples.allSatisfy({ abs($0) < 0.000001 }) ? [] : try await recognize(samples)
                             try Task.checkCancellation()
                             // A phrase's last reading has no later one to correct it: one that probably
-                            // missed words is read again 80 ms later in, and the fuller reading kept.
-                            if request.final, samples.count >= 4_800 + 1_280, queue[0].doubts(words, request) {
-                                let later = try await recognize(Array(samples.dropFirst(1_280)))
+                            // missed words is read again 80 ms out of step, by dropping its first 80 ms
+                            // when they are quiet or adding 80 ms of silence before it, and the fuller
+                            // reading is kept.
+                            if request.final, samples.count >= 4_800, queue[0].doubts(words, request) {
+                                let skip = samples.count >= 4_800 + 1_280 && queue[0].opensQuietly(request, seconds: 0.08)
+                                let shift = skip ? 0.08 : -0.08
+                                let later = try await recognize(skip ? Array(samples.dropFirst(1_280)) : [Float](repeating: 0, count: 1_280) + samples)
                                 try Task.checkCancellation()
-                                if later.count > words.count { words = later.map { LiveVoiceWord(text: $0.text, start: $0.start + 0.08, end: $0.end + 0.08) } }
+                                if later.count > words.count {
+                                    words = later.map { LiveVoiceWord(text: $0.text, start: max(0, $0.start + shift), end: max(0, $0.end + shift)) }
+                                }
+                                if doubtfulEndingIsIncomplete, queue[0].doubts(words, request), EmptyReading.isAudible(samples) {
+                                    degrade(.doubtfulEnding, at: request.from)
+                                }
                             }
                             let segments = try queue[0].segments(words: words, request: request)
                             tails[source] = segments.filter { !$0.isFinal }

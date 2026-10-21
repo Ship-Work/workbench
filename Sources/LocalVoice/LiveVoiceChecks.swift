@@ -322,6 +322,28 @@ enum LiveVoiceChecks {
         let length = await shortDecoder.lastLength
         try expect(length == 4_800, "short tail is padded only for the recognizer")
 
+        // A phrase's last reading that hears nothing over sound is read again 80 ms out of step, here
+        // with silence before it (its start is speech, so none of it is dropped), and the words keep
+        // their times. However the loop meets the audio, every reading of the whole of it is empty.
+        let ending = samples(1..<4), endingDecoder = FixtureDecoder()
+        let reread = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+            recognize: { audio in audio.count == ending.count ? [] : try await endingDecoder.recognize(audio) }, update: { _ in })
+        reread.input.append(.init(source: .microphone, samples: ending, sampleRate: 16_000, start: 2))
+        let rereadPass = await reread.finish()
+        try expect(rereadPass.complete && rereadPass.text == "word1 word2 word3"
+                   && rereadPass.orderedSegments.map(\.start) == [2, 3, 4], "an empty last reading is read again and its words keep their times")
+        // Still nothing over sound: a meeting keeps the pass (the saved-audio path would read it with the
+        // same model), while Dictate, where the saved recording is one short reading, falls back to it.
+        func deafEnding(dictating: Bool) async -> LiveVoiceCheckpoint {
+            let service = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+                doubtfulEndingIsIncomplete: dictating, recognize: { _ in [] }, update: { _ in })
+            service.input.append(.init(source: .microphone, samples: ending, sampleRate: 16_000, start: 0))
+            return await service.finish()
+        }
+        let meetingEnding = await deafEnding(dictating: false), dictationEnding = await deafEnding(dictating: true)
+        try expect(meetingEnding.complete && !dictationEnding.complete && dictationEnding.notes.count == 1,
+                   "a last reading that stays empty over sound leaves a meeting's pass complete and Dictate's to the recording")
+
         let mailbox = LiveVoiceInput(maximumFrames: 10)
         mailbox.append(.init(source: .microphone, samples: [Float](repeating: 0.1, count: 11), sampleRate: 16_000, start: 0))
         let overflow = mailbox.drain()
@@ -364,7 +386,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
