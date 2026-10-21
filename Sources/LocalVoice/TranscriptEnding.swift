@@ -100,3 +100,44 @@ enum TranscriptEnding {
         String(word.lowercased().replacingOccurrences(of: "’", with: "'").filter { $0.isLetter || $0.isNumber || $0 == "'" })
     }
 }
+
+/// Parakeet decides the first word of a reading from a fresh state on a fine margin, and when it
+/// misses that word it usually hears nothing more in the window: the whole reading comes back
+/// empty over clear speech. On a ten-minute synthetic meeting 1 in 100 live readings did, and a
+/// second reading with a moment of silence after the audio recovered all 18 empty decodes of the
+/// worst window (docs/research/2026-10-22-meeting-transcription-speed.md). A reading that comes back
+/// empty while its audio holds speech is read once more that way.
+enum EmptyReading {
+    static let sampleRate = 16_000.0
+    /// Silence added after the audio for the second reading.
+    static let paddingSamples = 2_560
+    /// Speech-level sound for this long, in 30 ms frames louder than -40 dBFS, is worth a second reading.
+    static let audibleSeconds = 0.3
+    static let audibleLevel: Float = 0.01
+
+    /// The second reading's samples, or nil when the audio holds no speech-level sound or the
+    /// padding would take it past one model window.
+    static func retry(_ samples: [Float]) -> [Float]? {
+        guard samples.count + paddingSamples <= Int(TranscriptEnding.singleWindowSeconds * sampleRate), isAudible(samples) else { return nil }
+        return samples + [Float](repeating: 0, count: paddingSamples)
+    }
+
+    /// A saved recording's second reading; one longer than a model window is not read whole.
+    static func retry(_ url: URL) throws -> [Float]? {
+        let file = try AVAudioFile(forReading: url)
+        guard Double(file.length) / file.fileFormat.sampleRate < TranscriptEnding.singleWindowSeconds else { return nil }
+        return retry(try AudioConverter().resampleAudioFile(url))
+    }
+
+    static func isAudible(_ samples: [Float]) -> Bool {
+        let frame = Int(sampleRate * 0.03), needed = Int((audibleSeconds / 0.03).rounded(.up))
+        var loud = 0, start = 0
+        while start + frame <= samples.count {
+            var sum: Float = 0
+            for index in start..<(start + frame) { sum += samples[index] * samples[index] }
+            if (sum / Float(frame)).squareRoot() > audibleLevel { loud += 1; if loud >= needed { return true } }
+            start += frame
+        }
+        return false
+    }
+}
