@@ -291,7 +291,7 @@ struct ContentView: View {
     }
 
     private var captureTitle: String {
-        if model.preparing && model.phase == .idle { return "Preparing dictation…" }
+        if model.preparing && model.phase == .idle { return model.speechWarming ? "Ready to dictate" : "Preparing dictation…" }
         switch model.phase {
         case .idle: return model.idleMicrophoneTitle ?? (model.ready ? "Ready to dictate" : "Dictation unavailable")
         case .requesting: return "Waiting for microphone access"

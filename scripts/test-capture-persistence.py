@@ -24,7 +24,7 @@ core = SwiftFile(PROJECT / 'Sources/LocalVoice/Core.swift')
 methods = model.extract([
     'resumeWaitingDelivery', 'copyWaitingDelivery',
     # The Dictate shortcut's press and release, and the attempt it starts (#134 T5).
-    'toggleRecording', 'recordAgain', 'shortcutChanged',
+    'toggleRecording', 'speechWarming', 'speechWarmingWait', 'mayDictate', 'recordAgain', 'shortcutChanged',
     'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
     'importAudio(_:)', 'retryTranscription',
     # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
@@ -1415,6 +1415,38 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         superseded.coach.drop(stalePending)
         try check(superseded.captureCue == nil && superseded.phase != .idle, "a newer capture removes the pending card; a late drop shows no cue over it")
         superseded.cancelRecording()
+        // After every update speech gets ready again (about 15 s while the Neural Engine compiles):
+        // Dictate records instead of opening Models, and the recording's words wait for the model.
+        let warming = CaptureHarness(directory: folder("speech-warming"))
+        warming.ready = false; warming.preparing = true; warming.recognition.phase = .loading
+        warming.toggleRecording()
+        try await waitUntil("a start while speech is getting ready") { warming.startedAttempts.count == 1 }
+        try check(warming.page != "models", "Dictate records while speech is getting ready")
+        warming.cancelRecording()
+        let downloading = CaptureHarness(directory: folder("speech-downloading"))
+        downloading.ready = false; downloading.preparing = true; downloading.recognition.phase = .downloading
+        downloading.toggleRecording()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try check(downloading.startedAttempts.isEmpty && downloading.page == "models", "A model still downloading sends Dictate to Models")
+        let waiting = CaptureHarness(directory: folder("speech-waiting"))
+        waiting.engine.state.operationID = UUID()
+        waiting.run(try waiting.makeRecording(wav), owned: true)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        try check(waiting.engine.calls == 0 && waiting.status == "Getting speech ready on this Mac…", "A recording's words wait while speech is getting ready")
+        waiting.engine.state.operationID = nil; waiting.engine.state.admission = .localReady
+        await finish(waiting)
+        try check(waiting.engine.calls == 1 && waiting.history.count == 1, "Then the recording is transcribed and saved once")
+        // Cancel during that wait keeps the recording for Retry; nothing has been heard yet.
+        let impatient = CaptureHarness(directory: folder("speech-waiting-cancel"))
+        impatient.engine.state.operationID = UUID()
+        let impatientURL = try impatient.makeRecording(wav)
+        impatient.run(impatientURL, owned: true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        impatient.cancelCurrentCapture()
+        await finish(impatient)
+        try check(impatient.canRetry && impatient.phase == .idle && impatient.engine.calls == 0
+                  && FileManager.default.fileExists(atPath: impatientURL.path) && impatient.captureRecovery.pending != nil,
+                  "Cancel while words wait for speech keeps the recording for Retry: \(impatient.status)")
         // Model preparation projects the engine's typed readiness without a second
         // attention notice, touching saved words, or automatically starting capture.
         let unprepared = CaptureHarness(directory: folder("model-preparation"))

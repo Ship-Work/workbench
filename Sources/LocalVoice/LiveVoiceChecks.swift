@@ -38,29 +38,102 @@ enum LiveVoiceChecks {
         catch is CheckFailure { throw VoiceError.message("Live voice check failed: stale identity accepted") }
         catch { count += 1 }
 
+        // Live words are confirmed a phrase at a time, cut where the source is quiet. Fixture words
+        // are a second each; `dip` puts a short quiet between them, as speech has.
+        func quiet(_ seconds: Double) -> [Float] { [Float](repeating: 0, count: Int(seconds * 16_000)) }
+        func speech(_ words: Range<Int>, dip: Double) -> [Float] {
+            words.flatMap { [Float](repeating: Float($0) / 100, count: 16_000) + [Float](repeating: 0.002, count: Int(dip * 16_000)) }
+        }
+        /// Reads a window the way the service does until nothing is left; returns the confirmed words.
+        func drive(_ window: inout LiveVoiceWindow, _ decoder: FixtureDecoder, finishing: Bool) async throws -> [LiveVoiceSegment] {
+            var confirmed: [LiveVoiceSegment] = []
+            while let request = window.request(finishing: finishing) {
+                let segments = try window.segments(words: try await decoder.recognize(request.audio), request: request)
+                if window.accept(request) { confirmed += segments.filter(\.isFinal) } else if !finishing { break }
+            }
+            return confirmed
+        }
         var window = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: samples(1..<4))
         let preview = window.request(finishing: false)!
         let provisional = try window.segments(words: await decoder.recognize(preview.audio), request: preview)
-        try expect(provisional.allSatisfy { !$0.isFinal } && provisional.map(\.text).joined(separator: " ") == "word1 word2 word3", "progressive tail available before a commit window")
-        window.accept(preview)
-        _ = window.append(.init(source: .microphone, samples: samples(4..<11), sampleRate: 16_000, start: 3))
-        let completed = window.request(finishing: false)!
-        let stable = try window.segments(words: await decoder.recognize(completed.audio), request: completed)
-        try expect(stable.first?.id == provisional.first?.id && stable.allSatisfy(\.isFinal), "final words replace the provisional segment using its stable ID")
+        try expect(!window.accept(preview) && provisional.allSatisfy { !$0.isFinal } && provisional.map(\.text).joined(separator: " ") == "word1 word2 word3",
+                   "words show while their phrase is still open")
+        _ = window.append(.init(source: .microphone, samples: quiet(2), sampleRate: 16_000, start: 3))
+        let ended = window.request(finishing: false)!
+        let stable = try window.segments(words: await decoder.recognize(ended.audio), request: ended)
+        try expect(window.accept(ended) && stable.allSatisfy(\.isFinal) && stable.map(\.id) == provisional.map(\.id)
+                   && abs(window.confirmedThrough - 4) < 0.05, "a pause ends the phrase in its middle, and its words keep their identity")
 
-        for firstMidpoint in [7.98, 8.02] {
-            var seam = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000,
-                                       samples: [Float](repeating: 0.1, count: 160_000))
-            let firstRequest = seam.request(finishing: false)!
-            let first = try seam.segments(words: [.init(text: "Before", start: 6.9, end: 7.1),
-                .init(text: "Yes", start: firstMidpoint - 0.1, end: firstMidpoint + 0.1)], request: firstRequest)
-            seam.accept(firstRequest)
-            let secondRequest = seam.request(finishing: true)!
-            let secondMidpoint = firstMidpoint == 7.98 ? 8.02 : 7.98
-            let second = try seam.segments(words: [.init(text: "Before", start: 0.9, end: 1.1),
-                .init(text: "Yes", start: secondMidpoint - 6.1, end: secondMidpoint - 5.9)], request: secondRequest)
-            try expect((first + second).filter { $0.text == "Yes" }.count == 1, "boundary jitter in either direction retains a word exactly once")
-        }
+        // Parakeet can hear nothing in a reading over clear speech (EmptyReading): sound with no
+        // words is never passed over as silence, and the next reading confirms the words.
+        let deaf = FixtureDecoder(script: [[]])
+        var missed = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: samples(1..<6) + quiet(1))
+        let unheard = missed.request(finishing: false)!
+        let none = try missed.segments(words: await deaf.recognize(unheard.audio), request: unheard)
+        _ = missed.append(.init(source: .microphone, samples: quiet(4), sampleRate: 16_000, start: 6))
+        try expect(none.isEmpty && !missed.accept(unheard), "a reading that hears nothing over speech confirms and cuts nothing")
+        let missedWords = try await drive(&missed, deaf, finishing: false)
+        try expect(missedWords.map(\.text) == (1..<6).map { "word\($0)" }, "the next reading confirms what the empty one missed")
+        // A first word long after the sound starts means the reading missed the phrase's start.
+        let late = FixtureDecoder(script: [[.init(text: "word3", start: 2, end: 3), .init(text: "word4", start: 3, end: 4)]])
+        var lateStart = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: samples(1..<5) + quiet(2))
+        let partial = lateStart.request(finishing: false)!
+        _ = try lateStart.segments(words: await late.recognize(partial.audio), request: partial)
+        try expect(!lateStart.accept(partial), "a reading whose first word comes 2 s after the sound confirms nothing")
+        _ = lateStart.append(.init(source: .microphone, samples: quiet(2), sampleRate: 16_000, start: 6))
+        let recovered = try await drive(&lateStart, late, finishing: false)
+        try expect(recovered.map(\.text) == (1..<5).map { "word\($0)" }, "a later reading confirms the phrase from its first word")
+
+        // Twenty seconds without a pause is cut in a gap between words in the window's second
+        // half; every word is confirmed exactly once on either side.
+        var continuous = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: speech(1..<21, dip: 0.06))
+        var unbroken = try await drive(&continuous, FixtureDecoder(), finishing: false)
+        unbroken += try await drive(&continuous, FixtureDecoder(), finishing: true)
+        try expect(unbroken.map(\.text) == (1..<21).map { "word\($0)" } && continuous.narrowCuts >= 1,
+                   "a phrase with no pause is cut between words and confirms each word once")
+        // Silence alone is passed over without confirming anything.
+        var silence = LiveVoiceWindow(source: .app, start: 10, rate: 16_000, samples: quiet(6))
+        let hush = silence.request(finishing: false)!
+        let nothing = try silence.segments(words: await decoder.recognize(hush.audio), request: hush)
+        try expect(nothing.isEmpty && silence.accept(hush) && silence.confirmedThrough == 13 && silence.uncommittedSeconds == 3,
+                   "six quiet seconds are passed over in the middle of their quiet")
+        // A short gap in the source is silence in the original track, so it is silence here too and
+        // the pass ends exactly where the track does (MeetingRecovery.complete).
+        var gapped = LiveVoiceWindow(source: .app, start: 0, rate: 16_000, samples: samples(1..<3))
+        _ = gapped.append(.init(source: .app, samples: samples(3..<4), sampleRate: 16_000, start: 2.05))
+        let gappedWords = try await drive(&gapped, FixtureDecoder(), finishing: true)
+        try expect(gapped.confirmedThrough == 3.05 && gappedWords.map(\.text) == ["word1", "word2", "word3"] && gappedWords.last?.start == 2.05,
+                   "a 50 ms gap is kept as silence, so later words keep their times and the pass ends with the track")
+        // The last reading confirms every word, even one the model timed in the padding after a short reply.
+        var reply = LiveVoiceWindow(source: .microphone, start: 7, rate: 16_000, samples: [Float](repeating: 0.1, count: 1_600))
+        let padded = try await drive(&reply, FixtureDecoder(script: [[.init(text: "Yes", start: 0.12, end: 0.2)]]), finishing: true)
+        try expect(padded.map(\.text) == ["Yes"] && reply.confirmedThrough == 7.1, "a word timed past a short final reading is still confirmed")
+        // A cut in a word's soft start hears it again at the very start of the next reading: kept
+        // once. The same word said again later, inside the first one's stretched timing, stays.
+        let repeats = FixtureDecoder(script: [[.init(text: "no", start: 0.5, end: 3.6)],
+                                              [.init(text: "No", start: 0, end: 0.3), .init(text: "no", start: 0.5, end: 0.8)]])
+        var repeated = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: samples(1..<3) + quiet(2))
+        var spoken = try await drive(&repeated, repeats, finishing: false)
+        _ = repeated.append(.init(source: .microphone, samples: samples(5..<7), sampleRate: 16_000, start: 4))
+        spoken += try await drive(&repeated, repeats, finishing: true)
+        try expect(spoken.map { "\($0.text)@\($0.start)" } == ["no@0.5", "no@3.5"],
+                   "a word heard again at a reading's start is kept once, and the same word said again later stays")
+        // A reading that probably missed words: none over sound, or a first word long after it starts.
+        let afterQuiet = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: quiet(2) + samples(1..<3))
+        let whole = afterQuiet.request(finishing: true)!
+        let silentWindow = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: quiet(3))
+        try expect(abs(whole.audioStart - 1) < 0.05 && afterQuiet.doubts([], whole) && !silentWindow.doubts([], silentWindow.request(finishing: true)!)
+                   && !afterQuiet.doubts([.init(text: "word1", start: 1.1, end: 1.9)], whole)
+                   && afterQuiet.doubts([.init(text: "word2", start: 2.5, end: 2.9)], whole),
+                   "a reading starts a second before the sound, and one that hears nothing over sound or starts 1.5 s late is doubted")
+        // In a noisy room speech can read as quiet; the cut that ends a phrase stays a second clear of
+        // the reading's end, where a word the reading cut short may not have been heard.
+        var soft = LiveVoiceWindow(source: .microphone, start: 0, rate: 16_000, samples: samples(1..<3) + [Float](repeating: 0.001, count: 24_000))
+        let softRead = soft.request(finishing: false)!
+        _ = try soft.segments(words: await decoder.recognize(softRead.audio), request: softRead)
+        try expect(soft.accept(softRead) && soft.confirmedThrough <= 2.5 + 0.001, "a phrase's ending cut is at least a second before the reading's end")
+        try expect(EmptyReading.retry(samples(1..<3))?.count == 32_000 + EmptyReading.paddingSamples && EmptyReading.retry(quiet(2)) == nil
+                   && EmptyReading.retry(samples(1..<16)) == nil, "an empty reading is read again only over sound and within one window")
         let replies = LiveVoiceCheckpoint(sessionID: UUID(), segments: [
             .init(source: .microphone, start: 1, end: 1.2, text: "Yes", isFinal: true),
             .init(source: .app, start: 6, end: 6.2, text: "Yes", isFinal: true),
@@ -226,15 +299,16 @@ enum LiveVoiceChecks {
         let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
             recognize: { try await failingDecoder.recognize($0) }, update: { lastFailedSnapshot.set($0) })
-        failed.input.append(.init(source: .microphone, samples: samples(1..<19), sampleRate: 16_000, start: 0))
-        let partial = await failed.finish()
-        try expect(!partial.complete && !partial.notes.isEmpty && partial.completedThrough["microphone"] == 8, "failed second window cannot silently finalize partial text")
+        failed.input.append(.init(source: .microphone, samples: samples(1..<9) + quiet(1) + samples(9..<19), sampleRate: 16_000, start: 0))
+        let failedPass = await failed.finish()
+        try expect(!failedPass.complete && !failedPass.notes.isEmpty && (8...9).contains(failedPass.completedThrough["microphone"] ?? -1),
+                   "failed second window cannot silently finalize partial text")
         var stoppedWhileListening = lastFailedSnapshot.current
         stoppedWhileListening.phase = .listening
         try expect(lastFailedSnapshot.current.liveStopped && !lastFailedSnapshot.current.recognitionDelayed
                    && stoppedWhileListening.transcriptStatus.hasPrefix("Live words stopped"),
                    "a dead live loop says it stopped rather than catching up")
-        try expect(partial.text == (1..<9).map { "word\($0)" }.joined(separator: " "), "failure retains confirmed earlier words")
+        try expect(failedPass.text == (1..<9).map { "word\($0)" }.joined(separator: " "), "failure retains confirmed earlier words")
 
         let shortDecoder = FixtureDecoder()
         let short = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
@@ -247,6 +321,28 @@ enum LiveVoiceChecks {
         try expect(tiny.complete && tiny.text == "Yes" && tiny.completedThrough["microphone"] == 4.1, "very short final reply survives")
         let length = await shortDecoder.lastLength
         try expect(length == 4_800, "short tail is padded only for the recognizer")
+
+        // A phrase's last reading that hears nothing over sound is read again 80 ms out of step, here
+        // with silence before it (its start is speech, so none of it is dropped), and the words keep
+        // their times. However the loop meets the audio, every reading of the whole of it is empty.
+        let ending = samples(1..<4), endingDecoder = FixtureDecoder()
+        let reread = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+            recognize: { audio in audio.count == ending.count ? [] : try await endingDecoder.recognize(audio) }, update: { _ in })
+        reread.input.append(.init(source: .microphone, samples: ending, sampleRate: 16_000, start: 2))
+        let rereadPass = await reread.finish()
+        try expect(rereadPass.complete && rereadPass.text == "word1 word2 word3"
+                   && rereadPass.orderedSegments.map(\.start) == [2, 3, 4], "an empty last reading is read again and its words keep their times")
+        // Still nothing over sound: a meeting keeps the pass (the saved-audio path would read it with the
+        // same model), while Dictate, where the saved recording is one short reading, falls back to it.
+        func deafEnding(dictating: Bool) async -> LiveVoiceCheckpoint {
+            let service = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+                doubtfulEndingIsIncomplete: dictating, recognize: { _ in [] }, update: { _ in })
+            service.input.append(.init(source: .microphone, samples: ending, sampleRate: 16_000, start: 0))
+            return await service.finish()
+        }
+        let meetingEnding = await deafEnding(dictating: false), dictationEnding = await deafEnding(dictating: true)
+        try expect(meetingEnding.complete && !dictationEnding.complete && dictationEnding.notes.count == 1,
+                   "a last reading that stays empty over sound leaves a meeting's pass complete and Dictate's to the recording")
 
         let mailbox = LiveVoiceInput(maximumFrames: 10)
         mailbox.append(.init(source: .microphone, samples: [Float](repeating: 0.1, count: 11), sampleRate: 16_000, start: 0))
@@ -271,23 +367,6 @@ enum LiveVoiceChecks {
         try expect(!cancelledResult.complete && cancelledCalls == 1 && cancelledResult.segments.isEmpty,
                    "Cancel waits for the running model request but never starts a queued window")
 
-        // A boundary the next decode cannot reconcile degrades live words instead of ending them
-        // (#280): later words from the same source still arrive, the pass is incomplete, one note.
-        // Decodes: 0–10 s commits w7 as the seam anchor; 6–18 s places w7 0.8 s away, unmatchable;
-        // 14–20 s carries w18, which must still be shown.
-        let movedAnchor = FixtureDecoder(script: [
-            [.init(text: "w7", start: 7.0, end: 7.4)],
-            [.init(text: "w7", start: 0.2, end: 0.6), .init(text: "w12", start: 6.0, end: 6.4)],
-            [.init(text: "w18", start: 4.0, end: 4.4)]])
-        let moved = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
-            recognize: { try await movedAnchor.recognize($0) }, update: { _ in })
-        moved.input.append(.init(source: .microphone, samples: [Float](repeating: 0.1, count: 320_000), sampleRate: 16_000, start: 0))
-        let degraded = await moved.finish()
-        try expect(degraded.text == "w7 w12 w18" && degraded.completedThrough["microphone"] == 20,
-                   "live words continue past a boundary the next decode cannot match")
-        try expect(!degraded.complete && degraded.notes.count == 1 && degraded.notes[0].contains("boundary at 8 s"),
-                   "an unmatched boundary marks the pass incomplete with one note; the saved transcript comes from the original audio")
-
         // A decoder that falls more than 60 s behind loses the backlog, not the meeting (#280): the
         // newest audio is still recognised, the pass is incomplete, one note.
         let slowDecoder = FixtureDecoder(suspendFirst: true)
@@ -307,7 +386,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, live words that outlast an unmatched boundary or a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
@@ -331,11 +410,11 @@ enum LiveVoiceChecks {
         var lastLength = 0
         let failOn: Int?
         let suspendFirst: Bool
-        /// Words per call, relative to each request's audio; the last entry repeats.
-        let script: [[LiveVoiceWord]]?
+        /// Words for the first calls, relative to each request's audio; later calls read the fixture audio.
+        let script: [[LiveVoiceWord]]
         private var continuation: CheckedContinuation<Void, Never>?
         var isWaiting: Bool { continuation != nil }
-        init(failOn: Int? = nil, suspendFirst: Bool = false, script: [[LiveVoiceWord]]? = nil) {
+        init(failOn: Int? = nil, suspendFirst: Bool = false, script: [[LiveVoiceWord]] = []) {
             self.failOn = failOn; self.suspendFirst = suspendFirst; self.script = script
         }
         func resume() { continuation?.resume(); continuation = nil }
@@ -346,7 +425,7 @@ enum LiveVoiceChecks {
             if calls == failOn { throw CheckFailure() }
             if suspendFirst && calls == 1 { await withCheckedContinuation { continuation = $0 } }
             await Task.yield()
-            if let script { return script[min(calls - 1, script.count - 1)] }
+            if calls <= script.count { return script[calls - 1] }
             var words: [LiveVoiceWord] = []
             var start = 0
             while start < samples.count {
