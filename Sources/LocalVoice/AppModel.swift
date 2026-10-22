@@ -287,7 +287,9 @@ final class AppModel: NSObject, ObservableObject {
     /// again (about 15 s on an M5, measured 22 October 2026). Dictate records meanwhile, without
     /// live words, and transcribes the recording at Stop once the model is ready. A model that is
     /// downloading, missing or failed still sends Dictate to Models.
-    var speechWarming: Bool { !ready && preparing && [.checkingCache, .loading].contains(recognition.phase) }
+    var speechWarming: Bool { !ready && preparing && recognition.phase == .loading }
+    /// The longest a stopped recording waits for speech to get ready before it is kept for Retry.
+    static let speechWarmingWait: Duration = .seconds(90)
     var mayDictate: Bool { ready || speechWarming }
 
     func toggleRecording(fromShortcut: Bool = false, target: TextDelivery.Target? = nil) {
@@ -634,6 +636,7 @@ final class AppModel: NSObject, ObservableObject {
             defer {
                 if transcriptionID == invocation { transcriptionTask = nil; transcriptionID = nil }
             }
+            var waitingForSpeech = false
             do {
                 let configuration = await engine.configuration()
                 try Task.checkCancellation()
@@ -645,10 +648,18 @@ final class AppModel: NSObject, ObservableObject {
                 else {
                     // A recording made while speech was getting ready waits for it here; a model that
                     // could not be prepared fails below with its reason, and the recording is kept.
-                    while await engine.snapshot().isPreparing {
-                        status = "Getting speech ready on this Mac…"; onPhaseChange?()
-                        try await Task.sleep(nanoseconds: 200_000_000)
-                        guard transcriptionID == invocation else { throw CancellationError() }
+                    if await engine.snapshot().isPreparing {
+                        waitingForSpeech = true
+                        status = "Getting speech ready on this Mac…"; captureProcessingLabel = "Getting speech ready on this Mac…"; onPhaseChange?()
+                        let deadline = ContinuousClock.now + Self.speechWarmingWait
+                        while await engine.snapshot().isPreparing {
+                            guard ContinuousClock.now < deadline else {
+                                throw VoiceError.message("Speech is still getting ready on this Mac. Your recording is kept; retry in a moment.")
+                            }
+                            try await Task.sleep(nanoseconds: 200_000_000)
+                            guard transcriptionID == invocation else { throw CancellationError() }
+                        }
+                        waitingForSpeech = false
                     }
                     raw = try await engine.transcribe(url)
                 }
@@ -723,6 +734,15 @@ final class AppModel: NSObject, ObservableObject {
                 phase = .idle; voiceSession.phase = .completed; onPhaseChange?()
             } catch {
                 guard transcriptionID == invocation else { return }
+                // Cancel while the words wait for speech to get ready keeps the recording for Retry:
+                // nothing has been heard yet, and the wait was ours, not the person's.
+                if waitingForSpeech, temporary, Task.isCancelled || error is CancellationError {
+                    if let shortcutID { shortcutRequest.finish(id: shortcutID, result: .failure(error)) }
+                    if let deliveryProblem = cancelLiveDictation() { reportLiveTextKept(deliveryProblem) }
+                    canRetry = shortcutID == nil; phase = .idle
+                    status = "Kept for later. Speech was still getting ready; Retry transcribes this recording."
+                    onPhaseChange?(); return
+                }
                 if Task.isCancelled || error is CancellationError {
                     if let shortcutID { shortcutRequest.finish(id: shortcutID, result: .failure(error)) }
                     let deliveryProblem = cancelLiveDictation()

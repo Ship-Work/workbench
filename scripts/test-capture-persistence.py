@@ -24,7 +24,7 @@ core = SwiftFile(PROJECT / 'Sources/LocalVoice/Core.swift')
 methods = model.extract([
     'resumeWaitingDelivery', 'copyWaitingDelivery',
     # The Dictate shortcut's press and release, and the attempt it starts (#134 T5).
-    'toggleRecording', 'speechWarming', 'mayDictate', 'recordAgain', 'shortcutChanged',
+    'toggleRecording', 'speechWarming', 'speechWarmingWait', 'mayDictate', 'recordAgain', 'shortcutChanged',
     'cancelShortcut', 'stopRecording', 'completeStoppedRecording', 'cancelRecording', 'cancelCurrentCapture', 'cancelLiveDictation', 'reportLiveTextKept',
     'importAudio(_:)', 'retryTranscription',
     # The Transcribe shortcut opens its file through the same plain-words helper as Import audio (#337).
@@ -1436,6 +1436,17 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         waiting.engine.state.operationID = nil; waiting.engine.state.admission = .localReady
         await finish(waiting)
         try check(waiting.engine.calls == 1 && waiting.history.count == 1, "Then the recording is transcribed and saved once")
+        // Cancel during that wait keeps the recording for Retry; nothing has been heard yet.
+        let impatient = CaptureHarness(directory: folder("speech-waiting-cancel"))
+        impatient.engine.state.operationID = UUID()
+        let impatientURL = try impatient.makeRecording(wav)
+        impatient.run(impatientURL, owned: true)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        impatient.cancelCurrentCapture()
+        await finish(impatient)
+        try check(impatient.canRetry && impatient.phase == .idle && impatient.engine.calls == 0
+                  && FileManager.default.fileExists(atPath: impatientURL.path) && impatient.captureRecovery.pending != nil,
+                  "Cancel while words wait for speech keeps the recording for Retry: \(impatient.status)")
         // Model preparation projects the engine's typed readiness without a second
         // attention notice, touching saved words, or automatically starting capture.
         let unprepared = CaptureHarness(directory: folder("model-preparation"))
