@@ -128,6 +128,12 @@ enum RecognitionLocalModels {
             return RecognitionBackend(transcribe: { url in
                 var state = try TdtDecoderState(decoderLayers: 2)
                 var text = try await manager.transcribe(url, decoderState: &state).text
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let again = try EmptyReading.retry(url) {
+                    try Task.checkCancellation()
+                    var retry = try TdtDecoderState(decoderLayers: 2)
+                    text = try await manager.transcribe(again, decoderState: &retry).text
+                }
                 if let ending = try? TranscriptEnding.window(of: url) {
                     try Task.checkCancellation()
                     var tail = try TdtDecoderState(decoderLayers: 2)
@@ -136,7 +142,12 @@ enum RecognitionLocalModels {
                 return text
             }, transcribeLive: { samples in
                 var state = try TdtDecoderState(decoderLayers: 2)
-                let result = try await manager.transcribe(samples, decoderState: &state)
+                var result = try await manager.transcribe(samples, decoderState: &state)
+                if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let again = EmptyReading.retry(samples) {
+                    try Task.checkCancellation()
+                    var retry = try TdtDecoderState(decoderLayers: 2)
+                    result = try await manager.transcribe(again, decoderState: &retry)
+                }
                 let words = result.tokenTimings.map { buildWordTimings(from: $0) } ?? []
                 guard result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !words.isEmpty else {
                     throw VoiceError.message("The speech model did not return word timing. The original recording is kept for transcription.")

@@ -36,8 +36,8 @@ struct LiveVoiceSnapshot: Equatable, Sendable {
     var sources: [LiveVoiceSourceStatus] = []
     var segments: [LiveVoiceSegment] = []
     var recognitionDelayed = false
-    /// The live pass has missed or doubled words at a boundary or a backlog (#280): live words
-    /// continue, and the saved transcript comes from the original audio at finish.
+    /// The live pass skipped a backlog (#280): live words continue, and the saved transcript
+    /// comes from the original audio at finish.
     var liveIncomplete = false
     /// The live pass stopped for good (a recogniser error, invalid timing, mailbox overflow or a
     /// journal write failure): no more live words; the saved transcript comes from the original audio.

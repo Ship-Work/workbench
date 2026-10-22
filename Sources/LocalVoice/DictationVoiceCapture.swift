@@ -28,7 +28,7 @@ final class DictationVoiceCapture {
             if try await engine.beginLiveSession(id) {
                 let engine = engine, id = id
                 live = LiveVoiceService(id: id, sources: [.init(source: .microphone, name: "Microphone")],
-                    journal: sidecars.appendingPathComponent("live-transcript.json"),
+                    journal: sidecars.appendingPathComponent("live-transcript.json"), doubtfulEndingIsIncomplete: true,
                     recognize: { try await engine.transcribeLive($0, sessionID: id) }, update: update)
             } else {
                 update(LiveVoiceSnapshot(sessionID: id, phase: .listening,

@@ -170,9 +170,8 @@ enum MeetingCaptureNativeCheck {
             note(String(format: "Fixture: %d words, %.1f s, voices %@", expectedWords.count, fixtureSeconds, voices.joined(separator: " and ")))
 
             // 2. The real recognition engine on an isolated store: cached files only.
-            let suite = "dev.workbench.meeting-capture-native." + UUID().uuidString
-            let defaults = UserDefaults(suiteName: suite)!
-            defer { defaults.removePersistentDomain(forName: suite) }
+            // An absolute path keeps the settings in the receipt folder, not ~/Library/Preferences (#128).
+            let defaults = UserDefaults(suiteName: output.appendingPathComponent("Preferences").path)!
             let engine = RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults))
             let box = SnapshotBox()
             await engine.observe { box.set($0) }
