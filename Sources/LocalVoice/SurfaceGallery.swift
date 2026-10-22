@@ -658,14 +658,12 @@ private struct HistoryNativeAcceptanceView: View {
             pages[history].shots += try renderTranscriptReviewStates(to: output)
         }
         let meetingReview = try renderMeetingReview(to: output)
-        // While the meeting just committed above is still the page's result.
         let names = try renderMeetingNames(to: output)
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) {
-            pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
+            pages[meeting].shots += [meetingReview.meeting, meetingReview.named, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
         }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
-        if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += names.history }
-        if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) { pages[meeting].shots += names.meeting }
+        if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += names }
         let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks + refusal
         // History's states render last, so the pages above show no Hand off task.
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += try renderHistoryStates(to: output) }
@@ -1981,7 +1979,7 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// Complete a short synthetic meeting through its real recovery/commit owner, then review
     /// that exact ID through History's typed door. No device, recognizer or clipboard is used.
-    func renderMeetingReview(to output: URL) throws -> (meeting: SurfaceGallery.Shot, history: SurfaceGallery.Shot, checks: [String]) {
+    func renderMeetingReview(to output: URL) throws -> (meeting: SurfaceGallery.Shot, named: SurfaceGallery.Shot, history: SurfaceGallery.Shot, checks: [String]) {
         let kept = (meetings: model.meetings, history: model.history, draft: model.transcript,
                     raw: model.rawTranscript, selection: model.historyLibrary.selected, page: model.page)
         defer {
@@ -2045,6 +2043,18 @@ private struct HistoryNativeAcceptanceView: View {
         let meeting = try save(meetingImage, id: "state-completed", title: "Meetings, transcript saved, minimum window",
             detail: "The real meeting owner committed synthetic audio and text. Review transcript carries that completed transcript's ID; newer transcripts exist in History.",
             file: "page-meeting-state-completed-\(theme).png", to: output)
+        // The same result seconds later, once Apple Intelligence on this Mac has named the saved meeting.
+        let named: SurfaceGallery.Shot
+        do {
+            let previous = model.historyLibrary.metadata(for: manifest.id)
+            defer { model.historyLibrary.setMetadata(previous, for: manifest.id) }
+            var details = previous; details.summary = Self.namedSummary
+            model.historyLibrary.setMetadata(details, for: manifest.id)
+            let (image, _) = try renderPage("meeting", in: window)
+            named = try save(image, id: "state-completed-named", title: "Meetings, transcript saved and named, minimum window",
+                detail: "Seconds after Finish the saved meeting's name and what it was about appear above Copy transcript, written by Apple Intelligence on this Mac; Copy works the moment the transcript is saved.",
+                file: "page-meeting-state-completed-named-\(theme).png", to: output)
+        }
         model.openHistory(HistoryDoor(transcript: manifest.id))
         guard model.historyDoor?.transcript == manifest.id, model.historyDoor?.filter == .all else {
             throw VoiceError.message("The completed meeting's History door did not name its exact transcript.")
@@ -2058,7 +2068,7 @@ private struct HistoryNativeAcceptanceView: View {
         let history = try save(historyImage, id: "state-from-meeting", title: "History, exact completed meeting, \(Int(size.width)) × \(Int(size.height)) pt",
             detail: "History consumed a typed door for the completed meeting even though newer transcripts exist. The Dictate draft, selection and saved recording stayed unchanged.",
             file: "page-history-state-from-meeting-\(theme).png", to: output)
-        return (meeting, history, ["A real synthetic meeting commit published its exact transcript ID. History consumed that typed review door while preserving the draft, original, selection and the saved recording/journal bytes."])
+        return (meeting, named, history, ["A real synthetic meeting commit published its exact transcript ID. History consumed that typed review door while preserving the draft, original, selection and the saved recording/journal bytes."])
     }
 
     /// #377's states through the real owners, with synthetic capture, call metadata and a scripted
@@ -5507,9 +5517,9 @@ extension SurfacePass {
         text: "You: Hey, how are you going?\n\nOthers: Good, good. Bit tired. I wanted to talk about a couple of things today if that's okay: the conference in March, and workload.",
         seconds: 1_200)
 
-    /// History's Meetings filter, Review transcript for a named meeting and the Meetings page once
-    /// the saved meeting is named, each from the real views over synthetic details.
-    func renderMeetingNames(to output: URL) throws -> (history: [SurfaceGallery.Shot], meeting: [SurfaceGallery.Shot]) {
+    /// History's Meetings filter and Review transcript for a named meeting, from the real views over
+    /// synthetic details. The Meetings page once named is drawn with its completed state (`renderMeetingReview`).
+    func renderMeetingNames(to output: URL) throws -> [SurfaceGallery.Shot] {
         let library = model.historyLibrary
         let kept = (history: model.history, page: model.page,
                     details: [Self.namedMeeting.id, Self.unnamedCall.id, Self.plainMeeting.id].map { ($0, library.metadata(for: $0)) })
@@ -5563,23 +5573,6 @@ extension SurfacePass {
                 file: "page-history-transcript-review-named-\(theme).png", to: output))
         }
 
-        // Meetings after Finish, once the saved meeting is named: its name and what it was about above Copy transcript.
-        var meeting: [SurfaceGallery.Shot] = []
-        guard let id = model.meetings.completedTranscriptID else {
-            throw VoiceError.message("The named Meetings render needs the meeting committed just before it.")
-        }
-        do {
-            let previous = library.metadata(for: id)
-            defer { library.setMetadata(previous, for: id) }
-            var details = previous; details.app = "Zoom"; details.summary = Self.namedSummary
-            library.setMetadata(details, for: id)
-            let window = homeWindow(size: SurfaceGallery.sizes[1].size)
-            defer { window.contentViewController = nil; window.close() }
-            let (image, _) = try renderPage("meeting", in: window)
-            meeting.append(try save(image, id: "state-completed-named", title: "Meetings, transcript saved and named, minimum window",
-                detail: "Seconds after Finish the saved meeting's name and what it was about appear above Copy transcript, written by Apple Intelligence on this Mac; Copy works the moment the transcript is saved.",
-                file: "page-meeting-state-completed-named-\(theme).png", to: output))
-        }
-        return (history, meeting)
+        return history
     }
 }

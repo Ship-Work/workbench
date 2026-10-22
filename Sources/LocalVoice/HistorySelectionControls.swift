@@ -261,7 +261,7 @@ struct HandoffJobCard<MadeFrom: View>: View {
                 .accessibilityLabel("Result, \(jobs.title(job)), \(job.status.title)")
                 .focusable(revealed == job.id).focused(focus, equals: job.id)
                 .accessibilityFocused(voiceOverFocus, equals: job.id)
-            Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.text(job.createdAt))
+            Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.time(job.createdAt))
                 .font(.subheadline).foregroundStyle(.secondary)
             madeFrom
             Text(job.detail).font(.callout)

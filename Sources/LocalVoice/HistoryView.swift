@@ -104,6 +104,8 @@ enum HistoryDay {
 }
 
 enum HistoryDate {
+    /// A row's time under its day's heading in History's list.
+    static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
     static func text(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let style = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
         return calendar.isDate(date, equalTo: now, toGranularity: .year) ? date.formatted(style) : date.formatted(style.year())
@@ -610,7 +612,8 @@ struct HistorySnapRow: View {
     var saveImageToLibrary: ((SnapItem) -> Void)? = nil
     var body: some View {
         let reference = WorkbenchItemReference(kind: .snap, id: item.id)
-        let time = HistoryDate.text(item.createdAt)
+        // Under its day's heading, a row says only its time.
+        let time = HistoryDate.time(item.createdAt)
         let archived = item.archivedAt != nil
         HStack(alignment: .top, spacing: 12) {
             Toggle("", isOn: Binding(get: { library.selected.contains(reference) }, set: { include in

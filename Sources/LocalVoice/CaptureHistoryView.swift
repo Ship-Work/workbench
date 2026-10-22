@@ -105,7 +105,7 @@ struct TranscriptHistoryRow: View {
                 if heading.isEmpty {
                     HStack {
                         Image(systemName: "mic").foregroundStyle(Workbench.accent).accessibilityHidden(true)
-                        Text(HistoryDate.text(item.date))
+                        Text(HistoryDate.time(item.date))
                         Text(metadata.purpose.title).fontWeight(.medium)
                         Spacer(); Text(TextRules.wordCountLabel(words))
                     }.font(.subheadline).foregroundStyle(.secondary)
@@ -116,7 +116,7 @@ struct TranscriptHistoryRow: View {
                 } else {
                     // A meeting, a call or a named capture leads with its name, then when, where and how long:
                     // what you recognise it by, not its opening small talk.
-                    let facts = TranscriptFacts.line(item, metadata: metadata, words: words)
+                    let facts = TranscriptFacts.line(item, metadata: metadata, words: words, day: false)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Image(systemName: metadata.isConversation ? WorkbenchHome.symbol(of: "meeting") : "mic")
@@ -205,9 +205,10 @@ struct TranscriptHistoryRow: View {
 
 /// A transcript's facts after its name: when, the app it recorded, how long and how many words.
 enum TranscriptFacts {
-    static func line(_ item: Transcript, metadata: TranscriptMetadata, words: Int) -> String {
+    /// `day: false` under History's day headings, where a row says only its time.
+    static func line(_ item: Transcript, metadata: TranscriptMetadata, words: Int, day: Bool = true) -> String {
         let named = !metadata.title.isEmpty || !(metadata.summary?.title ?? "").isEmpty
-        var parts = [HistoryDate.text(item.date)]
+        var parts = [day ? HistoryDate.text(item.date) : HistoryDate.time(item.date)]
         // The fallback name already says the app ("Zoom meeting"); a real name leaves it to this line.
         if named, !metadata.app.isEmpty { parts.append(metadata.app) }
         if metadata.isConversation, item.seconds > 0 { parts.append(HomeMeetings.duration(item.seconds)) }
