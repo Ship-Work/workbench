@@ -14,6 +14,16 @@ enum MeetingOriginalCompression {
         var tracks = 0
         var savedBytes: Int64 = 0
     }
+    /// One compressor at a time, at background priority: a meeting just committed and the launch
+    /// sweep never work on the same file at once, and a pass can clear a quit's leftovers safely.
+    private static let queue = DispatchQueue(label: "dev.workbench.meeting-original-compression", qos: .background)
+    /// Free space a track must leave beyond its own size, so compressing never brings a recording
+    /// near its low-disk stop (MeetingDiskBudget.stopFloorBytes).
+    static let spareBytes: Int64 = 512 * 1024 * 1024
+
+    /// The app's entry points: after a meeting commits, and once per launch.
+    static func schedule(session: URL) { queue.async { _ = try? tidy(session: session) } }
+    static func scheduleSweep(root: URL) { queue.async { sweep(root: root) } }
 
     /// Compresses the committed meeting's uncompressed tracks and removes its recognition
     /// segments. A meeting that is not committed, or a track that is already compressed,
@@ -23,10 +33,17 @@ enum MeetingOriginalCompression {
         let manifest = try MeetingStore.load(from: session)
         guard manifest.state == .committed else { return Outcome() }
         var outcome = Outcome()
+        // A pass that Quit interrupted leaves its unproven copy; the original is still in place.
+        let tracks = session.appendingPathComponent(MeetingStore.tracksDirectory, isDirectory: true)
+        for file in (try? FileManager.default.contentsOfDirectory(at: tracks, includingPropertiesForKeys: nil)) ?? []
+        where file.lastPathComponent.hasPrefix(".lossless-") { try? FileManager.default.removeItem(at: file) }
         for track in manifest.tracks {
-            try Task.checkCancellation()
-            let url = try MeetingStore.safeURL(session: session, relative: track.file)
-            if let saved = try compress(url) { outcome.tracks += 1; outcome.savedBytes += saved }
+            // One unreadable or missing track (a committed meeting may have lost its audio) does not
+            // keep the other track or the segments from being tidied.
+            guard let url = try? MeetingStore.safeURL(session: session, relative: track.file),
+                  let size = try? size(url), (MeetingDiskBudget.availableBytes(at: session) ?? 0) >= size + spareBytes,
+                  let saved = try? compress(url) else { continue }
+            outcome.tracks += 1; outcome.savedBytes += saved
         }
         let segments = session.appendingPathComponent(MeetingStore.segmentsDirectory, isDirectory: true)
         for file in (try? FileManager.default.contentsOfDirectory(at: segments, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
@@ -62,6 +79,7 @@ enum MeetingOriginalCompression {
         guard bitDepth == 16 || bitDepth == 24 else { return nil }
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".lossless-" + UUID().uuidString + ".caf")
         defer { try? FileManager.default.removeItem(at: temporary) }
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return nil }
         let settings: [String: Any] = [AVFormatIDKey: kAudioFormatAppleLossless, AVSampleRateKey: original.fileFormat.sampleRate,
                                        AVNumberOfChannelsKey: original.fileFormat.channelCount, AVEncoderBitDepthHintKey: bitDepth]
         let block: AVAudioFrameCount = 65_536
@@ -75,12 +93,22 @@ enum MeetingOriginalCompression {
                 try copy.write(from: buffer)
             }
         }
+        // On disk before it is compared and before it can stand in for the only original.
+        try synchronize(temporary)
         guard try matches(url, temporary) else { return nil }
         // Sizes from the file system, not URL resource values, which a URL keeps from its first read.
         let before = try size(url), after = try size(temporary)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
-        _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+        guard rename(temporary.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try synchronize(url.deletingLastPathComponent())
         return before - after
+    }
+
+    /// Flushes a file, or a folder's entries, through to the disk.
+    private static func synchronize(_ url: URL) throws {
+        let descriptor = open(url.path, O_RDONLY)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(descriptor) }
+        if fcntl(descriptor, F_FULLFSYNC) != 0, fsync(descriptor) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
     static func size(_ url: URL) throws -> Int64 {

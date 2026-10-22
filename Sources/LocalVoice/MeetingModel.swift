@@ -143,10 +143,8 @@ final class MeetingModel: ObservableObject {
         refreshAdmission()
         // Committed originals are kept losslessly compressed (MeetingOriginalCompression): each new
         // meeting once it saves, and, once per launch, any saved before this existed.
-        afterCommit = { session in
-            Task.detached(priority: .background) { _ = try? MeetingOriginalCompression.tidy(session: session) }
-        }
-        Task.detached(priority: .background) { MeetingOriginalCompression.sweep(root: directory) }
+        afterCommit = { MeetingOriginalCompression.schedule(session: $0) }
+        MeetingOriginalCompression.scheduleSweep(root: directory)
     }
 
     /// These seams exercise the actual controller with synthetic capture and

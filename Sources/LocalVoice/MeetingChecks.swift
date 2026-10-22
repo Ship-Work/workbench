@@ -445,6 +445,9 @@ enum MeetingChecks {
         try MeetingStore.save(withTracks, at: tidySession, replacing: tidyManifest)
         let segment = tidySession.appendingPathComponent("segments/segment-0000.wav")
         try Data(count: 64_000).write(to: segment)
+        // What a pass that Quit interrupted leaves beside the original.
+        let leftover = tidySession.appendingPathComponent("tracks/.lossless-interrupted.caf")
+        try Data(count: 1_000).write(to: leftover)
         let remoteOriginal = try MeetingStore.safeURL(session: tidySession, relative: "tracks/remote.caf")
         let localOriginal = try MeetingStore.safeURL(session: tidySession, relative: "tracks/local.caf")
         let before = (try samples(remoteOriginal), try samples(localOriginal))
@@ -454,14 +457,31 @@ enum MeetingChecks {
         try expect(tidied.tracks == 2 && format == kAudioFormatAppleLossless && (try samples(remoteOriginal), try samples(localOriginal)) == before,
                    "a committed meeting's tracks become Apple Lossless with every sample as recorded, at 48 and 44.1 kHz")
         try expect(try MeetingOriginalCompression.size(remoteOriginal) < sizeBefore * 4 / 5 && tidied.savedBytes > 64_000
-                   && !FileManager.default.fileExists(atPath: segment.path) && (try MeetingStore.load(from: tidySession)) == recordBefore,
-                   "the tracks take less space, the recognition segment goes, and the record is unchanged")
+                   && !FileManager.default.fileExists(atPath: segment.path) && (try MeetingStore.load(from: tidySession)) == recordBefore
+                   && !FileManager.default.fileExists(atPath: leftover.path)
+                   && (try FileManager.default.attributesOfItem(atPath: remoteOriginal.path)[.posixPermissions] as? Int) == 0o600,
+                   "the tracks take less space and stay private, the recognition segment and an interrupted copy go, and the record is unchanged")
         let reader = try MeetingTrackReader(url: remoteOriginal, startSeconds: 0, blockFrames: 8_192)
         var decoded = [Float](repeating: 0, count: 16_000)
         try reader.read(16_000, into: &decoded)
         try expect(decoded.contains { $0 != 0 } && (try MeetingRecovery.inspect(session: tidySession)).checkpoint?.originalsAvailable == true,
                    "the saved-audio path reads the compressed original, and recovery still finds it")
         try expect(try MeetingOriginalCompression.tidy(session: tidySession) == .init(), "a second pass changes nothing")
+        // A committed meeting that lost one original still has its other track compressed and its segments removed.
+        var halfManifest = manifest(state: .stopped); halfManifest.seconds = 4
+        let halfSession = try MeetingStore.create(root: root.appendingPathComponent("tidy-half", isDirectory: true), manifest: halfManifest)
+        let halfLocal = try MeetingStore.safeURL(session: halfSession, relative: "tracks/local.caf")
+        try speechLike(halfLocal, seconds: 4, rate: 48_000, seed: 5)
+        var halfCommitted = halfManifest; halfCommitted.state = .committed; halfCommitted.formatVersion = 2; halfCommitted.liveText = "Synthetic words"
+        halfCommitted.tracks = [MeetingTrack(source: .remote, file: "tracks/remote.caf", startSeconds: 0, seconds: 4, sampleRate: 48_000, peak: 0.3, droppedSeconds: 0),
+                                MeetingTrack(source: .local, file: "tracks/local.caf", startSeconds: 0, seconds: 4, sampleRate: 48_000, peak: 0.3, droppedSeconds: 0)]
+        try MeetingStore.save(halfCommitted, at: halfSession, replacing: halfManifest)
+        let halfSegment = halfSession.appendingPathComponent("segments/segment-0000.wav")
+        try Data(count: 64_000).write(to: halfSegment)
+        let half = try MeetingOriginalCompression.tidy(session: halfSession)
+        try expect(half.tracks == 1 && MeetingOriginalCompression.formatID(try AVAudioFile(forReading: halfLocal)) == kAudioFormatAppleLossless
+                   && !FileManager.default.fileExists(atPath: halfSegment.path),
+                   "a missing original does not keep the other track or the segments from being tidied")
         let openSession = try MeetingStore.create(root: root.appendingPathComponent("tidy-open", isDirectory: true), manifest: manifest(state: .stopped))
         let openTrack = try MeetingStore.safeURL(session: openSession, relative: "tracks/remote.caf")
         try speechLike(openTrack, seconds: 1, rate: 48_000, seed: 3)
