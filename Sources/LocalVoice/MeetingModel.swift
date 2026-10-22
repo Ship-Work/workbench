@@ -88,6 +88,9 @@ final class MeetingModel: ObservableObject {
         if !allowed { recordingPlayback.pause() }
     }
     var saveTranscript: ((Transcript, String) throws -> Void)?
+    /// Runs with a meeting's folder once its transcript has committed; the app compresses its
+    /// originals here. Checks leave it nil, so their files stay exactly as written.
+    var afterCommit: ((URL) -> Void)?
     var loadSavedTranscript: ((UUID) throws -> (transcript: Transcript, notes: [String])?)?
     /// Checks replace this so they never fill the person's Trash.
     var moveToTrash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
@@ -140,6 +143,10 @@ final class MeetingModel: ObservableObject {
         liveEngine = engine
         host = MeetingHostAdmission()
         refreshAdmission()
+        // Committed originals are kept losslessly compressed (MeetingOriginalCompression): each new
+        // meeting once it saves, and, once per launch, any saved before this existed.
+        afterCommit = { MeetingOriginalCompression.schedule(session: $0) }
+        MeetingOriginalCompression.scheduleSweep(root: directory)
     }
 
     /// These seams exercise the actual controller with synthetic capture and
@@ -668,7 +675,7 @@ final class MeetingModel: ObservableObject {
         if let saved = try loadSavedTranscript?(result.manifest.id), result.committed {
             pendingTranscriptNotes = saved.notes; completedTranscriptText = saved.transcript.text
         } else { pendingTranscriptNotes = result.notes }
-        if result.committed { completedTranscriptID = result.manifest.id }
+        if result.committed { completedTranscriptID = result.manifest.id; afterCommit?(session) }
         else { keptWithoutSpeech = KeptMeeting(session: session, message: result.manifest.failure ?? "No speech was recognised.") }
         notice = ([result.committed ? "Saved to History." : result.manifest.failure ?? "The recording checkpoint was kept."] + pendingTranscriptNotes).joined(separator: " ")
         elapsed = result.manifest.seconds
