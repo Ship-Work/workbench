@@ -106,8 +106,7 @@ struct MeetingSavedIdentity: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(metadata.heading).font(.headline).fixedSize(horizontal: false, vertical: true)
                 if !summary.about.isEmpty { TranscriptAbout(summary: summary, lineLimit: 3) }
-            }.padding(Workbench.tilePadding).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Workbench.surface, in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
+            }.frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .combine)
         } else if namer.working == id {
             HStack(spacing: 8) {

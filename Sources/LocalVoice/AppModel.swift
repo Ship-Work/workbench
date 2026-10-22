@@ -926,8 +926,9 @@ final class AppModel: NSObject, ObservableObject {
     }
     func savePrompt(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; showLibrary(); library.newPrompt(text) }
     @discardableResult
-    func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
-        copyTextWithReceipt(MeetingTranscriptCopy.text(item, metadata: historyLibrary.metadata(for: item.id)),
+    /// `heading`: a meeting's name and facts over its words (`copyHeading`), so meetings pasted together stay apart.
+    func copyCapture(_ item: Transcript, heading: String? = nil, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        copyTextWithReceipt(heading.map { $0 + "\n\n" + item.text } ?? item.text,
                             of: .transcript(item.id), words: item.text, pasteboard: pasteboard)
     }
     func showPanelPreview() {

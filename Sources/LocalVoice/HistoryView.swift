@@ -500,7 +500,7 @@ struct HistoryView: View {
                             TranscriptHistoryRow(model: model, library: library, item: item,
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
-                                copy: { copy(item.id) { model.copyCapture(item) } },
+                                copy: { copy(item.id) { model.copyCapture(item, heading: model.copyHeading(item)) } },
                                 copyConfirmation: shown.confirmation, copyProblem: shown.problem, prepareFollowUp: prepareFollowUp,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):

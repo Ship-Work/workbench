@@ -146,7 +146,7 @@ struct TranscriptReviewView: View {
                 // recovery. Original wording can be selected or exported without
                 // pretending that recovery points at those different words.
                 Button("Copy current text") {
-                    model.copyCapture(item)
+                    model.copyCapture(item, heading: model.copyHeading(item))
                     if model.status == TextDelivery.copiedMessage { feedback.finish("Copied current text") }
                     else { feedback.finish(nil, problem: model.status) }
                 }.disabled(item.text.isEmpty)

@@ -10,6 +10,11 @@ enum MeetingTranscriptCopy {
         return heading(item, metadata: metadata, locale: locale, timeZone: timeZone) + "\n\n" + item.text
     }
 
+    /// The heading Copy puts over a meeting or call's words; none for a dictation.
+    static func copyHeading(_ item: Transcript, metadata: TranscriptMetadata) -> String? {
+        metadata.isConversation ? heading(item, metadata: metadata) : nil
+    }
+
     /// "Harbour release and Northwind export" over "Zoom · 21 Oct 2026 at 10:02 · 42 min".
     static func heading(_ item: Transcript, metadata: TranscriptMetadata, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
         var style = Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale); style.timeZone = timeZone
@@ -30,11 +35,16 @@ enum MeetingTranscriptCopy {
 }
 
 extension AppModel {
+    /// What Copy puts over a saved transcript's words, from its details.
+    func copyHeading(_ item: Transcript) -> String? {
+        MeetingTranscriptCopy.copyHeading(item, metadata: historyLibrary.metadata(for: item.id))
+    }
+
     /// Copy uses History's complete current record and its existing clipboard
     /// receipt/recovery owner. It does not require a ready model or assistant.
     func copyMeetingTranscript(_ id: UUID) -> String? {
         MeetingTranscriptCopy.copy(id, in: history) { item in
-            copyCapture(item)
+            copyCapture(item, heading: copyHeading(item))
             return status == TextDelivery.copiedMessage ? nil : status
         }
     }
