@@ -281,14 +281,20 @@ final class AppModel: NSObject, ObservableObject {
     }
     func cancelSpeechPreparation() { Task { await engine.cancelPreparation(); acceptRecognition(await engine.snapshot()) } }
     var canToggleRecording: Bool {
-        phase == .requesting || phase == .recording || (phase == .idle && ready)
+        phase == .requesting || phase == .recording || (phase == .idle && mayDictate)
     }
+    /// Speech is loading its saved model, as after every update while the Neural Engine compiles it
+    /// again (about 15 s on an M5, measured 22 October 2026). Dictate records meanwhile, without
+    /// live words, and transcribes the recording at Stop once the model is ready. A model that is
+    /// downloading, missing or failed still sends Dictate to Models.
+    var speechWarming: Bool { !ready && preparing && [.checkingCache, .loading].contains(recognition.phase) }
+    var mayDictate: Bool { ready || speechWarming }
 
     func toggleRecording(fromShortcut: Bool = false, target: TextDelivery.Target? = nil) {
         if phase == .requesting { cancelRecording(); return }
         if phase == .recording { stopRecording(); return }
         guard phase == .idle else { return }
-        guard ready else { page = "models"; onShowEditor?("models"); return }
+        guard mayDictate else { page = "models"; onShowEditor?("models"); return }
         microphoneFailure = nil
         let intendedTarget = target ?? (fromShortcut ? TextDelivery.capture() : nil)
         if let reason = microphoneStartFailure?(intendedTarget) {
@@ -362,7 +368,7 @@ final class AppModel: NSObject, ObservableObject {
         // Cancel or a new Start can run while the actor replies. Neither a true
         // nor a false old reply may create recovery files or fail the new attempt.
         guard recordingAttempt == attempt else { return }
-        guard ready, admitted else { fail("Speech is no longer ready. Open Models, then start a new recording when setup is complete.", code: "dictate.speech_not_ready"); return }
+        guard (ready && admitted) || speechWarming else { fail("Speech is no longer ready. Open Models, then start a new recording when setup is complete.", code: "dictate.speech_not_ready"); return }
         var startedAudio: URL?
         do {
             let url = try captureRecovery.beginRecording()
@@ -636,7 +642,16 @@ final class AppModel: NSObject, ObservableObject {
                     ? "Parakeet · on this Mac" : "\(configuration.model) · local server"
                 let raw: String
                 if let recognizedText { raw = recognizedText }
-                else { raw = try await engine.transcribe(url) }
+                else {
+                    // A recording made while speech was getting ready waits for it here; a model that
+                    // could not be prepared fails below with its reason, and the recording is kept.
+                    while await engine.snapshot().isPreparing {
+                        status = "Getting speech ready on this Mac…"; onPhaseChange?()
+                        try await Task.sleep(nanoseconds: 200_000_000)
+                        guard transcriptionID == invocation else { throw CancellationError() }
+                    }
+                    raw = try await engine.transcribe(url)
+                }
                 try Task.checkCancellation()
                 guard transcriptionID == invocation else { throw CancellationError() }
                 if let shortcutID, shortcutRequest.id != shortcutID { throw CancellationError() }
