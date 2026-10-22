@@ -345,10 +345,14 @@ final class LiveVoiceService: @unchecked Sendable {
     /// pass incomplete, so the saved recording is transcribed instead. Dictate sets it, where that
     /// costs one short reading; Meetings does not, where it would cost the whole meeting for every
     /// call that ends on a cough or typing.
+    /// `phrasing` and `priority`: Dictate reads every second at user-initiated priority, so its first
+    /// words show about a second after speech starts rather than two; a meeting keeps the two-second
+    /// cadence at utility priority beside the call.
     init(id: UUID, sources: [LiveVoiceSourceStatus], journal: URL?, doubtfulEndingIsIncomplete: Bool = false,
+         phrasing: LiveVoiceWindow.Phrasing = .init(), priority: TaskPriority = .utility,
          recognize: @escaping Recognize, update: @escaping @Sendable (LiveVoiceSnapshot) -> Void) {
         let input = input
-        task = Task.detached(priority: .utility) {
+        task = Task.detached(priority: priority) {
             defer { input.close() }
             var checkpoint = LiveVoiceCheckpoint(sessionID: id)
             var runs: [LiveVoiceSource: [LiveVoiceWindow]] = [:]
@@ -380,7 +384,9 @@ final class LiveVoiceService: @unchecked Sendable {
                         snapshot.elapsed = max(snapshot.elapsed, audio.start + Double(audio.samples.count) / audio.sampleRate)
                         var queue = runs[audio.source] ?? []
                         if queue.isEmpty || !queue[queue.count - 1].append(audio) {
-                            queue.append(LiveVoiceWindow(source: audio.source, start: audio.start, rate: audio.sampleRate, samples: audio.samples))
+                            var window = LiveVoiceWindow(source: audio.source, start: audio.start, rate: audio.sampleRate, samples: audio.samples)
+                            window.phrasing = phrasing
+                            queue.append(window)
                         }
                         // Bound both the mailbox and audio retained during inference. Past 60 s the
                         // oldest window(s) go and live words continue from the newest audio; the
