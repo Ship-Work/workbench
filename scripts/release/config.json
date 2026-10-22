@@ -80,7 +80,7 @@
         "I",
         "J"
       ],
-      "reason": "2.6.0 (21 October 2026): asked for a two-minute dictation check on the notarized package, the maintainer answered \"publish please … I will test in production\", extending his standing choice since 2.5.0 to D1: he tests the foundation journeys in production on his own Mac and reports through Report a Problem. This release attests only the fresh smoke (opening, permissions by unchanged signing identity, saved work) and the signed 2.5.0-to-2.6.0 upgrade on the exact notarized package. D1, Meetings' two-sided capture (M1, M2, which also needs System Audio Recording allowed for the edition and a real call) and the other foundation journeys (H1, H2, S1, ST1, P1, P2, R1, U1, I2, Q1-Q3, L1-L4, X1-X3) are not attested here and stay owed in #7."
+      "reason": "2.7.0 (22 October 2026): the maintainer asked to \"Run all PRs to Production - I will test what truely needs me there\", continuing his standing choice since 2.5.0: he tests the foundation journeys in production on his own Mac and reports through Report a Problem. This release attests only the fresh smoke (opening, permissions by unchanged signing identity, saved work) and the signed 2.6.0-to-2.7.0 upgrade on the exact notarized package. D1, Meetings' two-sided capture (M1, M2, which also needs System Audio Recording allowed for the edition and a real call) and the other foundation journeys (H1, H2, S1, ST1, P1, P2, R1, U1, I2, Q1-Q3, L1-L4, X1-X3) are not attested here and stay owed in #7."
     }
   }
 }
