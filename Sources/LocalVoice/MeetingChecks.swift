@@ -407,7 +407,68 @@ enum MeetingChecks {
                    "Finish meeting saves the transcript, then quits")
         try expect(MeetingQuitChoice.plan(recording: true) { .quitAndKeepForLater } == .init(quits: true, finishesMeeting: false),
                    "Quit and keep for later quits with the audio kept, as before")
-        print("Meeting checks passed (\(checks)): synthetic detection, source timing, >30-minute segmentation, recovery, cancellation and stable history commits. No live devices were used.")
+
+        // A committed meeting's originals are kept losslessly compressed and its recognition
+        // segments removed; every sample decodes as recorded, and an unfinished meeting is untouched.
+        func speechLike(_ url: URL, seconds: Double, rate: Double, seed: UInt32) throws {
+            let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: rate,
+                                           AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false]
+            let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            let count = Int(seconds * rate), buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(count))!
+            buffer.frameLength = AVAudioFrameCount(count)
+            var state = seed
+            for index in 0..<count {
+                state = state &* 1_664_525 &+ 1_013_904_223
+                let noise = Float(Int32(bitPattern: state) >> 16) / 32_768 * 0.002
+                let voiced = index % Int(rate) < Int(rate * 0.6) ? 0.3 * sinf(Float(index) * 0.05) * sinf(Float(index) * 0.0007) : 0
+                buffer.floatChannelData![0][index] = (Float(Int((voiced + noise) * 32_767)) / 32_768)
+            }
+            try file.write(from: buffer)
+        }
+        func samples(_ url: URL) throws -> [Float] {
+            let file = try AVAudioFile(forReading: url)
+            let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+            try file.read(into: buffer)
+            return Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
+        }
+        // Created stopped, then saved committed with its tracks and live text, as a finished meeting is.
+        var tidyManifest = manifest(state: .stopped); tidyManifest.seconds = 4
+        let tidySession = try MeetingStore.create(root: root.appendingPathComponent("tidy", isDirectory: true), manifest: tidyManifest)
+        var tidyTracks: [MeetingTrack] = []
+        for (source, rate) in [(MeetingTrackSource.remote, 48_000.0), (.local, 44_100.0)] {
+            let url = try MeetingStore.safeURL(session: tidySession, relative: "tracks/\(source.rawValue).caf")
+            try speechLike(url, seconds: 4, rate: rate, seed: source == .local ? 7 : 11)
+            tidyTracks.append(MeetingTrack(source: source, file: "tracks/\(source.rawValue).caf", startSeconds: 0, seconds: 4, sampleRate: rate, peak: 0.3, droppedSeconds: 0))
+        }
+        var withTracks = tidyManifest; withTracks.tracks = tidyTracks
+        withTracks.state = .committed; withTracks.formatVersion = 2; withTracks.liveText = "Synthetic words"
+        try MeetingStore.save(withTracks, at: tidySession, replacing: tidyManifest)
+        let segment = tidySession.appendingPathComponent("segments/segment-0000.wav")
+        try Data(count: 64_000).write(to: segment)
+        let remoteOriginal = try MeetingStore.safeURL(session: tidySession, relative: "tracks/remote.caf")
+        let localOriginal = try MeetingStore.safeURL(session: tidySession, relative: "tracks/local.caf")
+        let before = (try samples(remoteOriginal), try samples(localOriginal))
+        let sizeBefore = try MeetingOriginalCompression.size(remoteOriginal), recordBefore = try MeetingStore.load(from: tidySession)
+        let tidied = try MeetingOriginalCompression.tidy(session: tidySession)
+        let format = MeetingOriginalCompression.formatID(try AVAudioFile(forReading: remoteOriginal))
+        try expect(tidied.tracks == 2 && format == kAudioFormatAppleLossless && (try samples(remoteOriginal), try samples(localOriginal)) == before,
+                   "a committed meeting's tracks become Apple Lossless with every sample as recorded, at 48 and 44.1 kHz")
+        try expect(try MeetingOriginalCompression.size(remoteOriginal) < sizeBefore * 4 / 5 && tidied.savedBytes > 64_000
+                   && !FileManager.default.fileExists(atPath: segment.path) && (try MeetingStore.load(from: tidySession)) == recordBefore,
+                   "the tracks take less space, the recognition segment goes, and the record is unchanged")
+        let reader = try MeetingTrackReader(url: remoteOriginal, startSeconds: 0, blockFrames: 8_192)
+        var decoded = [Float](repeating: 0, count: 16_000)
+        try reader.read(16_000, into: &decoded)
+        try expect(decoded.contains { $0 != 0 } && (try MeetingRecovery.inspect(session: tidySession)).checkpoint?.originalsAvailable == true,
+                   "the saved-audio path reads the compressed original, and recovery still finds it")
+        try expect(try MeetingOriginalCompression.tidy(session: tidySession) == .init(), "a second pass changes nothing")
+        let openSession = try MeetingStore.create(root: root.appendingPathComponent("tidy-open", isDirectory: true), manifest: manifest(state: .stopped))
+        let openTrack = try MeetingStore.safeURL(session: openSession, relative: "tracks/remote.caf")
+        try speechLike(openTrack, seconds: 1, rate: 48_000, seed: 3)
+        try expect(try MeetingOriginalCompression.tidy(session: openSession) == .init()
+                   && MeetingOriginalCompression.formatID(try AVAudioFile(forReading: openTrack)) == kAudioFormatLinearPCM,
+                   "a meeting that has not committed keeps its originals as written")
+        print("Meeting checks passed (\(checks)): synthetic detection, source timing, >30-minute segmentation, recovery, cancellation, stable history commits and lossless originals. No live devices were used.")
     }
 
     private static func liveLifecycleChecks(root: URL, expect: (Bool, String) throws -> Void) async throws {
