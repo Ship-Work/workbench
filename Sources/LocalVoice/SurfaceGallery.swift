@@ -658,11 +658,12 @@ private struct HistoryNativeAcceptanceView: View {
             pages[history].shots += try renderTranscriptReviewStates(to: output)
         }
         let meetingReview = try renderMeetingReview(to: output)
+        // While the meeting just committed above is still the page's result.
+        let names = try renderMeetingNames(to: output)
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) {
             pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
         }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
-        let names = try renderMeetingNames(to: output)
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += names.history }
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) { pages[meeting].shots += names.meeting }
         let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks + refusal
@@ -5564,7 +5565,10 @@ extension SurfacePass {
 
         // Meetings after Finish, once the saved meeting is named: its name and what it was about above Copy transcript.
         var meeting: [SurfaceGallery.Shot] = []
-        if let id = model.meetings.completedTranscriptID {
+        guard let id = model.meetings.completedTranscriptID else {
+            throw VoiceError.message("The named Meetings render needs the meeting committed just before it.")
+        }
+        do {
             let previous = library.metadata(for: id)
             defer { library.setMetadata(previous, for: id) }
             var details = previous; details.app = "Zoom"; details.summary = Self.namedSummary

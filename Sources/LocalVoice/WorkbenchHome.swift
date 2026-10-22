@@ -201,7 +201,8 @@ struct WorkbenchHome: View {
                     })
                 case "history": HistoryView(model: model, snap: snap, openSnapTalkSessions: {
                     openSnapTalkSessions = true; model.page = "readback"
-                }, applySuggestedMetadata: { job, result in
+                }, prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: nil, transcriptID: id, meetingFollowUp: true) },
+                applySuggestedMetadata: { job, result in
                     do { suggestionReview = try MetadataSuggestionReview(job: job, result: result, jobs: model.handoffJobs, transcripts: model.history) }
                     catch { model.handoffJobs.error = error.localizedDescription }
                 })

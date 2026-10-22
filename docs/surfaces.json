@@ -5522,6 +5522,24 @@
     "note": "Option: the empty Last meeting tile's one next step; opening Meetings starts nothing (Start stays explicit)."
   },
   {
+    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up",
+    "surface": "history page",
+    "label": "Prepare follow-up…",
+    "kind": "action",
+    "belongsTo": "history",
+    "aliasOf": "history",
+    "note": "Option: the same reviewed follow-up handoff that Meetings' and Home's Prepare follow-up\u2026 open, on every meeting or call in History (22 October 2026: a past meeting otherwise took a checkbox, Hand off\u2026, a skill change and a cleared selection). Nothing is sent until the review (Fit rule 6); the result lands in History, where the person acted."
+  },
+  {
+    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up.2",
+    "surface": "history page",
+    "label": "Prepare follow-up…",
+    "kind": "action",
+    "belongsTo": "history",
+    "aliasOf": "history",
+    "note": "The row's context menu carries the same door, as it carries every row action."
+  },
+  {
     "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.prepare-follow-up",
     "surface": "window home",
     "label": "Prepare follow-up…",

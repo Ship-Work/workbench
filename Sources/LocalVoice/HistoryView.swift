@@ -79,6 +79,30 @@ enum HistoryInputAvailability: Equatable {
 
 /// History's one way of saying when something was made: month, day and time, with the year only
 /// when it is not this year. Rows, task cards and the transcript review all use it.
+/// The day headings in History's list: Today, Yesterday, a weekday within the past week, then dates.
+enum HistoryDay {
+    static func title(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days > 0 && days < 7 { return date.formatted(.dateTime.weekday(.wide)) }
+        let style = Date.FormatStyle.dateTime.weekday(.abbreviated).day().month(.abbreviated)
+        return calendar.isDate(date, equalTo: now, toGranularity: .year) ? date.formatted(style) : date.formatted(style.year())
+    }
+
+    /// The heading before each entry that starts a new day, in the list's own (newest-first) order.
+    static func starts(_ entries: [HistoryEntry], now: Date = Date(), calendar: Calendar = .current) -> [HistoryEntry.ID: String] {
+        var headings: [HistoryEntry.ID: String] = [:], previous: Date?
+        for entry in entries {
+            if previous.map({ !calendar.isDate($0, inSameDayAs: entry.date) }) ?? true {
+                headings[entry.id] = title(entry.date, now: now, calendar: calendar)
+            }
+            previous = entry.date
+        }
+        return headings
+    }
+}
+
 enum HistoryDate {
     static func text(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let style = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
@@ -243,6 +267,8 @@ struct HistoryView: View {
     @ObservedObject private var jobs: HandoffJobsModel
     var applySuggestedMetadata: (HandoffJob, String) -> Void
     var openSnapTalkSessions: (() -> Void)?
+    /// A meeting's own Prepare follow-up…, the reviewed handoff Meetings and Home open.
+    var prepareFollowUp: ((UUID) -> Void)?
     @State private var filter: HistoryFilter
     @State private var query = ""
     /// The search the list shows, applied once typing pauses.
@@ -278,8 +304,9 @@ struct HistoryView: View {
     /// app starts with neither.
     init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil,
          copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil, expandedResult: UUID? = nil,
+         prepareFollowUp: ((UUID) -> Void)? = nil,
          applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
-        self.model = model; self.snap = snap
+        self.model = model; self.snap = snap; self.prepareFollowUp = prepareFollowUp
         self.library = model.historyLibrary; self.jobs = model.handoffJobs
         self.applySuggestedMetadata = applySuggestedMetadata
         self.openSnapTalkSessions = openSnapTalkSessions
@@ -456,8 +483,15 @@ struct HistoryView: View {
         }
         return ScrollViewReader { proxy in
             ScrollView {
+                let days = HistoryDay.starts(entries)
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(entries) { entry in
+                        // Each day opens under its own heading, so the list reads as days of work, not one log.
+                        if let day = days[entry.id] {
+                            Text(day).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.top, entry.id == entries.first?.id ? 0 : 8)
+                                .accessibilityAddTraits(.isHeader)
+                        }
                         switch entry {
                         case .transcript(let item):
                             let shown = HistoryCopy.shown(item.id, copied: copied, in: copyFeedback)
@@ -465,7 +499,7 @@ struct HistoryView: View {
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
                                 copy: { copy(item.id) { model.copyCapture(item) } },
-                                copyConfirmation: shown.confirmation, copyProblem: shown.problem,
+                                copyConfirmation: shown.confirmation, copyProblem: shown.problem, prepareFollowUp: prepareFollowUp,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):
                             HistorySnapRow(snap: snap, library: library, item: item, images: images,

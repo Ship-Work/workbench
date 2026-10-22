@@ -85,7 +85,8 @@ The model misstated one figure in one point: "reduce … by 2200 tickets per mon
 **Where it shows:**
 
 - **History row.** A meeting leads with its name, then when, the app, its length and word count, then what it was about. Until it is described, it is named by its app ("Zoom meeting") and shows four lines of its words instead of eight.
-- **History filter.** History has a Meetings filter.
+- **History filter and days.** History has a Meetings filter, and its list is headed by day: Today, Yesterday, a weekday within the week, then dates.
+- **Prepare follow-up… on every meeting.** A meeting or call's History row, and its context menu, open the same reviewed follow-up Meetings and Home open. Before, a past meeting needed a checkbox, Hand off…, a skill change and a cleared selection.
 - **Review transcript.** It opens on the name and facts, then the gist and points over the words. ⌘F finds in the words.
 - **Meetings page.** It shows the name and gist above Copy transcript once they arrive.
 - **Home.** The tile's heading is the name, and its excerpt is what the meeting was about.
@@ -127,4 +128,4 @@ Native acceptance is owed:
 - the same with it off;
 - an earlier meeting named after an update.
 
-Synthetic checks: `--check-history-library` (65 meeting-name checks: details, headings, search, the Meetings filter, Copy, cleaning, parts, the route with a stand-in model and the queue). Renders: the gallery's `page-history-state-meetings`, `page-history-transcript-review-named`, `page-meeting-state-completed-named` and `page-home-state-results`.
+Synthetic checks: `--check-history-library` (66 meeting-name checks, day headings included: details, headings, search, the Meetings filter, Copy, cleaning, parts, the route with a stand-in model and the queue). Renders: the gallery's `page-history-state-meetings`, `page-history-transcript-review-named`, `page-meeting-state-completed-named` and `page-home-state-results`.

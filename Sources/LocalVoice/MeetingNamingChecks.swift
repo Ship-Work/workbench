@@ -12,6 +12,7 @@ enum MeetingNamingChecks {
             guard try condition() else { throw VoiceError.message("MEETING_NAMING_CHECK_FAILED: \(name)") }
             passed += 1
         }
+        let utcZone = TimeZone(identifier: "UTC")!
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("Workbench-meeting-names-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -75,8 +76,17 @@ enum MeetingNamingChecks {
         try check(transcriptsShown.count == 3, "Transcripts still lists every transcript")
         try check(HistoryFilter.allCases.map(\.title) == ["All", "Meetings", "Transcripts", "Snaps", "Results", "Archived"], "History's filters in order")
 
+        // History reads by day: a heading before the first entry of each day, newest first.
+        var gregorian = Calendar(identifier: .gregorian); gregorian.timeZone = utcZone
+        let now = Date(timeIntervalSince1970: 1_761_163_200) // Wed 22 Oct 2025, 20:00 UTC
+        let days = [0.0, -0.5, -1, -3, -40].map { Transcript(date: now.addingTimeInterval($0 * 86_400), text: "Words", seconds: 1) }
+        let headings = HistoryDay.starts(HistoryList.merged(transcripts: days, snaps: [], results: []), now: now, calendar: gregorian)
+        try check(headings.count == 4 && headings[.transcript(days[0].id)] == "Today" && headings[.transcript(days[1].id)] == nil
+                  && headings[.transcript(days[2].id)] == "Yesterday" && headings[.transcript(days[4].id)] != nil,
+                  "History heads each day once: Today, Yesterday, a weekday, then a date (\(headings.values.sorted()))")
+
         // Copy: a meeting starts with its name and when, where and how long; a dictation is its words.
-        let utc = TimeZone(identifier: "UTC")!, locale = Locale(identifier: "en_AU")
+        let utc = utcZone, locale = Locale(identifier: "en_AU")
         let copied = MeetingTranscriptCopy.text(meeting, metadata: meetingDetails, locale: locale, timeZone: utc)
         let stamp = meeting.date.formatted({ var style = Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale); style.timeZone = utc; return style }())
         try check(copied == "Harbour release and Northwind export\nZoom · \(stamp) · 42 min\n\n" + meeting.text,

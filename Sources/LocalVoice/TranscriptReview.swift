@@ -69,6 +69,8 @@ struct TranscriptReviewView: View {
     @StateObject private var feedback = TranscriptReviewFeedback()
     /// The capture notes' own height at the sheet's width.
     @State private var notesFit: CGFloat = 0
+    /// The summary's own height at the sheet's width.
+    @State private var summaryFit: CGFloat = 0
 
     init(model: AppModel, review: TranscriptReview, done: @escaping () -> Void) {
         self.model = model; self.review = review; self.done = done
@@ -111,7 +113,8 @@ struct TranscriptReviewView: View {
                 // What it was about and the points to find again, above the words they came from.
                 ScrollView {
                     TranscriptAbout(summary: summary, showsPoints: true).frame(maxWidth: .infinity, alignment: .leading)
-                }.scrollBounceBehavior(.basedOnSize).frame(maxHeight: Self.summaryHeight)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryFit = $0 }
+                }.scrollBounceBehavior(.basedOnSize).frame(height: min(summaryFit, Self.summaryHeight))
             }
             Picker("Wording", selection: $version) {
                 Text("Current text").tag(TranscriptExportVersion.cleaned)

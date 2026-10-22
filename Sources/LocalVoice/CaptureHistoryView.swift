@@ -78,6 +78,8 @@ struct TranscriptHistoryRow: View {
     let copy: () -> Void
     var copyConfirmation: String?
     var copyProblem: String?
+    /// A meeting or call's own follow-up door, the one Meetings and Home have.
+    var prepareFollowUp: ((UUID) -> Void)? = nil
     /// A door asked History to show this transcript (#134): its heading line is then a focus stop
     /// that takes keyboard and VoiceOver focus, as a revealed task's heading does. Focus is not
     /// selection; the checkbox and the shared selection are untouched.
@@ -155,6 +157,11 @@ struct TranscriptHistoryRow: View {
                     Button("Copy", action: copy).accessibilityLabel(CaptureHistoryAccessibility.label("Copy", context: context))
                     Button("Review transcript") { review = TranscriptReview(transcript: item) }
                         .accessibilityLabel(CaptureHistoryAccessibility.label("Review transcript", context: context))
+                    if metadata.isConversation, let prepareFollowUp {
+                        Button("Prepare follow-up…") { prepareFollowUp(item.id) }
+                            .help("Start task runs it here and brings its result to History; Copy instructions copies it for your own assistant.")
+                            .accessibilityLabel(CaptureHistoryAccessibility.label("Prepare follow-up", context: context))
+                    }
                     Button("Details…") { details = item }.accessibilityLabel(CaptureHistoryAccessibility.label("Details", context: context))
                     Menu {
                         moreActions
@@ -178,6 +185,7 @@ struct TranscriptHistoryRow: View {
                 Button("Review transcript") { review = TranscriptReview(transcript: item) }
                 Button("Details…") { details = item }
                 if hasRecording { Button("Review recording") { recording = item } }
+                if metadata.isConversation, let prepareFollowUp { Button("Prepare follow-up…") { prepareFollowUp(item.id) } }
                 Divider()
                 moreActions
                 Divider()
@@ -229,8 +237,9 @@ struct TranscriptAbout: View {
                     }
                 }.font(Workbench.bodyText)
             }
-            Label(TranscriptAbout.receipt, systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)
-                .labelStyle(.titleAndIcon)
+            Label(lineLimit == nil ? TranscriptAbout.receipt : "Written on this Mac", systemImage: "sparkles")
+                .font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                .help(TranscriptAbout.receipt)
         }
     }
 
