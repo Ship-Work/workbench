@@ -919,6 +919,13 @@ func runCLI(_ args: [String]) async -> Int32 {
                 NSApp.finishLaunching()
             }
             print(try await MeetingCaptureNativeCheck.run(output: URL(fileURLWithPath: args[1], isDirectory: true), selfEnd: args.count == 3))
+        case "--check-meeting-finish":
+            guard (4...5).contains(args.count), let speed = Double(args.count == 5 ? args[4] : "4") else {
+                throw VoiceError.message("Usage: --check-meeting-finish MICROPHONE_AUDIO APP_AUDIO NEW_OUTPUT_FOLDER [SPEED]")
+            }
+            try await CheckReceipt.run(mode: "meeting-finish", folder: args[3]) { output in
+                try await MeetingFinishCheck.run(microphone: URL(fileURLWithPath: args[1]), app: URL(fileURLWithPath: args[2]), output: output!, speed: speed)
+            }
         case "--check-live-voice-model":
             guard args.count == 2 || (args.count == 3 && args[2] == "--two-sources") else { throw VoiceError.message("Supply one synthetic audio fixture path and optionally --two-sources.") }
             try await LiveVoiceModelCheck.run(audio: URL(fileURLWithPath: args[1]), twoSources: args.count == 3)
