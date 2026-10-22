@@ -44,7 +44,21 @@ Idle cost is not a problem: the running Preview used 0.11 s of CPU in a minute (
 
 Workbench's own data is 377 MB across both editions. The disk had 15 GB free because of developer output: about 40 GB of `.build` folders in `~/Developer` worktrees (23 GB untouched since 15 October), 26.7 GB in Codex worktrees, 3.1 GB of evaluation speech models the app never reads (Cohere, Parakeet v3 and unified; it uses only Parakeet v2), about 0.9 GB of developer compile caches, and 4,278 test plists from September. None of that is the app's to clear; the maintainer decides it.
 
-## 5. Owed to the maintainer
+## 5. The one-sitting tour that closes most open issues
+
+About 35 minutes on an installed build that carries the work (Stable 2.6.0 holds everything the running Preview does, plus #374; #389 and later need a new Preview). Each line names the issues it accepts.
+
+1. **Dictate, in TextEdit (6 min).** Start Dictate, click Finder before words appear, stop: "Copied · …" and ⌘V works (#328). Dictate "We need to review the ERM framework": ERM stays (#356). Tap the shortcut and stop at once, twice: "No speech heard", then Sound Settings… (#156). Put the caret in "Please bring|tomorrow" and dictate "the blue folder": spacing fits (#14). After a failed dictation, Record again types into TextEdit (#337). Add a dictionary phrase twice: it asks to Update (#175). Delivery Copy to clipboard: "Copied · N words / Paste with ⌘V" (#165). Answer #357's two naming choices here.
+2. **Snap and Snap & Talk (6 min).** Snap › Screen is about 2940 wide (#329); a caption then ⌘Z removes it whole (#331, #359); marks survive ⌘Z in Title (#380). Region from the shortcut, panel and toolbar opens the editor each time (#151); a thumbnail opens readable (#154). Capture & narrate, ⌘Q mid-sentence, relaunch: the take is kept (#330); a silent retake keeps the words (#342); five Snaps from History join in capture order (#358); a typed note finishes a section (#63).
+3. **Keys, panel and toolbar (5 min).** Snap & Talk's Change shortcut… opens Keyboard on Snap & Talk, which lists Draw, Shape and Clear (#76). The panel's shortcut label shows Cancel and Turn off; clicking TextEdit closes the panel (#336, #153). The toolbar reveals at two docks (#152), hides while presenting with work going on (#155), drags to mid-screen and an edge (#163), shows a mint guide with another accent (#80) and clips nothing at larger text (#87).
+4. **Present, Draw, Timer and Persona (7 min).** Add persona… lists only cards and a saved scene leaves no orange line (#333, #276). Whiteboard: Copy Board and Save Board PNG… (#31). A one-minute Timer steps once a second and keeps the display awake (#334, #381, #174). Persona: an arranged move survives leaving the page (#340), a locked card passes clicks through (#157), Replace shown with (#170), Circle and Card (#169).
+5. **Library, History and Hand off (6 min).** An unsaved new prompt asks Keep editing or Discard at ⌘Q (#341); a long prompt lands once (#159). One History search finds a dictation and a Snap; Hand off both, then Copy instructions (#137, #140). Copy shows ✓ for four seconds (#338). Prepare follow-up… on a meeting shows your runner and includes the meeting once (#281).
+6. **Meetings (after allowing System Audio Recording; one real call).** A call app opened while Meetings is open is listed without Refresh; a Zoom, Teams or FaceTime call is offered within about 9 s (#378); Finish shows Transcript saved at once with the live words used (#392); Review transcript opens a long meeting at once (#332); then #377's list (speakers vs headphones, a Safari call, FaceTime and a relayed iPhone call, the last five minutes, a low-disk start).
+7. **Delivery.** Report a Problem with a screenshot and a voice note reads Received (#296).
+
+Closable in a minute: superseded #17, #58, #65, #70, #149, #161, #173, #220; effectively accepted #160, #171, #172, #223; built as the Home Keys tile #77.
+
+## 6. Owed to the maintainer
 
 - Allow System Audio Recording for the edition in use (System Settings › Privacy & Security › Screen & System Audio Recording), then record one real call.
 - Install a Preview that carries #389, #392 and the branches above; the running Preview predates them.
