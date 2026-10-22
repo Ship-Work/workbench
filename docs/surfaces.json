@@ -614,6 +614,14 @@
     "note": "Core meeting quality requested by Ethan: guarded automatic Finish after sustained call-audio inactivity, with a cancellable grace period. Never starts recording; microphone-only and unclassified apps remain manual."
   },
   {
+    "id": "LocalVoice.MeetingWorkspaceView.MeetingNamingSettings.Toggle.name-meetings-on-this-mac",
+    "surface": "meeting page",
+    "label": "Name meetings on this Mac",
+    "kind": "option",
+    "belongsTo": "dictate",
+    "note": "Quality of Meetings asked for by Ethan on 22 October 2026 (meetings in History had no titles and read as a log): a saved meeting gets a name, what it was about and its points from Apple Intelligence on this Mac, beside its unchanged words. One switch, on by default as the core behaviour he asked for (Rule 5's one switch); nothing leaves the Mac, nothing acts, and his own name in Details… always wins."
+  },
+  {
     "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.not-now",
     "surface": "proactive offer MeetingOfferPanelController",
     "label": "Not now",
@@ -5512,6 +5520,24 @@
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Option: the empty Last meeting tile's one next step; opening Meetings starts nothing (Start stays explicit)."
+  },
+  {
+    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up",
+    "surface": "history page",
+    "label": "Prepare follow-up…",
+    "kind": "action",
+    "belongsTo": "history",
+    "aliasOf": "history",
+    "note": "Option: the same reviewed follow-up handoff that Meetings' and Home's Prepare follow-up\u2026 open, on every meeting or call in History (22 October 2026: a past meeting otherwise took a checkbox, Hand off\u2026, a skill change and a cleared selection). Nothing is sent until the review (Fit rule 6); the result lands in History, where the person acted."
+  },
+  {
+    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up.2",
+    "surface": "history page",
+    "label": "Prepare follow-up…",
+    "kind": "action",
+    "belongsTo": "history",
+    "aliasOf": "history",
+    "note": "The row's context menu carries the same door, as it carries every row action."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.prepare-follow-up",

@@ -5,11 +5,12 @@ import ImageIO
 /// History's kind filters. Archived shows archived Snaps; results have no
 /// archive yet. A filter only changes what is shown, never what is selected.
 enum HistoryFilter: String, CaseIterable, Identifiable {
-    case all, transcripts, snaps, results, archived
+    case all, meetings, transcripts, snaps, results, archived
     var id: Self { self }
     var title: String {
         switch self {
         case .all: "All"
+        case .meetings: "Meetings"
         case .transcripts: "Transcripts"
         case .snaps: "Snaps"
         case .results: "Results"
@@ -76,9 +77,35 @@ enum HistoryInputAvailability: Equatable {
     }
 }
 
+/// The day headings in History's list: Today, Yesterday, a weekday within the past week, then dates.
+enum HistoryDay {
+    static func title(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days > 0 && days < 7 { return date.formatted(.dateTime.weekday(.wide)) }
+        let style = Date.FormatStyle.dateTime.weekday(.abbreviated).day().month(.abbreviated)
+        return calendar.isDate(date, equalTo: now, toGranularity: .year) ? date.formatted(style) : date.formatted(style.year())
+    }
+
+    /// The heading before each entry that starts a new day, in the list's own (newest-first) order.
+    static func starts(_ entries: [HistoryEntry], now: Date = Date(), calendar: Calendar = .current) -> [HistoryEntry.ID: String] {
+        var headings: [HistoryEntry.ID: String] = [:], previous: Date?
+        for entry in entries {
+            if previous.map({ !calendar.isDate($0, inSameDayAs: entry.date) }) ?? true {
+                headings[entry.id] = title(entry.date, now: now, calendar: calendar)
+            }
+            previous = entry.date
+        }
+        return headings
+    }
+}
+
 /// History's one way of saying when something was made: month, day and time, with the year only
-/// when it is not this year. Rows, task cards and the transcript review all use it.
+/// when it is not this year. The transcript review and task inputs use it; rows under a day's heading show only the time.
 enum HistoryDate {
+    /// A row's time under its day's heading in History's list.
+    static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
     static func text(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let style = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
         return calendar.isDate(date, equalTo: now, toGranularity: .year) ? date.formatted(style) : date.formatted(style.year())
@@ -104,9 +131,11 @@ enum HistoryList {
                       matchTranscripts: ([Transcript], String) -> [Transcript],
                       matchSnap: (SnapItem, String) -> Bool,
                       resultText: (HandoffJob) -> String,
-                      matchResult: ((HandoffJob, String) -> Bool)? = nil) -> [HistoryEntry] {
+                      matchResult: ((HandoffJob, String) -> Bool)? = nil,
+                      isMeeting: (Transcript) -> Bool = { _ in false }) -> [HistoryEntry] {
         let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        let showsTranscripts = filter == .all || filter == .transcripts
+        // Meetings shows the meetings and calls among transcripts, newest first, with the same search.
+        let showsTranscripts = filter == .all || filter == .transcripts || filter == .meetings
         var matchingTranscripts: Set<UUID>?
         if showsTranscripts && !terms.isEmpty {
             let transcripts = merged.compactMap { entry -> Transcript? in
@@ -118,7 +147,7 @@ enum HistoryList {
         return merged.filter { entry in
             switch entry {
             case .transcript(let item):
-                return showsTranscripts && matchingTranscripts?.contains(item.id) != false
+                return showsTranscripts && (filter != .meetings || isMeeting(item)) && matchingTranscripts?.contains(item.id) != false
             case .snap(let item):
                 guard filter == .all || filter == .snaps || filter == .archived,
                       (item.archivedAt != nil) == (filter == .archived) else { return false }
@@ -139,9 +168,11 @@ enum HistoryList {
                         matchTranscripts: ([Transcript], String) -> [Transcript],
                         matchSnap: (SnapItem, String) -> Bool,
                         resultText: (HandoffJob) -> String,
-                        matchResult: ((HandoffJob, String) -> Bool)? = nil) -> [HistoryEntry] {
+                        matchResult: ((HandoffJob, String) -> Bool)? = nil,
+                        isMeeting: (Transcript) -> Bool = { _ in false }) -> [HistoryEntry] {
         shown(merged(transcripts: transcripts, snaps: snaps, results: results), filter: filter, query: query,
-              matchTranscripts: matchTranscripts, matchSnap: matchSnap, resultText: resultText, matchResult: matchResult)
+              matchTranscripts: matchTranscripts, matchSnap: matchSnap, resultText: resultText, matchResult: matchResult,
+              isMeeting: isMeeting)
     }
 
     static func availability(of reference: WorkbenchItemReference, transcripts: Set<UUID>,
@@ -238,6 +269,8 @@ struct HistoryView: View {
     @ObservedObject private var jobs: HandoffJobsModel
     var applySuggestedMetadata: (HandoffJob, String) -> Void
     var openSnapTalkSessions: (() -> Void)?
+    /// A meeting's own Prepare follow-up…, the reviewed handoff Meetings and Home open.
+    var prepareFollowUp: ((UUID) -> Void)?
     @State private var filter: HistoryFilter
     @State private var query = ""
     /// The search the list shows, applied once typing pauses.
@@ -273,8 +306,9 @@ struct HistoryView: View {
     /// app starts with neither.
     init(model: AppModel, snap: SnapModel, openSnapTalkSessions: (() -> Void)? = nil,
          copyFeedback: TranscriptReviewFeedback? = nil, copied: UUID? = nil, expandedResult: UUID? = nil,
+         prepareFollowUp: ((UUID) -> Void)? = nil,
          applySuggestedMetadata: @escaping (HandoffJob, String) -> Void) {
-        self.model = model; self.snap = snap
+        self.model = model; self.snap = snap; self.prepareFollowUp = prepareFollowUp
         self.library = model.historyLibrary; self.jobs = model.handoffJobs
         self.applySuggestedMetadata = applySuggestedMetadata
         self.openSnapTalkSessions = openSnapTalkSessions
@@ -311,7 +345,8 @@ struct HistoryView: View {
             HistoryList.shown(stores.merged, filter: filter, query: appliedQuery,
                 matchTranscripts: { library.matching($0, query: $1) }, matchSnap: { snap.matches($0, query: $1) },
                 resultText: { jobs.files($0)?.inputs.task ?? "" },
-                matchResult: { jobs.matchesResult($0, query: $1) })
+                matchResult: { jobs.matchesResult($0, query: $1) },
+                isMeeting: { library.metadata(for: $0.id).isConversation })
         }
         VStack(alignment: .leading, spacing: Workbench.sectionSpacing) {
             header
@@ -424,6 +459,7 @@ struct HistoryView: View {
     private var emptyFilterDetail: String {
         switch filter {
         case .all: "Dictations, Snaps and Hand off results land here, newest first."
+        case .meetings: "Meetings and calls you record land here, each with its name and what it was about."
         case .transcripts: "What you dictate and record in Meetings lands here."
         case .snaps: "Snaps you take land here; archived ones are under Archived."
         case .results: "Choose items, then Hand off… to prepare a task. Its result lands here."
@@ -434,6 +470,7 @@ struct HistoryView: View {
     private var emptyFilterTitle: String {
         switch filter {
         case .all: "Nothing here yet"
+        case .meetings: "No meetings yet"
         case .transcripts: "No transcripts yet"
         case .snaps: "No Snaps yet"
         case .results: "No Hand off results yet"
@@ -448,16 +485,23 @@ struct HistoryView: View {
         }
         return ScrollViewReader { proxy in
             ScrollView {
+                let days = HistoryDay.starts(entries)
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(entries) { entry in
+                        // Each day opens under its own heading, so the list reads as days of work, not one log.
+                        if let day = days[entry.id] {
+                            Text(day).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.top, entry.id == entries.first?.id ? 0 : 8)
+                                .accessibilityAddTraits(.isHeader)
+                        }
                         switch entry {
                         case .transcript(let item):
                             let shown = HistoryCopy.shown(item.id, copied: copied, in: copyFeedback)
                             TranscriptHistoryRow(model: model, library: library, item: item,
                                 history: stores.sameSecond[Int(item.date.timeIntervalSince1970.rounded(.down))] ?? [item],
                                 review: $transcriptReview, details: $details, removal: $removal, recording: $recording,
-                                copy: { copy(item.id) { model.copyCapture(item) } },
-                                copyConfirmation: shown.confirmation, copyProblem: shown.problem,
+                                copy: { copy(item.id) { model.copyCapture(item, heading: model.copyHeading(item)) } },
+                                copyConfirmation: shown.confirmation, copyProblem: shown.problem, prepareFollowUp: prepareFollowUp,
                                 shown: shownTranscript == item.id, focus: $focusedTranscript, voiceOverFocus: $voiceOverTranscript)
                         case .snap(let item):
                             HistorySnapRow(snap: snap, library: library, item: item, images: images,
@@ -568,7 +612,8 @@ struct HistorySnapRow: View {
     var saveImageToLibrary: ((SnapItem) -> Void)? = nil
     var body: some View {
         let reference = WorkbenchItemReference(kind: .snap, id: item.id)
-        let time = HistoryDate.text(item.createdAt)
+        // Under its day's heading, a row says only its time.
+        let time = HistoryDate.time(item.createdAt)
         let archived = item.archivedAt != nil
         HStack(alignment: .top, spacing: 12) {
             Toggle("", isOn: Binding(get: { library.selected.contains(reference) }, set: { include in

@@ -85,9 +85,11 @@ struct MetadataSuggestionView: View {
                 Button("Keep current details") { dismiss() }
                 Spacer()
                 Button("Apply reviewed details") {
-                    library.setMetadata(TranscriptMetadata(purpose: purpose, person: person, company: company,
-                        tags: tags.split(separator: ",").map(String.init), reviewedSuggestion: review.receipt,
-                        captureNotes: library.metadata(for: review.transcript.id).captureNotes), for: review.transcript.id)
+                    // Details this review doesn't cover (notes, name, app, summary) are kept as saved.
+                    var next = library.metadata(for: review.transcript.id)
+                    next.purpose = purpose; next.person = person; next.company = company
+                    next.tags = tags.split(separator: ",").map(String.init); next.reviewedSuggestion = review.receipt
+                    library.setMetadata(next, for: review.transcript.id)
                     if library.error == nil { dismiss() }
                 }.keyboardShortcut(.defaultAction)
             }

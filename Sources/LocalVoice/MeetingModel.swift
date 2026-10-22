@@ -45,6 +45,12 @@ final class MeetingModel: ObservableObject {
             if !automaticallyFinishCalls { autoFinishSeconds = nil }
         }
     }
+    /// Whether a saved meeting is named and described on this Mac (`MeetingNamer`). One switch in
+    /// Recording options; nothing is sent anywhere and the words are never changed.
+    @Published var describesMeetings: Bool {
+        didSet { defaults.set(describesMeetings, forKey: Self.describeKey) }
+    }
+    static let describeKey = "workbench.meeting.describe.v1"
     private var autoFinish = MeetingAutoFinish()
     /// The guarded finish each recording starts with. Checks and the surface gallery shorten its
     /// delays so a countdown arrives in seconds; the app keeps the defaults.
@@ -61,6 +67,8 @@ final class MeetingModel: ObservableObject {
     var timeLimitWarning: String? { isRecording ? MeetingTimeLimit.warning(elapsed: elapsed) : nil }
     /// The history writer reads these during saveTranscript; originals stay unchanged.
     @Published private(set) var pendingTranscriptNotes: [String] = []
+    /// The app the recording being saved came from, as its manifest names it.
+    private(set) var pendingTranscriptApp: String?
     @Published var detectionEnabled: Bool {
         didSet {
             defaults.set(detectionEnabled, forKey: Self.detectionKey)
@@ -103,7 +111,7 @@ final class MeetingModel: ObservableObject {
     nonisolated static let keptForLater = "Recording was cancelled. Original audio was kept."
     /// The one refusal whose fix is in System Settings, so the page can offer it beside this message only.
     static let microphoneRefused = MeetingProblem.microphoneDenied.message
-    private let directory: URL
+    let directory: URL
     private let defaults: UserDefaults
     private let detector: MeetingDetector
     private let transcribe: (URL) async throws -> String
@@ -167,6 +175,7 @@ final class MeetingModel: ObservableObject {
         self.startupNoticeDelayNanoseconds = startupNoticeDelayNanoseconds
         detectionEnabled = defaults.bool(forKey: Self.detectionKey)
         automaticallyFinishCalls = defaults.object(forKey: "workbench.meeting.auto-finish.v1") as? Bool ?? true
+        describesMeetings = defaults.object(forKey: Self.describeKey) as? Bool ?? true
         configureDetection()
         recoveryTask = Task { [weak self] in await self?.refreshRecovery() }
         refreshAdmission()
@@ -661,6 +670,8 @@ final class MeetingModel: ObservableObject {
             }
             guard let save = self.saveTranscript else { throw MeetingError.message("History is not ready to save this recording. Its original audio was kept.") }
             self.pendingTranscriptNotes = notes
+            self.pendingTranscriptApp = checkpoint.manifest.appName
+            defer { self.pendingTranscriptApp = nil }
             try save(transcript, purpose)
             if let resolve = self.loadSavedTranscript {
                 guard let saved = try resolve(transcript.id) else { throw MeetingProblem.save("History did not confirm the saved UUID.") }

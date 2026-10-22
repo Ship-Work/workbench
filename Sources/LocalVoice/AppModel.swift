@@ -136,6 +136,10 @@ final class AppModel: NSObject, ObservableObject {
     @Published var speechText = "" { didSet { persist() } }
     @Published var history: [Transcript] = [] { didSet { recordFirstDictation() } }
     let historyLibrary = WorkbenchHistoryModel(directory: Workbench.supportDirectory(component: "LocalVoice"))
+    /// Names and describes saved meetings on this Mac. Idle until the app starts it
+    /// (`startMeetingNaming`), so checks and the gallery never reach the model.
+    let meetingNamer = MeetingNamer()
+    var meetingSwitch: AnyCancellable?
     let handoffJobs = HandoffJobsModel(directory: Workbench.supportDirectory(component: "Handoffs"))
     lazy var meetings = MeetingModel(engine: engine, directory: Workbench.supportDirectory(component: "Meetings"))
     var onHandOffSelection: ((String?) -> Void)?
@@ -914,16 +918,18 @@ final class AppModel: NSObject, ObservableObject {
     /// What the copy wrote, so a page can confirm it in place; nil when there were no words to
     /// copy and nothing was attempted, which leaves `status` saying whatever it said before.
     @discardableResult
-    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference,
+    /// `words`: the record's own words when the copy adds a heading, so the receipt counts them and
+    /// copying them resolves an undelivered result as copying the bare words does.
+    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference, words: String? = nil,
                                      pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
         guard !text.isEmpty else { return nil }
         captureFailure = nil; dismissCaptureCue()
         let count = TextDelivery.copy(text, to: pasteboard)
         let outcome = TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage, clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
         status = outcome.message
-        clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(text))
+        clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(words ?? text))
         // Copying the same words from anywhere resolves an undelivered result.
-        undelivered.note(outcome, text: text, from: reference, in: deliveryRecords)
+        undelivered.note(outcome, text: words ?? text, from: reference, in: deliveryRecords)
         return outcome
     }
     /// Copy again, for a result whose copy failed or was never pasted: the
@@ -955,8 +961,10 @@ final class AppModel: NSObject, ObservableObject {
     }
     func savePrompt(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; showLibrary(); library.newPrompt(text) }
     @discardableResult
-    func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
-        copyTextWithReceipt(item.text, of: .transcript(item.id), pasteboard: pasteboard)
+    /// `heading`: a meeting's name and facts over its words (`copyHeading`), so meetings pasted together stay apart.
+    func copyCapture(_ item: Transcript, heading: String? = nil, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
+        copyTextWithReceipt(heading.map { $0 + "\n\n" + item.text } ?? item.text,
+                            of: .transcript(item.id), words: item.text, pasteboard: pasteboard)
     }
     func showPanelPreview() {
         guard phase == .idle else { return }
@@ -1253,12 +1261,15 @@ final class AppModel: NSObject, ObservableObject {
         var metadata = historyLibrary.metadata(for: capture.id)
         metadata.purpose = purpose == "call" ? .call : .meeting
         metadata.captureNotes = meetings.pendingTranscriptNotes
+        metadata.app = MeetingNaming.appName(meetings.pendingTranscriptApp)
         historyLibrary.setMetadata(metadata, for: capture.id)
         if let error = historyLibrary.error { throw VoiceError.message(error) }
         try store.save(session(draft: transcript, history: next, replacements: replacements))
         history = next
         status = "Meeting saved in History."
         onPhaseChange?()
+        // Named after it is safely saved, ahead of older meetings still waiting.
+        meetingNamer.enqueue([capture.id], first: true)
     }
     func savedMeetingTranscript(_ id: UUID) throws -> (transcript: Transcript, notes: [String])? {
         guard let saved = try store.load().history.first(where: { $0.id == id }) else { return nil }
@@ -1281,7 +1292,10 @@ final class AppModel: NSObject, ObservableObject {
         var result = items.map { item in
             let metadata = historyLibrary.metadata(for: item.id)
             let names = [metadata.person, metadata.company].filter { !$0.isEmpty }
-            let title = metadata.purpose.title + (names.isEmpty ? "" : " · " + names.joined(separator: " · "))
+            // The person's own name leads when they gave one. The name written on this Mac is left out:
+            // it arrives seconds after Finish, and a follow-up prepared before it must still be found after.
+            let own = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = ((own.isEmpty ? [] : [own]) + [metadata.purpose.title] + names).joined(separator: " · ")
                 + " · " + item.date.formatted(date: .abbreviated, time: .shortened)
             return HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: item.id),
                 title: title, capturedAt: item.date, text: item.text, originalText: item.rawText ?? item.text,

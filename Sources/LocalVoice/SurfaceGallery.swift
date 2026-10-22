@@ -658,10 +658,12 @@ private struct HistoryNativeAcceptanceView: View {
             pages[history].shots += try renderTranscriptReviewStates(to: output)
         }
         let meetingReview = try renderMeetingReview(to: output)
+        let names = try renderMeetingNames(to: output)
         if let meeting = pages.firstIndex(where: { $0.route == "meeting" }) {
-            pages[meeting].shots += [meetingReview.meeting, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
+            pages[meeting].shots += [meetingReview.meeting, meetingReview.named, try renderMeetingKept(to: output)] + (try renderMeetingFollowUpAndLimits(to: output))
         }
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots.append(meetingReview.history) }
+        if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += names }
         let checks = try dictateStates.checks + review.checks + meetingReview.checks + checkToolbarVisibility() + checkPanelOptionNames() + header.checks + refusal
         // History's states render last, so the pages above show no Hand off task.
         if let history = pages.firstIndex(where: { $0.route == "history" }) { pages[history].shots += try renderHistoryStates(to: output) }
@@ -1977,7 +1979,7 @@ private struct HistoryNativeAcceptanceView: View {
 
     /// Complete a short synthetic meeting through its real recovery/commit owner, then review
     /// that exact ID through History's typed door. No device, recognizer or clipboard is used.
-    func renderMeetingReview(to output: URL) throws -> (meeting: SurfaceGallery.Shot, history: SurfaceGallery.Shot, checks: [String]) {
+    func renderMeetingReview(to output: URL) throws -> (meeting: SurfaceGallery.Shot, named: SurfaceGallery.Shot, history: SurfaceGallery.Shot, checks: [String]) {
         let kept = (meetings: model.meetings, history: model.history, draft: model.transcript,
                     raw: model.rawTranscript, selection: model.historyLibrary.selected, page: model.page)
         defer {
@@ -2041,6 +2043,18 @@ private struct HistoryNativeAcceptanceView: View {
         let meeting = try save(meetingImage, id: "state-completed", title: "Meetings, transcript saved, minimum window",
             detail: "The real meeting owner committed synthetic audio and text. Review transcript carries that completed transcript's ID; newer transcripts exist in History.",
             file: "page-meeting-state-completed-\(theme).png", to: output)
+        // The same result seconds later, once Apple Intelligence on this Mac has named the saved meeting.
+        let named: SurfaceGallery.Shot
+        do {
+            let previous = model.historyLibrary.metadata(for: manifest.id)
+            defer { model.historyLibrary.setMetadata(previous, for: manifest.id) }
+            var details = previous; details.summary = Self.namedSummary
+            model.historyLibrary.setMetadata(details, for: manifest.id)
+            let (image, _) = try renderPage("meeting", in: window)
+            named = try save(image, id: "state-completed-named", title: "Meetings, transcript saved and named, minimum window",
+                detail: "Seconds after Finish the saved meeting's name and what it was about appear above Copy transcript, written by Apple Intelligence on this Mac; Copy works the moment the transcript is saved.",
+                file: "page-meeting-state-completed-named-\(theme).png", to: output)
+        }
         model.openHistory(HistoryDoor(transcript: manifest.id))
         guard model.historyDoor?.transcript == manifest.id, model.historyDoor?.filter == .all else {
             throw VoiceError.message("The completed meeting's History door did not name its exact transcript.")
@@ -2054,7 +2068,7 @@ private struct HistoryNativeAcceptanceView: View {
         let history = try save(historyImage, id: "state-from-meeting", title: "History, exact completed meeting, \(Int(size.width)) × \(Int(size.height)) pt",
             detail: "History consumed a typed door for the completed meeting even though newer transcripts exist. The Dictate draft, selection and saved recording stayed unchanged.",
             file: "page-history-state-from-meeting-\(theme).png", to: output)
-        return (meeting, history, ["A real synthetic meeting commit published its exact transcript ID. History consumed that typed review door while preserving the draft, original, selection and the saved recording/journal bytes."])
+        return (meeting, named, history, ["A real synthetic meeting commit published its exact transcript ID. History consumed that typed review door while preserving the draft, original, selection and the saved recording/journal bytes."])
     }
 
     /// #377's states through the real owners, with synthetic capture, call metadata and a scripted
@@ -2879,9 +2893,15 @@ private struct HistoryNativeAcceptanceView: View {
         // Permissions panel with something to allow; then with every check allowed.
         let metadata = model.historyLibrary.metadata(for: Self.meeting.id)
         model.history = [Self.meeting] + kept.history
-        model.historyLibrary.setMetadata(TranscriptMetadata(purpose: .meeting, person: "Sam Rivera", company: "Synthetic Orchard"), for: Self.meeting.id)
+        // The newest meeting named on this Mac; the earlier two as undescribed meetings read, by app or names.
+        var newest = TranscriptMetadata(purpose: .meeting, person: "Sam Rivera", company: "Synthetic Orchard"); newest.app = "Zoom"
+        newest.summary = TranscriptSummary(title: "Launch review moved to Friday",
+            about: "Maya sends the revised agenda before Thursday and Sam confirms the room; the launch review moves to Friday morning so QA can sign off first.",
+            created: Self.meeting.date, words: TextRules.wordCount(Self.meeting.text))
+        model.historyLibrary.setMetadata(newest, for: Self.meeting.id)
+        var earlierCall = TranscriptMetadata(purpose: .call, person: "Avery Example"); earlierCall.app = "FaceTime"
         // Two older captures read as an earlier call and meeting, listed under the newest.
-        let earlier = [(kept.history[1].id, TranscriptMetadata(purpose: .call, person: "Avery Example")),
+        let earlier = [(kept.history[1].id, earlierCall),
                        (kept.history[2].id, TranscriptMetadata(purpose: .meeting, company: "Design critique"))]
         let earlierKept = earlier.map { ($0.0, model.historyLibrary.metadata(for: $0.0)) }
         for (id, details) in earlier { model.historyLibrary.setMetadata(details, for: id) }
@@ -5473,5 +5493,86 @@ extension SurfacePass {
             throw VoiceError.message("A failed Sound Settings opening was reported as success.")
         }
         return shots
+    }
+}
+
+// MARK: Meeting names
+
+extension SurfacePass {
+    /// Synthetic meetings as a real one is saved: "You:" and "Others:" turns, the app it recorded,
+    /// and a summary written on this Mac for one of them, so the renders show what a person sees
+    /// before and after a meeting is named rather than hand-written titles.
+    static let namedMeeting = Transcript(id: UUID(uuidString: "5D1C0A1E-0000-4000-8000-0000000003A1")!, date: Date(timeIntervalSince1970: 1_789_570_000),
+        text: "You: Okay, I think everyone's here. Can you hear me alright? Great. So the main thing today is the Harbour release, because we're nine days out.\n\nOthers: The checkout rewrite is merged, but the payment retry piece is still flaky in staging. The bank callback comes back after our timeout.\n\nYou: So if Marcus bumps the timeout and adds the reconciliation job by Thursday, are we comfortable shipping on the twenty-ninth?\n\nOthers: If QA gets Friday and Monday on it, yes.",
+        seconds: 2_520)
+    static let namedSummary = TranscriptSummary(title: "Harbour release and Northwind export",
+        about: "The team agreed to ship Harbour on the 29th with a longer payment timeout and a reconciliation job, and to run Northwind's export by hand for their month end.",
+        points: ["Marcus adds the timeout fix and reconciliation job by Thursday.", "QA tests on Friday and Monday.",
+                 "The invite flow ships dark and turns on the following week.", "Jordan runs the Northwind export on Wednesday night."],
+        created: Date(timeIntervalSince1970: 1_789_570_100), words: 92)
+    static let unnamedCall = Transcript(id: UUID(uuidString: "5D1C0A1E-0000-4000-8000-0000000003A2")!, date: Date(timeIntervalSince1970: 1_789_480_000),
+        text: "Others: Hi, sorry, I'm just getting my camera working. There we go. Can you see me?\n\nYou: Yes, I can see you. Thanks for making the time, Helen. I know it's a busy week for you with the budget round.\n\nOthers: It is. But this is one of the things I need to sort out before the budget, so the timing's good.",
+        seconds: 1_860)
+    static let plainMeeting = Transcript(id: UUID(uuidString: "5D1C0A1E-0000-4000-8000-0000000003A3")!, date: Date(timeIntervalSince1970: 1_789_390_000),
+        text: "You: Hey, how are you going?\n\nOthers: Good, good. Bit tired. I wanted to talk about a couple of things today if that's okay: the conference in March, and workload.",
+        seconds: 1_200)
+
+    /// History's Meetings filter and Review transcript for a named meeting, from the real views over
+    /// synthetic details. The Meetings page once named is drawn with its completed state (`renderMeetingReview`).
+    func renderMeetingNames(to output: URL) throws -> [SurfaceGallery.Shot] {
+        let library = model.historyLibrary
+        let kept = (history: model.history, page: model.page,
+                    details: [Self.namedMeeting.id, Self.unnamedCall.id, Self.plainMeeting.id].map { ($0, library.metadata(for: $0)) })
+        defer {
+            model.history = kept.history; model.page = kept.page; model.historyDoor = nil
+            for (id, details) in kept.details { library.setMetadata(details, for: id) }
+        }
+        var named = TranscriptMetadata(purpose: .meeting); named.app = "Zoom"; named.summary = Self.namedSummary
+        var call = TranscriptMetadata(purpose: .call); call.app = "Microsoft Teams"
+        library.setMetadata(named, for: Self.namedMeeting.id)
+        library.setMetadata(call, for: Self.unnamedCall.id)
+        library.setMetadata(TranscriptMetadata(purpose: .meeting), for: Self.plainMeeting.id)
+        model.history = [Self.namedMeeting, Self.unnamedCall, Self.plainMeeting] + kept.history
+        var history: [SurfaceGallery.Shot] = []
+
+        // History, Meetings: each meeting by its name, app and length, and what it was about.
+        let size = NSSize(width: 1180, height: 1_000)
+        do {
+            let window = homeWindow(size: size)
+            defer { window.contentViewController = nil; window.close() }
+            model.historyDoor = HistoryDoor(filter: .meetings)
+            let (image, _) = try renderPage("history", in: window)
+            history.append(try save(image, id: "state-meetings", title: "History, Meetings",
+                detail: "A meeting named on this Mac leads with its name, app, length and what it was about; a call not yet described is named by its app; one with neither reads as a meeting. Dictations are left out.",
+                file: "page-history-state-meetings-\(theme).png", to: output))
+        }
+
+        // Review transcript for the named meeting: its name, facts, what it was about and its points over the words.
+        do {
+            final class Frames { var values: [String: CGRect] = [:] }
+            let frames = Frames()
+            model.page = "home"; model.historyDoor = nil
+            let window = homeWindow(size: SurfaceGallery.sizes[1].size, hostsSheets: true) { frames.values[$0] = $1 }
+            let root = window.contentView?.superview ?? window.contentView!
+            defer {
+                if let sheet = window.attachedSheet { window.endSheet(sheet); sheet.orderOut(nil) }
+                window.contentViewController = nil; window.close()
+            }
+            settle(root)
+            model.openHistory(HomeMeetings.review(Self.namedMeeting.id))
+            let deadline = Date().addingTimeInterval(4)
+            repeat { settle(root, seconds: 0.1) } while (window.attachedSheet == nil || frames.values["history.transcript-review.text"] == nil) && Date() < deadline
+            guard let sheet = window.attachedSheet, let content = sheet.contentView,
+                  let document = Self.reviewDocument(in: content), document.string == Self.namedMeeting.text,
+                  document.usesFindBar, let text = frames.values["history.transcript-review.text"], text.height > 150 else {
+                throw VoiceError.message("Review transcript for a named meeting did not open with its words, Find and room to read: \(frames.values).")
+            }
+            settle(content)
+            history.append(try save(try snapshot(content), id: "transcript-review-named", title: "Review transcript, a meeting named on this Mac",
+                detail: "The sheet opens on the meeting's name, app, time and length, then what it was about and its points, marked as written on this Mac, above the unchanged words. ⌘F finds in the words.",
+                file: "page-history-transcript-review-named-\(theme).png", to: output))
+        }
+
+        return history
     }
 }

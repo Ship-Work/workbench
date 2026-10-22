@@ -94,6 +94,7 @@ struct TranscriptMetadataEditor: View {
     var suggest: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var purpose: TranscriptPurpose = .prompt
+    @State private var name = ""
     @State private var person = ""
     @State private var company = ""
     @State private var tags = ""
@@ -106,6 +107,8 @@ struct TranscriptMetadataEditor: View {
             ForEach(library.metadata(for: transcript.id).captureNotes, id: \.self) { note in
                 WorkbenchNote(note)
             }
+            // Your own name for it; empty keeps the one written on this Mac, shown as the hint.
+            TextField("Name", text: $name, prompt: Text(namePrompt))
             Picker("Purpose", selection: $purpose) {
                 ForEach(TranscriptPurpose.allCases, id: \.self) { Text($0.title).tag($0) }
             }
@@ -136,11 +139,12 @@ struct TranscriptMetadataEditor: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Save") {
-                    let saved = library.metadata(for: transcript.id)
-                    library.setMetadata(TranscriptMetadata(purpose: purpose, person: person, company: company,
-                        tags: tags.split(separator: ",").map { String($0) },
-                        reviewedSuggestion: localSuggestion.map { "On this Mac · " + $0 } ?? saved.reviewedSuggestion,
-                        captureNotes: saved.captureNotes), for: transcript.id)
+                    // Everything this editor doesn't show (notes, app, the summary) is kept as saved.
+                    var next = library.metadata(for: transcript.id)
+                    next.purpose = purpose; next.title = name; next.person = person; next.company = company
+                    next.tags = tags.split(separator: ",").map { String($0) }
+                    next.reviewedSuggestion = localSuggestion.map { "On this Mac · " + $0 } ?? next.reviewedSuggestion
+                    library.setMetadata(next, for: transcript.id)
                     if library.error == nil { dismiss() }
                 }.keyboardShortcut(.defaultAction)
             }
@@ -148,8 +152,14 @@ struct TranscriptMetadataEditor: View {
         }.padding(24).frame(width: 450)
             .onAppear {
                 let metadata = library.metadata(for: transcript.id)
-                purpose = metadata.purpose; person = metadata.person; company = metadata.company; tags = metadata.tags.joined(separator: ", ")
+                purpose = metadata.purpose; name = metadata.title; person = metadata.person; company = metadata.company; tags = metadata.tags.joined(separator: ", ")
             }
+    }
+
+    /// The name it is shown by without one of yours.
+    private var namePrompt: String {
+        var unnamed = library.metadata(for: transcript.id); unnamed.title = ""; unnamed.purpose = purpose
+        return unnamed.heading.isEmpty ? "Optional" : unnamed.heading
     }
 
     /// Fills only empty details for review. Nothing is saved until Save.
@@ -251,7 +261,7 @@ struct HandoffJobCard<MadeFrom: View>: View {
                 .accessibilityLabel("Result, \(jobs.title(job)), \(job.status.title)")
                 .focusable(revealed == job.id).focused(focus, equals: job.id)
                 .accessibilityFocused(voiceOverFocus, equals: job.id)
-            Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.text(job.createdAt))
+            Text((job.itemCount == 1 ? "1 item" : "\(job.itemCount) items") + " · " + HistoryDate.time(job.createdAt))
                 .font(.subheadline).foregroundStyle(.secondary)
             madeFrom
             Text(job.detail).font(.callout)

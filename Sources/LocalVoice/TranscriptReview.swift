@@ -69,6 +69,8 @@ struct TranscriptReviewView: View {
     @StateObject private var feedback = TranscriptReviewFeedback()
     /// The capture notes' own height at the sheet's width.
     @State private var notesFit: CGFloat = 0
+    /// The summary's own height at the sheet's width.
+    @State private var summaryFit: CGFloat = 0
 
     init(model: AppModel, review: TranscriptReview, done: @escaping () -> Void) {
         self.model = model; self.review = review; self.done = done
@@ -77,6 +79,8 @@ struct TranscriptReviewView: View {
 
     /// The most the capture notes take above the words: about six lines.
     static let notesHeight: CGFloat = 96
+    /// The most a meeting's summary takes above its words: its gist and five points.
+    static let summaryHeight: CGFloat = 190
     private var item: Transcript { review.transcript }
     private var text: String { TranscriptExport.text(for: item, version: version) }
     private var recordingAvailable: Bool {
@@ -86,17 +90,34 @@ struct TranscriptReviewView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            let metadata = model.historyLibrary.metadata(for: item.id)
             HStack(alignment: .firstTextBaseline) {
-                Text("Transcript").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                // A meeting or a named capture opens on its name; a dictation is still its Transcript.
+                Text(metadata.heading.isEmpty ? "Transcript" : metadata.heading).font(.title2.weight(.semibold))
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button("Done", action: done).keyboardShortcut(.defaultAction)
             }
             HStack {
-                Text(HistoryDate.text(item.date))
-                Text(model.historyLibrary.metadata(for: item.id).purpose.title)
-                Spacer()
-                Text(TextRules.wordCountLabel(TextRules.wordCount(text))).monospacedDigit()
+                if metadata.heading.isEmpty {
+                    Text(HistoryDate.text(item.date))
+                    Text(metadata.purpose.title)
+                    Spacer()
+                    Text(TextRules.wordCountLabel(TextRules.wordCount(text))).monospacedDigit()
+                } else {
+                    Text(TranscriptFacts.line(item, metadata: metadata, words: TextRules.wordCount(text))).monospacedDigit()
+                    Spacer()
+                }
             }.font(.subheadline).foregroundStyle(.secondary)
+            if let summary = metadata.summary, !summary.about.isEmpty || !summary.points.isEmpty {
+                // What it was about and the points to find again, above the words they came from.
+                ScrollView {
+                    TranscriptAbout(summary: summary, showsPoints: true).frame(maxWidth: .infinity, alignment: .leading)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryFit = $0 }
+                }.scrollBounceBehavior(.basedOnSize)
+                    // With capture notes above the words too, the summary takes less, so the words keep room to read.
+                    .frame(height: min(summaryFit, metadata.captureNotes.isEmpty ? Self.summaryHeight : Self.summaryHeight - Self.notesHeight / 2))
+            }
             Picker("Wording", selection: $version) {
                 Text("Current text").tag(TranscriptExportVersion.cleaned)
                 Text("Original wording").tag(TranscriptExportVersion.original)
@@ -125,7 +146,7 @@ struct TranscriptReviewView: View {
                 // recovery. Original wording can be selected or exported without
                 // pretending that recovery points at those different words.
                 Button("Copy current text") {
-                    model.copyCapture(item)
+                    model.copyCapture(item, heading: model.copyHeading(item))
                     if model.status == TextDelivery.copiedMessage { feedback.finish("Copied current text") }
                     else { feedback.finish(nil, problem: model.status) }
                 }.disabled(item.text.isEmpty)
@@ -175,6 +196,8 @@ private struct TranscriptDocumentText: NSViewRepresentable {
         scroll.autohidesScrollers = true; scroll.borderType = .noBorder
         let view = TranscriptDocumentTextView(usingTextLayoutManager: false)
         view.isEditable = false; view.isSelectable = true; view.isRichText = false
+        // ⌘F finds in a long meeting, as in any Mac document.
+        view.usesFindBar = true; view.isIncrementalSearchingEnabled = true
         view.drawsBackground = false
         view.textContainerInset = NSSize(width: Workbench.tilePadding, height: Workbench.tilePadding)
         view.textContainer?.lineFragmentPadding = 0
@@ -221,5 +244,18 @@ private final class TranscriptDocumentTextView: NSTextView {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock]).isEmpty,
            event.keyCode == 36 || event.keyCode == 76, window?.performKeyEquivalent(with: event) == true { return }
         super.keyDown(with: event)
+    }
+
+    /// ⌘F opens the find bar over the words wherever focus is in the review: Workbench's menus
+    /// have no Find item for the key to reach the text through.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "f", window?.isKeyWindow == true else {
+            return super.performKeyEquivalent(with: event)
+        }
+        window?.makeFirstResponder(self)
+        let item = NSMenuItem(); item.tag = NSTextFinder.Action.showFindInterface.rawValue
+        performTextFinderAction(item)
+        return true
     }
 }
