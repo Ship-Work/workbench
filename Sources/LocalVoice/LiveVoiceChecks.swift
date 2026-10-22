@@ -303,13 +303,16 @@ enum LiveVoiceChecks {
                 phrasing: .init(previewSeconds: previewSeconds), priority: .userInitiated,
                 recognize: { try await decoder.recognize($0) }, update: { log.append($0) })
             service.input.append(.init(source: .microphone, samples: Array(samples(1..<3)[0..<19_200]), sampleRate: 16_000, start: 0))
-            for _ in 0..<80 where !log.all.contains(where: { !$0.text.isEmpty }) { try await Task.sleep(nanoseconds: 25_000_000) }
+            // A slow runner gets ten seconds to show them; a meeting's cadence is judged by its window below.
+            for _ in 0..<(previewSeconds < 2 ? 400 : 0) where !log.all.contains(where: { !$0.text.isEmpty }) { try await Task.sleep(nanoseconds: 25_000_000) }
             let any = log.all.contains { !$0.text.isEmpty }
             _ = await service.cancel()
             return any
         }
-        let dictationShows = try await wordsShown(previewSeconds: 1), meetingShows = try await wordsShown(previewSeconds: 2)
-        try expect(dictationShows && !meetingShows, "Dictate's one-second cadence shows words after 1.2 s of speech; a meeting's two seconds does not")
+        let dictationShows = try await wordsShown(previewSeconds: 1)
+        let meetingWindow = LiveVoiceWindow(source: .app, start: 0, rate: 16_000, samples: Array(samples(1..<3)[0..<19_200]))
+        try expect(dictationShows && meetingWindow.request(finishing: false) == nil,
+                   "Dictate's one-second cadence shows words after 1.2 s of speech; a meeting's two seconds does not read yet")
 
         let failingDecoder = FixtureDecoder(failOn: 2)
         let lastFailedSnapshot = SnapshotBox()

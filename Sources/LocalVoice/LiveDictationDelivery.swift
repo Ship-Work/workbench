@@ -17,6 +17,10 @@ final class LiveDictationDelivery {
 
     static let maximumUTF16Length = 1_000_000
     static let updateInterval: TimeInterval = 0.35
+    /// The shortest gap between writes for a dictation this long: each write replaces the whole
+    /// owned span and reads the field back, and every write is an undo step in that app, so a long
+    /// dictation is written about once a second at 400 characters and every two from 800.
+    static func updateInterval(forLength length: Int) -> TimeInterval { min(2, max(updateInterval, Double(length) / 400)) }
     private let system: System
     private let original: TextDelivery.FieldState
     private let originalText: String
@@ -89,7 +93,7 @@ final class LiveDictationDelivery {
     }
 
     func preview(_ text: String) {
-        guard !text.isEmpty, system.now() - lastUpdate >= Self.updateInterval else { return }
+        guard !text.isEmpty, system.now() - lastUpdate >= Self.updateInterval(forLength: text.utf16.count) else { return }
         let fitted = fitted(text)
         guard fitted != insertedText else { return }
         lastUpdate = system.now()
