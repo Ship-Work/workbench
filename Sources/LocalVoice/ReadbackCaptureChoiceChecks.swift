@@ -130,14 +130,14 @@ enum ReadbackCaptureChoiceChecks {
                 source.settleDelay = 1_000_000_000
                 var task: Task<Void, Never>?
                 model.onHideForEditorCapture = { hides += 1; task?.cancel() }
-                task = Task { await model.captureNewSection(fromEditor: true, mode: .region) }
+                task = Task { await model.captureNewSection(fromEditor: true, mode: .window) }
                 await task?.value
                 try check(source.modes.isEmpty && restores == 1, "cancellation during settling still restores the editor")
                 model.onHideForEditorCapture = nil
             case "shutdown-settle":
                 source.settleDelay = 1_000_000
                 model.onHideForEditorCapture = { [weak model] in hides += 1; model?.shutdown() }
-                await model.captureNewSection(fromEditor: true, mode: .region)
+                await model.captureNewSection(fromEditor: true, mode: .window)
                 try check(source.modes.isEmpty && restores == 1, "shutdown during settling never opens a selector afterwards")
             case "replace-area":
                 // Leaving the page rebuilds its view, never the model, so the chosen area survives the visit (#358).
