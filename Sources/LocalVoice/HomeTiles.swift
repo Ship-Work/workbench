@@ -26,9 +26,10 @@ enum HomeMeetings {
         history.filter { [.meeting, .call].contains(metadata($0.id).purpose) }
             .sorted { $0.date > $1.date }.prefix(limit).map { item in
                 let details = metadata(item.id)
-                let names = [details.person, details.company].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-                return Summary(id: item.id, heading: ([details.purpose.title] + names).joined(separator: " · "), date: item.date,
-                               seconds: item.seconds, excerpt: String(item.text.prefix(400)).trimmingCharacters(in: .whitespacesAndNewlines),
+                // Its name, then what it was about; a meeting not yet described shows its first words.
+                let about = details.summary?.about ?? ""
+                return Summary(id: item.id, heading: details.heading, date: item.date, seconds: item.seconds,
+                               excerpt: about.isEmpty ? String(item.text.prefix(400)).trimmingCharacters(in: .whitespacesAndNewlines) : about,
                                note: note(details.captureNotes))
             }
     }

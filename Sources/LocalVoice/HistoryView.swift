@@ -5,11 +5,12 @@ import ImageIO
 /// History's kind filters. Archived shows archived Snaps; results have no
 /// archive yet. A filter only changes what is shown, never what is selected.
 enum HistoryFilter: String, CaseIterable, Identifiable {
-    case all, transcripts, snaps, results, archived
+    case all, meetings, transcripts, snaps, results, archived
     var id: Self { self }
     var title: String {
         switch self {
         case .all: "All"
+        case .meetings: "Meetings"
         case .transcripts: "Transcripts"
         case .snaps: "Snaps"
         case .results: "Results"
@@ -104,9 +105,11 @@ enum HistoryList {
                       matchTranscripts: ([Transcript], String) -> [Transcript],
                       matchSnap: (SnapItem, String) -> Bool,
                       resultText: (HandoffJob) -> String,
-                      matchResult: ((HandoffJob, String) -> Bool)? = nil) -> [HistoryEntry] {
+                      matchResult: ((HandoffJob, String) -> Bool)? = nil,
+                      isMeeting: (Transcript) -> Bool = { _ in false }) -> [HistoryEntry] {
         let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
-        let showsTranscripts = filter == .all || filter == .transcripts
+        // Meetings shows the meetings and calls among transcripts, newest first, with the same search.
+        let showsTranscripts = filter == .all || filter == .transcripts || filter == .meetings
         var matchingTranscripts: Set<UUID>?
         if showsTranscripts && !terms.isEmpty {
             let transcripts = merged.compactMap { entry -> Transcript? in
@@ -118,7 +121,7 @@ enum HistoryList {
         return merged.filter { entry in
             switch entry {
             case .transcript(let item):
-                return showsTranscripts && matchingTranscripts?.contains(item.id) != false
+                return showsTranscripts && (filter != .meetings || isMeeting(item)) && matchingTranscripts?.contains(item.id) != false
             case .snap(let item):
                 guard filter == .all || filter == .snaps || filter == .archived,
                       (item.archivedAt != nil) == (filter == .archived) else { return false }
@@ -139,9 +142,11 @@ enum HistoryList {
                         matchTranscripts: ([Transcript], String) -> [Transcript],
                         matchSnap: (SnapItem, String) -> Bool,
                         resultText: (HandoffJob) -> String,
-                        matchResult: ((HandoffJob, String) -> Bool)? = nil) -> [HistoryEntry] {
+                        matchResult: ((HandoffJob, String) -> Bool)? = nil,
+                        isMeeting: (Transcript) -> Bool = { _ in false }) -> [HistoryEntry] {
         shown(merged(transcripts: transcripts, snaps: snaps, results: results), filter: filter, query: query,
-              matchTranscripts: matchTranscripts, matchSnap: matchSnap, resultText: resultText, matchResult: matchResult)
+              matchTranscripts: matchTranscripts, matchSnap: matchSnap, resultText: resultText, matchResult: matchResult,
+              isMeeting: isMeeting)
     }
 
     static func availability(of reference: WorkbenchItemReference, transcripts: Set<UUID>,
@@ -311,7 +316,8 @@ struct HistoryView: View {
             HistoryList.shown(stores.merged, filter: filter, query: appliedQuery,
                 matchTranscripts: { library.matching($0, query: $1) }, matchSnap: { snap.matches($0, query: $1) },
                 resultText: { jobs.files($0)?.inputs.task ?? "" },
-                matchResult: { jobs.matchesResult($0, query: $1) })
+                matchResult: { jobs.matchesResult($0, query: $1) },
+                isMeeting: { library.metadata(for: $0.id).isConversation })
         }
         VStack(alignment: .leading, spacing: Workbench.sectionSpacing) {
             header
@@ -424,6 +430,7 @@ struct HistoryView: View {
     private var emptyFilterDetail: String {
         switch filter {
         case .all: "Dictations, Snaps and Hand off results land here, newest first."
+        case .meetings: "Meetings and calls you record land here, each with its name and what it was about."
         case .transcripts: "What you dictate and record in Meetings lands here."
         case .snaps: "Snaps you take land here; archived ones are under Archived."
         case .results: "Choose items, then Hand off… to prepare a task. Its result lands here."
@@ -434,6 +441,7 @@ struct HistoryView: View {
     private var emptyFilterTitle: String {
         switch filter {
         case .all: "Nothing here yet"
+        case .meetings: "No meetings yet"
         case .transcripts: "No transcripts yet"
         case .snaps: "No Snaps yet"
         case .results: "No Hand off results yet"

@@ -43,7 +43,7 @@ enum TranscriptPurpose: String, Codable, CaseIterable {
 /// the state a capture already had, so an older transcript keeps its original
 /// text and reads as an ordinary Prompt without being changed.
 struct TranscriptMetadata: Codable, Equatable {
-    enum CodingKeys: String, CodingKey { case purpose, person, company, tags, reviewedSuggestion, captureNotes }
+    enum CodingKeys: String, CodingKey { case purpose, person, company, tags, reviewedSuggestion, captureNotes, title, app, summary }
 
     var purpose: TranscriptPurpose = .prompt
     var person: String = ""
@@ -51,9 +51,35 @@ struct TranscriptMetadata: Codable, Equatable {
     var tags: [String] = []
     var reviewedSuggestion: String? = nil
     var captureNotes: [String] = []
+    /// A name the person gave this capture. Empty until they name it; a name written on this Mac
+    /// lives in `summary`, so describing a meeting again never replaces theirs.
+    var title: String = ""
+    /// The app a meeting or call recorded, as it was named then ("Zoom"). A captured fact about
+    /// the source, never a title or a participant.
+    var app: String = ""
+    /// What Workbench wrote about a meeting on this Mac (`MeetingNaming`).
+    var summary: TranscriptSummary? = nil
+
+    var isConversation: Bool { purpose == .meeting || purpose == .call }
+
+    /// The name a capture is shown by: the person's own, then the one written on this Mac, then,
+    /// for a meeting or call, what it was and where ("Zoom meeting", with any names given).
+    /// Empty for a dictation nobody named, which is shown by its words.
+    var heading: String {
+        let own = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !own.isEmpty { return own }
+        if let written = summary?.title, !written.isEmpty { return written }
+        guard isConversation else { return "" }
+        let names = [person, company].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let kind = app.isEmpty ? purpose.title : app + " " + purpose.title.lowercased()
+        return ([kind] + names).joined(separator: " · ")
+    }
 
     /// The fields search looks at beside the transcript's own wording.
-    var searchFields: [String] { [purpose.title, person, company] + tags }
+    var searchFields: [String] {
+        [purpose.title, person, company, title, app] + tags
+            + (summary.map { [$0.title, $0.about] + $0.points } ?? [])
+    }
 
     func validated() throws -> Self {
         var cleaned = self
@@ -77,6 +103,9 @@ struct TranscriptMetadata: Codable, Equatable {
         cleaned.captureNotes = try captureNotes.map {
             try WorkbenchHistoryLibrary.field($0, limit: 500, label: "A capture note")
         }
+        cleaned.title = try WorkbenchHistoryLibrary.field(title, limit: WorkbenchHistoryLibrary.maximumNameCharacters, label: "A name")
+        cleaned.app = try WorkbenchHistoryLibrary.field(app, limit: WorkbenchHistoryLibrary.maximumNameCharacters, label: "An app name")
+        cleaned.summary = try summary?.validated()
         return cleaned
     }
 }
@@ -92,6 +121,10 @@ extension TranscriptMetadata {
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         reviewedSuggestion = try container.decodeIfPresent(String.self, forKey: .reviewedSuggestion)
         captureNotes = try container.decodeIfPresent([String].self, forKey: .captureNotes) ?? []
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        app = try container.decodeIfPresent(String.self, forKey: .app) ?? ""
+        // A summary this build cannot read is written again, never a reason to lose the details.
+        summary = try? container.decodeIfPresent(TranscriptSummary.self, forKey: .summary)
     }
 }
 

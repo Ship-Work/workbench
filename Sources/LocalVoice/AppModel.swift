@@ -136,6 +136,10 @@ final class AppModel: NSObject, ObservableObject {
     @Published var speechText = "" { didSet { persist() } }
     @Published var history: [Transcript] = [] { didSet { recordFirstDictation() } }
     let historyLibrary = WorkbenchHistoryModel(directory: Workbench.supportDirectory(component: "LocalVoice"))
+    /// Names and describes saved meetings on this Mac. Idle until the app starts it
+    /// (`startMeetingNaming`), so checks and the gallery never reach the model.
+    let meetingNamer = MeetingNamer()
+    var meetingSwitch: AnyCancellable?
     let handoffJobs = HandoffJobsModel(directory: Workbench.supportDirectory(component: "Handoffs"))
     lazy var meetings = MeetingModel(engine: engine, directory: Workbench.supportDirectory(component: "Meetings"))
     var onHandOffSelection: ((String?) -> Void)?
@@ -921,7 +925,8 @@ final class AppModel: NSObject, ObservableObject {
     func savePrompt(_ text: String) { guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; showLibrary(); library.newPrompt(text) }
     @discardableResult
     func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
-        copyTextWithReceipt(item.text, of: .transcript(item.id), pasteboard: pasteboard)
+        copyTextWithReceipt(MeetingTranscriptCopy.text(item, metadata: historyLibrary.metadata(for: item.id)),
+                            of: .transcript(item.id), pasteboard: pasteboard)
     }
     func showPanelPreview() {
         guard phase == .idle else { return }
@@ -1218,12 +1223,15 @@ final class AppModel: NSObject, ObservableObject {
         var metadata = historyLibrary.metadata(for: capture.id)
         metadata.purpose = purpose == "call" ? .call : .meeting
         metadata.captureNotes = meetings.pendingTranscriptNotes
+        metadata.app = (meetings.pendingTranscriptApp ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         historyLibrary.setMetadata(metadata, for: capture.id)
         if let error = historyLibrary.error { throw VoiceError.message(error) }
         try store.save(session(draft: transcript, history: next, replacements: replacements))
         history = next
         status = "Meeting saved in History."
         onPhaseChange?()
+        // Named after it is safely saved, ahead of older meetings still waiting.
+        meetingNamer.enqueue([capture.id], first: true)
     }
     func savedMeetingTranscript(_ id: UUID) throws -> (transcript: Transcript, notes: [String])? {
         guard let saved = try store.load().history.first(where: { $0.id == id }) else { return nil }
@@ -1246,8 +1254,8 @@ final class AppModel: NSObject, ObservableObject {
         var result = items.map { item in
             let metadata = historyLibrary.metadata(for: item.id)
             let names = [metadata.person, metadata.company].filter { !$0.isEmpty }
-            let title = metadata.purpose.title + (names.isEmpty ? "" : " · " + names.joined(separator: " · "))
-                + " · " + item.date.formatted(date: .abbreviated, time: .shortened)
+            let named = metadata.heading.isEmpty ? metadata.purpose.title + (names.isEmpty ? "" : " · " + names.joined(separator: " · ")) : metadata.heading
+            let title = named + " · " + item.date.formatted(date: .abbreviated, time: .shortened)
             return HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: item.id),
                 title: title, capturedAt: item.date, text: item.text, originalText: item.rawText ?? item.text,
                 role: metadata.purpose == .prompt ? .instructions : .reference, captureNotes: metadata.captureNotes,

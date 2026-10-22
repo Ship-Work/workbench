@@ -206,7 +206,8 @@ struct WorkbenchHome: View {
                     catch { model.handoffJobs.error = error.localizedDescription }
                 })
                 case "meeting": MeetingWorkspaceView(model: model.meetings, engineName: model.modelMessage,
-                    openHistory: { id in model.openHistory(id.map { HistoryDoor(transcript: $0) } ?? HistoryDoor(filter: .transcripts)) },
+                    openHistory: { id in model.openHistory(id.map { HistoryDoor(transcript: $0) } ?? HistoryDoor(filter: .meetings)) },
+                    library: model.historyLibrary, namer: model.meetingNamer,
                     copyTranscript: model.copyMeetingTranscript,
                     openModels: { model.page = "models" },
                     prepareFollowUp: { id in handoffReview = HandoffReviewRequest(task: nil, transcriptID: id, meetingFollowUp: true) })

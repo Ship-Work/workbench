@@ -77,6 +77,47 @@ struct MeetingDetectionSettings: View {
     }
 }
 
+struct MeetingNamingSettings: View {
+    @ObservedObject var model: MeetingModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Name meetings on this Mac", isOn: $model.describesMeetings).toggleStyle(.switch)
+            Text(Self.caption(available: MeetingNaming.isAvailable))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func caption(available: Bool) -> String {
+        available
+            ? "Apple Intelligence gives each saved meeting a name and says what it was about, on this Mac. Your words are never changed; rename it in Details…."
+            : "Needs Apple Intelligence, which is off or not available on this Mac. Meetings are named by their app until then."
+    }
+}
+
+/// A saved meeting's name and what it was about, where Finish left it, once written on this Mac.
+struct MeetingSavedIdentity: View {
+    @ObservedObject var library: WorkbenchHistoryModel
+    @ObservedObject var namer: MeetingNamer
+    let id: UUID
+
+    var body: some View {
+        let metadata = library.metadata(for: id)
+        if let summary = metadata.summary, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(metadata.heading).font(.headline).fixedSize(horizontal: false, vertical: true)
+                if !summary.about.isEmpty { TranscriptAbout(summary: summary, lineLimit: 3) }
+            }.padding(Workbench.tilePadding).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Workbench.surface, in: RoundedRectangle(cornerRadius: Workbench.tileRadius))
+                .accessibilityElement(children: .combine)
+        } else if namer.working == id {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Naming this meeting on this Mac…")
+            }.font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct MeetingFinishSettings: View {
     @ObservedObject var model: MeetingModel
     var body: some View {
@@ -95,6 +136,9 @@ struct MeetingWorkspaceView: View {
     @ObservedObject var model: MeetingModel
     var engineName: String
     var openHistory: (UUID?) -> Void
+    /// History's details, where a saved meeting's name and what it was about arrive (`MeetingNamer`).
+    var library: WorkbenchHistoryModel? = nil
+    var namer: MeetingNamer? = nil
     /// The host resolves the committed UUID in History and returns any failure.
     var copyTranscript: (UUID) -> String? = { _ in "The transcript library is unavailable. Nothing was copied." }
     /// Where the speech engine is chosen and downloaded: Settings › Models.
@@ -127,6 +171,9 @@ struct MeetingWorkspaceView: View {
                         Spacer()
                     }
                     if showsCompletedResult, let id = model.completedTranscriptID {
+                        if let library, let namer {
+                            MeetingSavedIdentity(library: library, namer: namer, id: id)
+                        }
                         HStack(spacing: 12) {
                             Button("Copy transcript") {
                                 if let problem = copyTranscript(id) { copyFeedback.finish(nil, problem: problem) }
@@ -259,6 +306,7 @@ struct MeetingWorkspaceView: View {
                         }.pickerStyle(.segmented).fixedSize().disabled(model.isBusy)
                         MeetingDetectionSettings(model: model)
                         MeetingFinishSettings(model: model)
+                        MeetingNamingSettings(model: model)
                         Button("Sound Settings…") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension")!) }
                         Text("Audio is kept on this Mac for recovery. Try a short sample before an important call. Calls that stay on your phone cannot be captured here.")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

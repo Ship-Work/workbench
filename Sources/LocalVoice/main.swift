@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let model else { throw VoiceError.message("The transcript library is unavailable.") }
             return try model.savedMeetingTranscript(id)
         }
+        model.startMeetingNaming()
         model.meetings.hostAdmission = { [weak self] in
             guard let self else { return MeetingHostAdmission(closing: true) }
             return MeetingHostAdmission(recognition: self.model.recognition,
@@ -919,6 +920,10 @@ func runCLI(_ args: [String]) async -> Int32 {
                 NSApp.finishLaunching()
             }
             print(try await MeetingCaptureNativeCheck.run(output: URL(fileURLWithPath: args[1], isDirectory: true), selfEnd: args.count == 3))
+        case "--check-meeting-names-model":
+            // Apple's on-device model naming saved transcripts (synthetic text files); prints each outcome and its time.
+            guard args.count >= 2 else { throw VoiceError.message("Usage: --check-meeting-names-model TRANSCRIPT_TEXT_FILE...") }
+            print(try await MeetingNamingModelCheck.run(files: args.dropFirst().map { URL(fileURLWithPath: $0) }))
         case "--check-live-voice-model":
             guard args.count == 2 || (args.count == 3 && args[2] == "--two-sources") else { throw VoiceError.message("Supply one synthetic audio fixture path and optionally --two-sources.") }
             try await LiveVoiceModelCheck.run(audio: URL(fileURLWithPath: args[1]), twoSources: args.count == 3)
@@ -953,7 +958,7 @@ func runCLI(_ args: [String]) async -> Int32 {
         // for the first two), since a run through the signed app has no stdout.
         case "--check-history-library":
             try await CheckReceipt.run(mode: args[0], folder: args.dropFirst().first) { _ in
-                [try await MainActor.run { try WorkbenchHistoryChecks.run() }] + (try await HistoryChecks.run())
+                [try await MainActor.run { try WorkbenchHistoryChecks.run() }] + (try await HistoryChecks.run()) + (try await MeetingNamingChecks.run())
             }
         case "--check-handoff-jobs":
             try await CheckReceipt.run(mode: args[0], folder: args.dropFirst().first) { _ in try await HandoffJobsChecks.run() }
