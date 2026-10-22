@@ -59,6 +59,18 @@ enum LiveDictationDeliveryChecks {
         let finished = live.finish("Yes, world! 🌍", restoreClipboard: true)
         try expect(finished.wasPasted && field.state.value == "🙂 prefix yes, world! 🌍 suffix 👩🏽‍💻", "final cleanup replaces owned span and fits mid-sentence (#14)")
         try expect(field.copies.isEmpty && field.stops == 1, "preserved clipboard and observer teardown")
+        // A long dictation is written into the field less often (each write rereads the field):
+        // 800 characters wait two seconds between writes, a short one a third of a second.
+        let longField = Field("Notes: ", NSRange(location: 7, length: 0)), longOwner = longField.owner()!
+        let longWords = String(repeating: "word ", count: 160)
+        longOwner.preview(longWords)
+        let afterFirst = longField.state.value
+        longField.next(); longOwner.preview(longWords + "more")
+        let afterOne = longField.state.value
+        longField.next(); longOwner.preview(longWords + "more again")
+        try expect((afterFirst?.count ?? 0) > 700 && afterOne == afterFirst && longField.state.value?.hasSuffix("more again") == true
+                   && LiveDictationDelivery.updateInterval(forLength: 20) == LiveDictationDelivery.updateInterval,
+                   "800 characters of live words are rewritten every two seconds, not every second; a short dictation keeps a third of a second")
         live.preview("late")
         try expect(field.replaceCalls == 3, "late previews cannot mutate a finished field")
 

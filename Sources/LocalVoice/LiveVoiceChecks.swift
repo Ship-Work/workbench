@@ -295,6 +295,25 @@ enum LiveVoiceChecks {
         try expect(paced.all.last?.phase == .completed && paced.all.last?.text == streamed.text && streamed.text.hasPrefix("word1 word2"),
                    "the final state is published with every word")
 
+        // Dictate reads every second, so 1.2 s of speech already shows words; a meeting's two-second
+        // cadence shows none yet.
+        func wordsShown(previewSeconds: Double) async throws -> Bool {
+            let log = SnapshotLog(), decoder = FixtureDecoder()
+            let service = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
+                phrasing: .init(previewSeconds: previewSeconds), priority: .userInitiated,
+                recognize: { try await decoder.recognize($0) }, update: { log.append($0) })
+            service.input.append(.init(source: .microphone, samples: Array(samples(1..<3)[0..<19_200]), sampleRate: 16_000, start: 0))
+            // A slow runner gets ten seconds to show them; a meeting's cadence is judged by its window below.
+            for _ in 0..<(previewSeconds < 2 ? 400 : 0) where !log.all.contains(where: { !$0.text.isEmpty }) { try await Task.sleep(nanoseconds: 25_000_000) }
+            let any = log.all.contains { !$0.text.isEmpty }
+            _ = await service.cancel()
+            return any
+        }
+        let dictationShows = try await wordsShown(previewSeconds: 1)
+        let meetingWindow = LiveVoiceWindow(source: .app, start: 0, rate: 16_000, samples: Array(samples(1..<3)[0..<19_200]))
+        try expect(dictationShows && meetingWindow.request(finishing: false) == nil,
+                   "Dictate's one-second cadence shows words after 1.2 s of speech; a meeting's two seconds does not read yet")
+
         let failingDecoder = FixtureDecoder(failOn: 2)
         let lastFailedSnapshot = SnapshotBox()
         let failed = LiveVoiceService(id: UUID(), sources: [.init(source: .microphone, name: "Fixture")], journal: nil,
@@ -386,7 +405,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, Dictate's one-second cadence, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}
