@@ -269,14 +269,25 @@ enum MeetingNamingChecks {
         try check(store[d]?.metadata.summary?.title == "On", "and is named once it ends")
         namer.isPaused = { false }
 
-        // Cancelled mid-read: nothing is written and the next start is not disturbed.
+        // Cancelled mid-read: nothing is written and the next start is not disturbed. Each step waits for
+        // the state it needs rather than a fixed time, so a slow runner reaches the same states.
         let e = UUID(); store[e] = ("You: e.", TranscriptMetadata(purpose: .meeting))
-        namer.describe = { text, _ in try? await Task.sleep(for: .milliseconds(40)); return .described(written("Late", text)) }
+        var reading = false
+        namer.describe = { text, _ in
+            reading = true
+            try? await Task.sleep(for: .seconds(2))
+            return .described(written("Late", text))
+        }
         namer.enqueue([e])
-        try await Task.sleep(for: .milliseconds(10))
+        try await waitUntil("the read to start") { reading && namer.working == e }
         namer.cancel()
-        try await Task.sleep(for: .milliseconds(80))
-        try check(store[e]?.metadata.summary == nil && !namer.isBusy && namer.working == nil, "a read cancelled by the switch writes nothing")
+        try await waitUntil("the cancelled read to end") { !namer.isBusy }
+        try await Task.sleep(for: .milliseconds(50))
+        try check(store[e]?.metadata.summary == nil && namer.working == nil,
+                  "a read cancelled by the switch writes nothing (summary \(store[e]?.metadata.summary?.title ?? "none"), working \(namer.working.map { _ in "set" } ?? "nil"))")
+        namer.describe = { text, _ in .described(written("After", text)) }
+        namer.enqueue([e]); try await settle(namer)
+        try check(store[e]?.metadata.summary?.title == "After", "after a cancel the next read runs and writes")
 
         // The route waits before each of its requests, so a recording that starts mid-meeting holds it.
         let pauses = Counter()
@@ -301,14 +312,19 @@ enum MeetingNamingChecks {
         return ["MEETING_NAMING_CHECKS_OK: \(passed) checks"]
     }
 
-    /// Lets the queue's worker run to the end of what it was given.
+    /// Lets the queue's worker run to the end of what it was given: up to ten seconds, for a slow runner.
     @MainActor
     private static func settle(_ namer: MeetingNamer) async throws {
-        for _ in 0..<200 {
+        try await waitUntil("the naming queue to settle") { namer.working == nil && !namer.isBusy }
+    }
+
+    @MainActor
+    private static func waitUntil(_ what: String, _ condition: () -> Bool) async throws {
+        for _ in 0..<2_000 {
             try await Task.sleep(for: .milliseconds(5))
-            if namer.working == nil, !namer.isBusy { return }
+            if condition() { return }
         }
-        throw VoiceError.message("MEETING_NAMING_CHECK_FAILED: the naming queue did not settle")
+        throw VoiceError.message("MEETING_NAMING_CHECK_FAILED: timed out waiting for \(what)")
     }
 
     private actor Counter {
