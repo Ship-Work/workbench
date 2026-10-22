@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 import FoundationModels
 
 /// What Workbench wrote about a saved meeting on this Mac: a name, what it was about and the
@@ -13,8 +14,11 @@ struct TranscriptSummary: Codable, Equatable {
     /// Where it was written, for the receipt beside it.
     var source = MeetingNaming.source
     var created = Date()
-    /// How many words it read. A transcript whose words change is described again.
+    /// How many words it read.
     var words: Int
+    /// A fingerprint of the words it read (`MeetingNaming.digest`). A transcript whose words change
+    /// is described again; one saved without it falls back to its word count.
+    var digest: String? = nil
 
     /// Nothing to show: the model declined this transcript or wrote nothing usable. Kept so the
     /// same words are not sent again on every launch.
@@ -29,6 +33,7 @@ struct TranscriptSummary: Codable, Equatable {
         guard points.count <= Self.maximumPoints else { throw WorkbenchHistoryError.invalid("a meeting cannot carry more than \(Self.maximumPoints) points") }
         cleaned.points = try points.map { try WorkbenchHistoryLibrary.field($0, limit: 300, label: "A meeting point") }.filter { !$0.isEmpty }
         cleaned.source = try WorkbenchHistoryLibrary.field(source, limit: 80, label: "Where a summary was written")
+        if let digest { cleaned.digest = try WorkbenchHistoryLibrary.field(digest, limit: 64, label: "A summary's fingerprint") }
         return cleaned
     }
 }
@@ -65,14 +70,32 @@ enum MeetingNaming {
     }
 
     static var isAvailable: Bool { LocalDetailSuggestions.usesAppleIntelligence }
+    /// Apple Intelligence is on but its model is still loading or downloading, as at login.
+    static var isWarming: Bool {
+        if #available(macOS 26.0, *), case .unavailable(.modelNotReady) = SystemLanguageModel.default.availability { return true }
+        return false
+    }
 
-    static func describe(_ text: String) async -> Outcome {
-        guard #available(macOS 26.0, *), isAvailable else { return .unavailable }
-        return await describe(text, respond: appleRespond)
+    /// `pause` runs before each request, so a recording or dictation that starts mid-meeting waits.
+    static func describe(_ text: String, pause: @escaping () async -> Void = {}) async -> Outcome {
+        guard #available(macOS 26.0, *), isAvailable else { return isWarming ? .later : .unavailable }
+        return await describe(text, respond: appleRespond, pause: pause)
+    }
+
+    /// The fingerprint a summary keeps of the words it read: the first 16 bytes of their SHA-256.
+    static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The whole route, with the model as a parameter so checks can stand in for it.
-    static func describe(_ text: String, respond: Respond) async -> Outcome {
+    static func describe(_ text: String, respond: Respond, pause: @escaping () async -> Void = {}) async -> Outcome {
+        switch await route(text, respond: { request, part in await pause(); return try await respond(request, part) }) {
+        case .described(var summary): summary.digest = digest(text); return .described(summary)
+        case let other: return other
+        }
+    }
+
+    private static func route(_ text: String, respond: Respond) async -> Outcome {
         let words = TextRules.wordCount(text)
         let empty = TranscriptSummary(title: "", about: "", words: words)
         guard words >= minimumWords else { return .described(empty) }
@@ -85,7 +108,10 @@ enum MeetingNaming {
             var notes: [PartNotes] = []
             for (index, part) in parts.enumerated() {
                 try Task.checkCancellation()
-                let json = try await respond(.part(index: index, of: parts.count), part)
+                // A part the model declines is left out; the rest of the meeting is still described.
+                let json: String
+                do { json = try await respond(.part(index: index, of: parts.count), part) }
+                catch where isDeclined(error) { continue }
                 if let decoded = try? JSONDecoder().decode(PartNotes.self, from: Data(json.utf8)) { notes.append(decoded) }
             }
             guard !notes.isEmpty else { return .described(empty) }
@@ -107,7 +133,7 @@ enum MeetingNaming {
     private static func meeting(from text: String, notes: Bool, words: Int, respond: Respond) async throws -> TranscriptSummary? {
         let json: String
         do { json = try await respond(.meeting(fromNotes: notes), text) }
-        catch where !notes && isWindowFull(error) { return nil }
+        catch where isWindowFull(error) { return nil }
         guard let decoded = try? JSONDecoder().decode(MeetingAnswer.self, from: Data(json.utf8)) else { return nil }
         return TranscriptSummary(title: title(decoded.title) ?? "", about: about(decoded.about),
                                  points: points(decoded.points), words: words)
@@ -116,15 +142,19 @@ enum MeetingNaming {
     /// A declined transcript is kept as described, with nothing to show; a busy or interrupted
     /// model leaves the meeting queued for later.
     private static func outcome(for error: Error, words: Int) -> Outcome {
+        if isDeclined(error) { return .described(TranscriptSummary(title: "", about: "", words: words)) }
+        return .later
+    }
+
+    /// The model will not describe these words: a guardrail, a refusal or a language it doesn't read.
+    private static func isDeclined(_ error: Error) -> Bool {
         if #available(macOS 26.0, *), let generation = error as? LanguageModelSession.GenerationError {
             switch generation {
-            case .guardrailViolation, .refusal, .unsupportedLanguageOrLocale:
-                return .described(TranscriptSummary(title: "", about: "", words: words))
-            case .assetsUnavailable: return .unavailable
-            default: return .later
+            case .guardrailViolation, .refusal, .unsupportedLanguageOrLocale: return true
+            default: return false
             }
         }
-        return .later
+        return false
     }
 
     private static func isWindowFull(_ error: Error) -> Bool {
@@ -185,26 +215,30 @@ enum MeetingNaming {
 
     // MARK: Cleaning what the model wrote
 
-    /// Names that say nothing about the meeting. A name containing "summary" or "notes" names
-    /// the model's answer rather than the meeting.
-    static let genericTitles: Set<String> = ["meeting", "call", "discussion", "weekly meeting", "team meeting", "team call",
-        "catch up", "catch-up", "sync", "check-in", "check in", "conversation", "untitled", "general discussion", "meeting recap"]
+    /// Words that, with nothing else, say nothing about a meeting: "Meeting Summary", "Notes from
+    /// the call", "Weekly team sync". A name with any other word ("Release notes for 2.6") stands.
+    static let fillerWords: Set<String> = ["meeting", "meetings", "call", "calls", "discussion", "summary", "notes", "note", "transcript",
+        "recap", "conversation", "untitled", "general", "weekly", "daily", "team", "sync", "catch", "up", "catch-up", "check", "in",
+        "check-in", "of", "the", "a", "an", "from", "on", "and", "with", "our", "my", "about"]
+
+    /// One line: what the model wrote with line breaks and control characters as single spaces.
+    static func oneLine(_ raw: String) -> String {
+        String(String.UnicodeScalarView(raw.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " as Unicode.Scalar : $0 }))
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+    }
 
     static func title(_ raw: String) -> String? {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’*#.:"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        let lowered = value.lowercased()
+        let value = oneLine(raw).trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’*#.:")).trimmingCharacters(in: .whitespaces)
+        let words = value.lowercased().split(whereSeparator: { $0.isWhitespace || $0 == "," }).map(String.init)
         guard value.count >= 3, value.count <= WorkbenchHistoryLibrary.maximumNameCharacters,
-              !genericTitles.contains(lowered), !lowered.contains("summary"), !lowered.contains("notes"),
-              !lowered.contains("transcript") else { return nil }
+              !words.allSatisfy(fillerWords.contains) else { return nil }
         return value
     }
 
-    /// At most two sentences, without the boilerplate some answers open with.
+    /// At most two sentences on one line, without the boilerplate some answers open with.
     static func about(_ raw: String) -> String {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = oneLine(raw)
         for filler in ["This is a summary of the meeting.", "This meeting was focused on several key topics."]
         where value.hasPrefix(filler) { value = String(value.dropFirst(filler.count)).trimmingCharacters(in: .whitespaces) }
         var kept: [String] = []
@@ -218,7 +252,7 @@ enum MeetingNaming {
 
     static func points(_ raw: [String]) -> [String] {
         var seen = Set<String>()
-        return raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "-•* ")) }
+        return raw.map { oneLine($0).trimmingCharacters(in: CharacterSet(charactersIn: "-•* ")) }
             .filter { !$0.isEmpty && $0.count <= 300 && seen.insert($0.lowercased()).inserted }
             .prefix(TranscriptSummary.maximumPoints).map { $0 }
     }
@@ -310,28 +344,39 @@ enum MeetingNaming {
 final class MeetingNamer: ObservableObject {
     /// The meeting being read now, for "Naming on this Mac…" where it was saved.
     @Published private(set) var working: UUID?
-    var isEnabled: () -> Bool = { true }
-    var describe: (String) async -> MeetingNaming.Outcome = { await MeetingNaming.describe($0) }
+    /// The switch in Recording options, set from the value it changes to. Off stops reading.
+    var isOn = true { didSet { if !isOn { cancel() } } }
+    /// While a recording, dictation or narration runs, naming waits before its next request: they
+    /// use the Neural Engine too, and Natural cleanup uses the same model on a five-second deadline.
+    var isPaused: () -> Bool = { false }
+    var describe: (String, @escaping () async -> Void) async -> MeetingNaming.Outcome = { text, pause in
+        await MeetingNaming.describe(text, pause: pause)
+    }
     /// The saved words and details of a transcript, or nil once it is gone.
     var read: (UUID) -> (text: String, metadata: TranscriptMetadata)? = { _ in nil }
     var write: (UUID, TranscriptSummary) -> Void = { _, _ in }
-    /// Waits between tries when the system asks Workbench to wait.
+    /// Waits before trying again when the model was busy or still loading.
     var retryDelay: Duration = .seconds(60)
+    var pauseCheck: Duration = .seconds(5)
     static let maximumTries = 3
     private var queue: [UUID] = []
     private var tries: [UUID: Int] = [:]
     private var worker: Task<Void, Never>?
+    private var retries = 0
+    /// Each worker's own run, so one cancelled or replaced never clears another's state.
+    private var generation = 0
     /// Off until the app activates it, so checks and the gallery queue meetings without reading them.
     private(set) var isActive = false
+    var isBusy: Bool { worker != nil || retries > 0 }
 
     func activate() { isActive = true; start() }
 
-    /// Whether a meeting still needs describing: a meeting or call with no summary for its
-    /// current words.
-    static func needsSummary(_ metadata: TranscriptMetadata, words: Int) -> Bool {
+    /// Whether a meeting still needs describing: a meeting or call with no summary of its current words.
+    static func needsSummary(_ metadata: TranscriptMetadata, text: String) -> Bool {
         guard metadata.isConversation else { return false }
         guard let summary = metadata.summary else { return true }
-        return summary.words != words
+        if let digest = summary.digest { return digest != MeetingNaming.digest(text) }
+        return summary.words != TextRules.wordCount(text)
     }
 
     /// Newest first: a meeting just saved goes ahead of older ones still waiting.
@@ -341,29 +386,48 @@ final class MeetingNamer: ObservableObject {
         start()
     }
 
-    func cancel() { worker?.cancel(); worker = nil; queue = []; working = nil }
-    var isBusy: Bool { worker != nil }
+    func cancel() { generation += 1; worker?.cancel(); worker = nil; queue = []; working = nil }
+
+    /// Follows the switch by the value it sends, which `@Published` sends before the property holds
+    /// it: off stops reading, on names whatever is waiting.
+    func follow<P: Publisher>(_ values: P, needing: @escaping () -> [UUID]) -> AnyCancellable where P.Output == Bool, P.Failure == Never {
+        values.removeDuplicates().sink { [weak self] on in
+            guard let self else { return }
+            self.isOn = on
+            if on { self.enqueue(needing()) }
+        }
+    }
 
     private func start() {
-        guard isActive, worker == nil, !queue.isEmpty, isEnabled() else { return }
+        guard isActive, isOn, worker == nil, !queue.isEmpty else { return }
+        generation += 1
+        let run = generation
         worker = Task(priority: .utility) { [weak self] in
-            while let self, !Task.isCancelled, let id = self.next() {
-                await self.run(id)
+            while let self, !Task.isCancelled, self.generation == run, let id = self.next() {
+                await self.describe(id, run: run)
             }
-            self?.working = nil; self?.worker = nil
+            guard let self, self.generation == run else { return }
+            self.working = nil; self.worker = nil
         }
     }
 
     private func next() -> UUID? {
-        guard isEnabled(), !queue.isEmpty else { queue = []; return nil }
+        guard isOn, !queue.isEmpty else { queue = []; return nil }
         return queue.removeFirst()
     }
 
-    private func run(_ id: UUID) async {
-        guard let saved = read(id), Self.needsSummary(saved.metadata, words: TextRules.wordCount(saved.text)) else { return }
+    private func waitWhilePaused() async {
+        while isPaused(), !Task.isCancelled { try? await Task.sleep(for: pauseCheck) }
+    }
+
+    private func describe(_ id: UUID, run: Int) async {
+        await waitWhilePaused()
+        guard !Task.isCancelled, let saved = read(id), Self.needsSummary(saved.metadata, text: saved.text) else { return }
         working = id
-        let outcome = await describe(saved.text)
+        let outcome = await describe(saved.text) { [weak self] in await self?.waitWhilePaused() }
+        guard generation == run else { return }
         working = nil
+        guard !Task.isCancelled, isOn else { return }
         switch outcome {
         case .described(let summary):
             // Written only for the words it read: a removed or changed transcript is read again later.
@@ -373,9 +437,16 @@ final class MeetingNamer: ObservableObject {
             queue = []
         case .later:
             tries[id, default: 0] += 1
-            guard tries[id, default: 0] < Self.maximumTries, !Task.isCancelled else { return }
-            try? await Task.sleep(for: retryDelay)
-            if !Task.isCancelled { queue.append(id) }
+            guard tries[id, default: 0] < Self.maximumTries else { return }
+            // Tried again later without holding up a meeting saved meanwhile.
+            retries += 1
+            let delay = retryDelay
+            Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard let self else { return }
+                self.retries -= 1
+                self.enqueue([id])
+            }
         }
     }
 }
@@ -394,26 +465,33 @@ extension MeetingNaming {
     }
 }
 
+extension MeetingNaming {
+    /// An app's name as a meeting keeps it: one line, within the details' limit.
+    static func appName(_ raw: String?) -> String {
+        String(oneLine(raw ?? "").prefix(WorkbenchHistoryLibrary.maximumNameCharacters))
+    }
+}
+
 extension AppModel {
     /// The app's start for meeting names, a little after launch so it never competes with
     /// opening: earlier meetings learn their app from their recordings, then every meeting
     /// without a summary is described, newest first, while the switch in Recording options is on.
-    func startMeetingNaming(after delay: Duration = .seconds(20)) {
-        meetingNamer.isEnabled = { [weak self] in self?.meetings.describesMeetings ?? false }
+    /// `paused` holds naming while something else is listening or transcribing.
+    func startMeetingNaming(after delay: Duration = .seconds(20), paused: @escaping () -> Bool) {
+        meetingNamer.isOn = meetings.describesMeetings
+        meetingNamer.isPaused = paused
         meetingNamer.read = { [weak self] id in
             guard let self, self.historyLibrary.error == nil, let item = self.history.first(where: { $0.id == id }) else { return nil }
             return (item.text, self.historyLibrary.metadata(for: id))
         }
         meetingNamer.write = { [weak self] id, summary in
-            guard let self else { return }
+            // Only a summary the details accept is offered to them, so naming never raises History's error.
+            guard let self, self.historyLibrary.error == nil, let valid = try? summary.validated() else { return }
             var metadata = self.historyLibrary.metadata(for: id)
-            metadata.summary = summary
+            metadata.summary = valid
             self.historyLibrary.setMetadata(metadata, for: id)
         }
-        meetingSwitch = meetings.$describesMeetings.dropFirst().removeDuplicates().sink { [weak self] on in
-            guard let self else { return }
-            if on { self.meetingNamer.enqueue(self.meetingsNeedingSummary()) } else { self.meetingNamer.cancel() }
-        }
+        meetingSwitch = meetingNamer.follow(meetings.$describesMeetings.dropFirst()) { [weak self] in self?.meetingsNeedingSummary() ?? [] }
         let root = meetings.directory
         Task { [weak self] in
             try? await Task.sleep(for: delay)
@@ -427,19 +505,23 @@ extension AppModel {
 
     /// Meetings and calls whose current words have no summary, newest first.
     func meetingsNeedingSummary() -> [UUID] {
-        history.sorted { $0.date > $1.date }.filter {
-            MeetingNamer.needsSummary(historyLibrary.metadata(for: $0.id), words: TextRules.wordCount($0.text))
+        history.sorted { $0.date > $1.date }.filter { item in
+            let metadata = historyLibrary.metadata(for: item.id)
+            return metadata.isConversation && MeetingNamer.needsSummary(metadata, text: item.text)
         }.map(\.id)
     }
 
-    /// Records the app on meetings saved before it was kept with them. Never replaces one.
+    /// Records the app on meetings saved before it was kept with them, in one write. Never replaces one.
     func fillMeetingApps(_ apps: [UUID: String]) {
         guard historyLibrary.error == nil else { return }
+        var changes: [UUID: TranscriptMetadata] = [:]
         for item in history {
             var metadata = historyLibrary.metadata(for: item.id)
-            guard metadata.isConversation, metadata.app.isEmpty, let app = apps[item.id] else { continue }
-            metadata.app = String(app.prefix(WorkbenchHistoryLibrary.maximumNameCharacters))
-            historyLibrary.setMetadata(metadata, for: item.id)
+            let app = MeetingNaming.appName(apps[item.id])
+            guard metadata.isConversation, metadata.app.isEmpty, !app.isEmpty else { continue }
+            metadata.app = app
+            changes[item.id] = metadata
         }
+        if !changes.isEmpty { historyLibrary.setMetadata(changes) }
     }
 }

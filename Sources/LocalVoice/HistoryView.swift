@@ -77,8 +77,6 @@ enum HistoryInputAvailability: Equatable {
     }
 }
 
-/// History's one way of saying when something was made: month, day and time, with the year only
-/// when it is not this year. Rows, task cards and the transcript review all use it.
 /// The day headings in History's list: Today, Yesterday, a weekday within the past week, then dates.
 enum HistoryDay {
     static func title(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
@@ -103,6 +101,8 @@ enum HistoryDay {
     }
 }
 
+/// History's one way of saying when something was made: month, day and time, with the year only
+/// when it is not this year. The transcript review and task inputs use it; rows under a day's heading show only the time.
 enum HistoryDate {
     /// A row's time under its day's heading in History's list.
     static func time(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }

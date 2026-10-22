@@ -171,9 +171,6 @@ struct MeetingWorkspaceView: View {
                         Spacer()
                     }
                     if showsCompletedResult, let id = model.completedTranscriptID {
-                        if let library, let namer {
-                            MeetingSavedIdentity(library: library, namer: namer, id: id)
-                        }
                         HStack(spacing: 12) {
                             Button("Copy transcript") {
                                 if let problem = copyTranscript(id) { copyFeedback.finish(nil, problem: problem) }
@@ -191,6 +188,10 @@ struct MeetingWorkspaceView: View {
                             WorkbenchNote(problem, font: .caption)
                         } else {
                             ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied transcript"])
+                        }
+                        // Arrives seconds after Finish, below the buttons, so Copy transcript stays where it was.
+                        if let library, let namer {
+                            MeetingSavedIdentity(library: library, namer: namer, id: id)
                         }
                         ForEach(model.pendingTranscriptNotes, id: \.self) { note in
                             Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

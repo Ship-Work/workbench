@@ -105,7 +105,8 @@ struct TranscriptMetadata: Codable, Equatable {
         }
         cleaned.title = try WorkbenchHistoryLibrary.field(title, limit: WorkbenchHistoryLibrary.maximumNameCharacters, label: "A name")
         cleaned.app = try WorkbenchHistoryLibrary.field(app, limit: WorkbenchHistoryLibrary.maximumNameCharacters, label: "An app name")
-        cleaned.summary = try summary?.validated()
+        // A summary these limits refuse (a later build's, say) is written again, never a reason to refuse the details.
+        cleaned.summary = summary.flatMap { try? $0.validated() }
         return cleaned
     }
 }
@@ -452,6 +453,14 @@ final class WorkbenchHistoryModel: ObservableObject {
         apply { library in
             library.transcripts.removeAll { $0.id == id }
             library.transcripts.append(WorkbenchTranscriptRecord(id: id, metadata: metadata))
+        }
+    }
+
+    /// Several transcripts' details in one write.
+    func setMetadata(_ changes: [UUID: TranscriptMetadata]) {
+        apply { library in
+            library.transcripts.removeAll { changes[$0.id] != nil }
+            library.transcripts += changes.map { WorkbenchTranscriptRecord(id: $0.key, metadata: $0.value) }.sorted { $0.id.uuidString < $1.id.uuidString }
         }
     }
 

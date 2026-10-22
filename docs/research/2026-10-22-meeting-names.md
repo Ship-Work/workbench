@@ -82,6 +82,21 @@ The names were "Harbour Release and Northwind Escalation", "Service Desk Efficie
 
 The model misstated one figure in one point: "reduce … by 2200 tickets per month", where 2,200 was the monthly ticket count. That is why every summary is marked as written on this Mac and the words stay one click away.
 
+**While something else listens:** naming waits before each request to the model while Dictate, Meetings or Snap & Talk is listening or transcribing. They use the Neural Engine too, and Natural cleanup uses the same model on a five-second deadline. It resumes when they end.
+
+**What an independent review changed before merge:**
+
+- Answers are flattened to one line before saving. A line break had made History refuse the summary, and with it every later save.
+- The switch follows the value it sends. Turned back on, it had done nothing until the next Finish.
+- Naming waits during capture (above).
+- A follow-up's title keeps the purpose and names, and adds only a name the person typed. The written name is left out: it arrives seconds after Finish, and a follow-up prepared before it must still be found after.
+- A part the model refuses is left out rather than emptying the meeting.
+- A model still loading at login is tried again rather than given up on.
+- Retries no longer hold up a meeting saved meanwhile.
+- A summary keeps a fingerprint of the words it read.
+- Generic names are refused only when every word is filler, so "Release notes for 2.6" stands.
+- A summary over the limits is dropped rather than refusing the whole details file.
+
 **Where it shows:**
 
 - **History row.** A meeting leads with its name, then when, the app, its length and word count, then what it was about. Until it is described, it is named by its app ("Zoom meeting") and shows four lines of its words instead of eight.
@@ -122,10 +137,13 @@ It has its one switch, Recording options' **Name meetings on this Mac**. The swi
 | A meeting's summary in Copy | Copy gives the words an assistant needs; the summary is visible and selectable | An ask to paste the summary alone |
 | Background throttling | Apple's model may be slowed while Workbench is not frontmost; the queue retries three times | Meetings left unnamed after real use |
 
+**Going back to an earlier build:** 2.6.0 and earlier read the details file and ignore the new fields. Any History write from them, even ticking a checkbox, rewrites it without them. Summaries and apps come back on the next launch of this build; a name typed in Details… does not.
+
 Native acceptance is owed:
 
 - a real meeting named on the installed Preview, with Apple Intelligence on;
 - the same with it off;
-- an earlier meeting named after an update.
+- an earlier meeting named after an update;
+- ⌘F's find bar in Review transcript: Return finds the next match and Escape closes the bar, not the sheet.
 
-Synthetic checks: `--check-history-library` (66 meeting-name checks, day headings included: details, headings, search, the Meetings filter, Copy, cleaning, parts, the route with a stand-in model and the queue). Renders: the gallery's `page-history-state-meetings`, `page-history-transcript-review-named`, `page-meeting-state-completed-named` and `page-home-state-results`.
+Synthetic checks: `--check-history-library` (81 meeting-name checks, day headings and every review finding included: details, headings, search, the Meetings filter, Copy, cleaning, parts, the route with a stand-in model and the queue). Renders: the gallery's `page-history-state-meetings`, `page-history-transcript-review-named`, `page-meeting-state-completed-named` and `page-home-state-results`.

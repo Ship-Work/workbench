@@ -114,7 +114,9 @@ struct TranscriptReviewView: View {
                 ScrollView {
                     TranscriptAbout(summary: summary, showsPoints: true).frame(maxWidth: .infinity, alignment: .leading)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { summaryFit = $0 }
-                }.scrollBounceBehavior(.basedOnSize).frame(height: min(summaryFit, Self.summaryHeight))
+                }.scrollBounceBehavior(.basedOnSize)
+                    // With capture notes above the words too, the summary takes less, so the words keep room to read.
+                    .frame(height: min(summaryFit, metadata.captureNotes.isEmpty ? Self.summaryHeight : Self.summaryHeight - Self.notesHeight / 2))
             }
             Picker("Wording", selection: $version) {
                 Text("Current text").tag(TranscriptExportVersion.cleaned)

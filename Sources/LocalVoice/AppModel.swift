@@ -883,16 +883,18 @@ final class AppModel: NSObject, ObservableObject {
     /// What the copy wrote, so a page can confirm it in place; nil when there were no words to
     /// copy and nothing was attempted, which leaves `status` saying whatever it said before.
     @discardableResult
-    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference,
+    /// `words`: the record's own words when the copy adds a heading, so the receipt counts them and
+    /// copying them resolves an undelivered result as copying the bare words does.
+    private func copyTextWithReceipt(_ text: String, of reference: UnresolvedDelivery.Reference, words: String? = nil,
                                      pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
         guard !text.isEmpty else { return nil }
         captureFailure = nil; dismissCaptureCue()
         let count = TextDelivery.copy(text, to: pasteboard)
         let outcome = TextDelivery.Outcome(message: count == nil ? "Could not copy the transcript." : TextDelivery.copiedMessage, clipboardChangeCount: count, wasPasted: false, destinationName: nil, failure: count == nil ? .copyFailed : nil)
         status = outcome.message
-        clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(text))
+        clipboardReceipt.record(outcome: outcome, wordCount: TextRules.wordCount(words ?? text))
         // Copying the same words from anywhere resolves an undelivered result.
-        undelivered.note(outcome, text: text, from: reference, in: deliveryRecords)
+        undelivered.note(outcome, text: words ?? text, from: reference, in: deliveryRecords)
         return outcome
     }
     /// Copy again, for a result whose copy failed or was never pasted: the
@@ -926,7 +928,7 @@ final class AppModel: NSObject, ObservableObject {
     @discardableResult
     func copyCapture(_ item: Transcript, pasteboard: NSPasteboard = .general) -> TextDelivery.Outcome? {
         copyTextWithReceipt(MeetingTranscriptCopy.text(item, metadata: historyLibrary.metadata(for: item.id)),
-                            of: .transcript(item.id), pasteboard: pasteboard)
+                            of: .transcript(item.id), words: item.text, pasteboard: pasteboard)
     }
     func showPanelPreview() {
         guard phase == .idle else { return }
@@ -1223,7 +1225,7 @@ final class AppModel: NSObject, ObservableObject {
         var metadata = historyLibrary.metadata(for: capture.id)
         metadata.purpose = purpose == "call" ? .call : .meeting
         metadata.captureNotes = meetings.pendingTranscriptNotes
-        metadata.app = (meetings.pendingTranscriptApp ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        metadata.app = MeetingNaming.appName(meetings.pendingTranscriptApp)
         historyLibrary.setMetadata(metadata, for: capture.id)
         if let error = historyLibrary.error { throw VoiceError.message(error) }
         try store.save(session(draft: transcript, history: next, replacements: replacements))
@@ -1254,8 +1256,11 @@ final class AppModel: NSObject, ObservableObject {
         var result = items.map { item in
             let metadata = historyLibrary.metadata(for: item.id)
             let names = [metadata.person, metadata.company].filter { !$0.isEmpty }
-            let named = metadata.heading.isEmpty ? metadata.purpose.title + (names.isEmpty ? "" : " · " + names.joined(separator: " · ")) : metadata.heading
-            let title = named + " · " + item.date.formatted(date: .abbreviated, time: .shortened)
+            // The person's own name leads when they gave one. The name written on this Mac is left out:
+            // it arrives seconds after Finish, and a follow-up prepared before it must still be found after.
+            let own = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = ((own.isEmpty ? [] : [own]) + [metadata.purpose.title] + names).joined(separator: " · ")
+                + " · " + item.date.formatted(date: .abbreviated, time: .shortened)
             return HandoffSourceSnapshot(reference: WorkbenchItemReference(kind: .transcript, id: item.id),
                 title: title, capturedAt: item.date, text: item.text, originalText: item.rawText ?? item.text,
                 role: metadata.purpose == .prompt ? .instructions : .reference, captureNotes: metadata.captureNotes,

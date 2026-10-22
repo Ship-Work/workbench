@@ -113,7 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let model else { throw VoiceError.message("The transcript library is unavailable.") }
             return try model.savedMeetingTranscript(id)
         }
-        model.startMeetingNaming()
+        // Naming waits while Dictate, Meetings or Snap & Talk is listening or transcribing.
+        model.startMeetingNaming(paused: { [weak self] in
+            guard let self else { return true }
+            return self.model.phase != .idle || self.model.meetings.isBusy || self.readback.blocksDictation
+        })
         model.meetings.hostAdmission = { [weak self] in
             guard let self else { return MeetingHostAdmission(closing: true) }
             return MeetingHostAdmission(recognition: self.model.recognition,

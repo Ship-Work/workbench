@@ -40,7 +40,15 @@ enum MeetingNamingChecks {
         try check(reloaded.metadata(for: meeting.id) == meetingDetails && reloaded.metadata(for: call.id).app == "FaceTime",
                   "a meeting's app and summary survive a relaunch")
         var tooLong = meetingDetails; tooLong.summary?.points = Array(repeating: "A point", count: 6)
-        try check((try? tooLong.validated()) == nil, "a summary carries at most five points")
+        try check((try? tooLong.validated())?.summary == nil && (try? tooLong.validated())?.app == "Zoom",
+                  "a summary over the limits (a later build's) is dropped, never a reason to refuse the details")
+        var batch: [UUID: TranscriptMetadata] = [:]
+        for id in [UUID(), UUID()] { var details = TranscriptMetadata(purpose: .call); details.app = "Phone"; batch[id] = details }
+        library.setMetadata(batch)
+        try check(batch.keys.allSatisfy { library.metadata(for: $0).app == "Phone" } && library.metadata(for: meeting.id) == meetingDetails,
+                  "several meetings' apps are written at once, leaving the others as they were")
+        try check(MeetingNaming.appName("  Zoom\n Workplace ") == "Zoom Workplace" && MeetingNaming.appName(String(repeating: "x", count: 200)).count == 80,
+                  "an app's name is kept on one line, within the limit")
         var lineBreak = meetingDetails; lineBreak.title = "Two\nlines"
         try check((try? lineBreak.validated()) == nil, "a name is one line")
 
@@ -104,8 +112,17 @@ enum MeetingNamingChecks {
 
         // Cleaning what the model wrote.
         try check(MeetingNaming.title("\"Harbour Release and Northwind Escalation.\"") == "Harbour Release and Northwind Escalation", "quotes and a full stop leave a name")
-        for generic in ["Meeting", "Weekly Meeting", "Meeting Summary", "Call", "Notes from the call", "Transcript review", "Hi"] {
+        for generic in ["Meeting", "Weekly Meeting", "Meeting Summary", "Call", "Notes from the call", "Weekly team sync", "Summary of the meeting", "Hi"] {
             try check(MeetingNaming.title(generic) == nil, "\(generic) says nothing about the meeting")
+        }
+        try check(MeetingNaming.about("The team agreed to ship.\n\nMarcus fixes it.\tToday.") == "The team agreed to ship. Marcus fixes it.",
+                  "what it was about is one line, whatever breaks the model wrote")
+        try check(MeetingNaming.points(["Marcus\nfixes it"]) == ["Marcus fixes it"] && MeetingNaming.title("Harbour\nrelease") == "Harbour release",
+                  "points and names are one line")
+        var lineBroken = meetingDetails; lineBroken.summary = TranscriptSummary(title: "Name", about: MeetingNaming.about("One.\nTwo."), words: 2)
+        try check((try? lineBroken.validated())?.summary != nil, "a cleaned answer passes the details' limits")
+        for kept in ["Release notes for 2.6", "Transcription accuracy and release plan", "Notes app redesign review"] {
+            try check(MeetingNaming.title(kept) == kept, "\(kept) names its subject")
         }
         try check(MeetingNaming.about("This is a summary of the meeting. The team agreed to ship. Marcus fixes the timeout. QA tests Friday.")
                   == "The team agreed to ship. Marcus fixes the timeout.", "what it was about keeps two sentences without boilerplate")
@@ -178,11 +195,14 @@ enum MeetingNamingChecks {
         let namer = MeetingNamer()
         namer.read = { store[$0] }
         namer.write = { id, summary in store[id]?.metadata.summary = summary }
-        namer.describe = { text in
-            described.append(text)
-            return .described(TranscriptSummary(title: "Named " + text.prefix(12), about: "About it.", words: TextRules.wordCount(text)))
+        func written(_ title: String, _ text: String) -> TranscriptSummary {
+            TranscriptSummary(title: title, about: "About it.", words: TextRules.wordCount(text), digest: MeetingNaming.digest(text))
         }
-        namer.retryDelay = .milliseconds(10)
+        namer.describe = { text, _ in
+            described.append(text)
+            return .described(written("Named " + text.prefix(12), text))
+        }
+        namer.retryDelay = .milliseconds(10); namer.pauseCheck = .milliseconds(5)
         namer.enqueue([first])
         try await settle(namer)
         try check(described.isEmpty && store[first]?.metadata.summary == nil, "nothing is read before the app activates naming")
@@ -191,35 +211,81 @@ enum MeetingNamingChecks {
         try await settle(namer)
         try check(described == ["You: second meeting words.", "You: first meeting words."], "the newest meeting is named first; dictations are never read")
         try check(store[first]?.metadata.summary?.title == "Named You: first m" && store[second]?.metadata.summary != nil, "each meeting gets its summary")
-        try check(!MeetingNamer.needsSummary(store[first]!.metadata, words: TextRules.wordCount(store[first]!.text)), "a described meeting is not read again")
-        try check(MeetingNamer.needsSummary(store[first]!.metadata, words: 99), "a meeting whose words changed is read again")
+        try check(!MeetingNamer.needsSummary(store[first]!.metadata, text: store[first]!.text), "a described meeting is not read again")
+        try check(MeetingNamer.needsSummary(store[first]!.metadata, text: "You: first meeting WORDS."), "a meeting whose words changed is read again, even with the same count")
+        var counted = store[first]!.metadata; counted.summary?.digest = nil
+        try check(!MeetingNamer.needsSummary(counted, text: "You: other meeting words.") && MeetingNamer.needsSummary(counted, text: "You: five words here now."),
+                  "a summary saved without a fingerprint falls back to its word count")
 
         let changing = UUID()
         store[changing] = ("You: words before.", TranscriptMetadata(purpose: .meeting))
-        namer.describe = { text in store[changing]?.text = "You: words after the edit."; return .described(TranscriptSummary(title: "Old", about: "", words: 3)) }
+        namer.describe = { text, _ in store[changing]?.text = "You: words after the edit."; return .described(written("Old", text)) }
         namer.enqueue([changing]); try await settle(namer)
         try check(store[changing]?.metadata.summary == nil, "a summary of words that changed while being read is not saved")
 
         var unavailableCalls = 0
         let a = UUID(), b = UUID()
         store[a] = ("You: a.", TranscriptMetadata(purpose: .meeting)); store[b] = ("You: b.", TranscriptMetadata(purpose: .meeting))
-        namer.describe = { _ in unavailableCalls += 1; return .unavailable }
+        namer.describe = { _, _ in unavailableCalls += 1; return .unavailable }
         namer.enqueue([a, b]); try await settle(namer)
         try check(unavailableCalls == 1, "without Apple Intelligence the queue stops after one try")
 
-        var laterCalls = 0
-        namer.describe = { _ in laterCalls += 1; return .later }
-        namer.enqueue([a]); try await settle(namer)
-        try check(laterCalls == MeetingNamer.maximumTries && store[a]?.metadata.summary == nil, "a busy model is tried three times, then left for the next launch")
+        // A busy model: tried three times, without holding up a meeting saved meanwhile.
+        var order: [String] = []
+        let c = UUID(); store[c] = ("You: c.", TranscriptMetadata(purpose: .meeting))
+        namer.describe = { text, _ in
+            order.append(text)
+            return text == "You: a." ? .later : .described(written("Fresh", text))
+        }
+        namer.enqueue([a]); namer.enqueue([c])
+        try await settle(namer)
+        try check(order.filter { $0 == "You: a." }.count == MeetingNamer.maximumTries && store[a]?.metadata.summary == nil,
+                  "a busy model is tried three times, then left for the next launch")
+        try check(order.firstIndex(of: "You: c.")! < order.lastIndex(of: "You: a.")! && store[c]?.metadata.summary?.title == "Fresh",
+                  "a meeting saved while another waits to be retried is named without waiting for it")
 
-        var enabled = false
-        namer.isEnabled = { enabled }
-        namer.describe = { _ in .described(TranscriptSummary(title: "On", about: "", words: 2)) }
+        // The switch, followed by the value it sends.
+        final class Switch: ObservableObject { @Published var on = true }
+        let toggle = Switch()
+        let following = namer.follow(toggle.$on.dropFirst()) { store.filter { MeetingNamer.needsSummary($0.value.metadata, text: $0.value.text) }.map(\.key) }
+        defer { following.cancel() }
+        namer.describe = { text, _ in .described(written("On", text)) }
+        toggle.on = false
         namer.enqueue([b]); try await settle(namer)
         try check(store[b]?.metadata.summary == nil, "with the switch off, nothing is read")
-        enabled = true
-        namer.enqueue([b]); try await settle(namer)
-        try check(store[b]?.metadata.summary?.title == "On", "switched on again, waiting meetings are named")
+        toggle.on = true
+        try await settle(namer)
+        try check(store[b]?.metadata.summary?.title == "On", "switched on again, the meetings waiting are named at once")
+
+        // Paused while something else listens: nothing is read until it ends.
+        var busy = true
+        namer.isPaused = { busy }
+        let d = UUID(); store[d] = ("You: d.", TranscriptMetadata(purpose: .meeting))
+        namer.enqueue([d])
+        try await Task.sleep(for: .milliseconds(60))
+        try check(store[d]?.metadata.summary == nil && namer.isBusy, "a meeting waits while Dictate or a recording runs")
+        busy = false
+        try await settle(namer)
+        try check(store[d]?.metadata.summary?.title == "On", "and is named once it ends")
+        namer.isPaused = { false }
+
+        // Cancelled mid-read: nothing is written and the next start is not disturbed.
+        let e = UUID(); store[e] = ("You: e.", TranscriptMetadata(purpose: .meeting))
+        namer.describe = { text, _ in try? await Task.sleep(for: .milliseconds(40)); return .described(written("Late", text)) }
+        namer.enqueue([e])
+        try await Task.sleep(for: .milliseconds(10))
+        namer.cancel()
+        try await Task.sleep(for: .milliseconds(80))
+        try check(store[e]?.metadata.summary == nil && !namer.isBusy && namer.working == nil, "a read cancelled by the switch writes nothing")
+
+        // The route waits before each of its requests, so a recording that starts mid-meeting holds it.
+        let pauses = Counter()
+        _ = await MeetingNaming.describe(long, respond: { request, _ in
+            if case .part = request { return partAnswer }
+            return wholeAnswer
+        }, pause: { await pauses.add() })
+        let paused = await pauses.value
+        try check(paused == 5, "a four-part meeting waits before each of its five requests (\(paused))")
 
         // Earlier recordings tell their app.
         // Meeting folders refuse a path through a symbolic link, as /var's is; /private/tmp is real.
@@ -243,6 +309,11 @@ enum MeetingNamingChecks {
             if namer.working == nil, !namer.isBusy { return }
         }
         throw VoiceError.message("MEETING_NAMING_CHECK_FAILED: the naming queue did not settle")
+    }
+
+    private actor Counter {
+        var value = 0
+        func add() { value += 1 }
     }
 
     private actor Requests {

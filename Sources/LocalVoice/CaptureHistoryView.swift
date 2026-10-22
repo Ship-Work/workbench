@@ -99,7 +99,7 @@ struct TranscriptHistoryRow: View {
                 if include { refs.insert(ref) } else { refs.remove(ref) }
                 library.setSelected(refs)
             })).toggleStyle(.checkbox).labelsHidden()
-                .accessibilityLabel(CaptureHistoryAccessibility.label("Select transcript, " + metadata.purpose.title, context: context))
+                .accessibilityLabel(CaptureHistoryAccessibility.label("Select transcript, " + (metadata.heading.isEmpty ? metadata.purpose.title : metadata.heading), context: context))
             VStack(alignment: .leading, spacing: 10) {
                 let heading = metadata.heading
                 if heading.isEmpty {
