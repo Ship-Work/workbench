@@ -264,7 +264,7 @@ struct WorkbenchControlContext {
     let stage: StageKitController
     var snap: SnapModel? = nil
     var state: WorkbenchControlState {
-        WorkbenchControlState(phase: model.phase, ready: model.ready, meetingBusy: model.meetings.isBusy,
+        WorkbenchControlState(phase: model.phase, ready: model.mayDictate, meetingBusy: model.meetings.isBusy,
             narrating: readback.isRecording, capturing: readback.isCapturing,
             pendingNarration: readback.hasPendingTranscriptions, hasSession: readback.sessionURL != nil,
             captureCount: readback.sessionURL == nil ? nil : readback.activeSections.count,
@@ -381,6 +381,7 @@ struct WorkbenchControlContext {
             if state.meetingBusy { return "Finish the meeting recording or transcription before dictating." }
             if readback.blocksDictation { return "Finish Snap & Talk before dictating." }
             // The one readiness line: a setup's progress, or why it stopped, then where to act.
+            if model.speechWarming { return "Speech is getting ready · your words appear when you stop" }
             if !model.ready { return model.modelMessage + (model.preparing ? "" : " · Settings › Models") }
             return model.preferences.cleanup.rawValue + " · " + (model.preferences.delivery == .clipboard ? "Copy text"
                 : model.accessibilityGranted ? "Paste in a Mac field" : "Copy for ⌘V until Accessibility is allowed")

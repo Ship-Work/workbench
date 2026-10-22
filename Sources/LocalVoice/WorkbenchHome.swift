@@ -846,7 +846,7 @@ struct WorkbenchHomePage: View {
             }
         }) {
             Text("Record a thought, then copy your words into any app.").foregroundStyle(.secondary)
-            if !model.ready && ![.requesting, .recording].contains(model.phase) { engineBanner } else {
+            if !model.mayDictate && ![.requesting, .recording].contains(model.phase) { engineBanner } else {
                 HStack(spacing: 16) {
                     // Dictate's microphone's names, spoken as shown; Finish dictation is the toolbar's too (#357).
                     let dictationTitle = model.phase == .requesting ? "Cancel" : model.phase == .recording ? "Finish dictation" : "Start dictating"

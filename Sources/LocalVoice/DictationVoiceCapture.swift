@@ -25,7 +25,10 @@ final class DictationVoiceCapture {
         let sidecars = url.deletingLastPathComponent().appendingPathComponent("live-\(id.uuidString)", isDirectory: true)
         try MeetingStore.createPrivateDirectory(sidecars)
         do {
-            if try await engine.beginLiveSession(id) {
+            // While speech is getting ready (after an update) the recording starts at once and its
+            // words come when it stops; asking for a live session then would refuse the start.
+            let warming = await !engine.snapshot().canTranscribe
+            if !warming, try await engine.beginLiveSession(id) {
                 let engine = engine, id = id
                 live = LiveVoiceService(id: id, sources: [.init(source: .microphone, name: "Microphone")],
                     journal: sidecars.appendingPathComponent("live-transcript.json"), doubtfulEndingIsIncomplete: true,
@@ -33,7 +36,8 @@ final class DictationVoiceCapture {
             } else {
                 update(LiveVoiceSnapshot(sessionID: id, phase: .listening,
                     sources: [.init(source: .microphone, name: "Microphone")],
-                    message: "This model transcribes saved audio when you finish. Live words are available with Parakeet."))
+                    message: warming ? "Speech is getting ready on this Mac. Your words appear when you stop."
+                        : "This model transcribes saved audio when you finish. Live words are available with Parakeet."))
             }
             let input = live?.input, meter = meter
             try await capture.start(MeetingCaptureRequest(tracksDirectory: sidecars, app: nil, includeMicrophone: true,
