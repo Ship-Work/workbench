@@ -19,9 +19,8 @@ enum MeetingFinishCheck {
         let lanes = [MeetingTrackSource.local: upsampled(try converter.resampleAudioFile(microphone)),
                      .remote: upsampled(try converter.resampleAudioFile(app))]
         var lines: [String] = []
-        let suite = "dev.workbench.meeting-finish." + UUID().uuidString
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        // An absolute path keeps the settings in the check's own folder, not ~/Library/Preferences (#128).
+        let defaults = UserDefaults(suiteName: output.appendingPathComponent("Preferences").path)!
         let engine = RecognitionEngine(store: RecognitionConfigurationStore(defaults: defaults))
         let preparing = Date()
         try await engine.prepareCached()
