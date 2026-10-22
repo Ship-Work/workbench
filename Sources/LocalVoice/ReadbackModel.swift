@@ -1383,7 +1383,8 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private func captureImage(_ mode: SnapCapture.Mode, fromEditor: Bool, request: UUID) async throws -> ReadbackScreenshot? {
         if fromEditor { onHideForEditorCapture?() }
         defer { if fromEditor { onRestoreAfterEditorCapture?() } }
-        let delay: UInt64 = mode == .screen ? 250_000_000 : captureSelection.settleDelay
+        // A region is taken when its drag ends, after the hidden windows have gone (SnapModel.capture).
+        let delay: UInt64 = mode == .screen ? 250_000_000 : mode == .region ? 0 : captureSelection.settleDelay
         if delay > 0 { try await Task.sleep(nanoseconds: delay) }
         guard captureRequest == request, !Task.isCancelled else { return nil }
         if mode == .screen { return try await captureDisplay() }

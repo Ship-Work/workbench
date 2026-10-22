@@ -450,7 +450,9 @@ final class SnapModel: ObservableObject {
         var outcome = SnapCaptureOutcome.cancelled
         defer { captureRequest = nil; isCapturing = false; onRestoreAfterCapture?(outcome); onStateChange?() }
         do {
-            if captureService.settleDelay > 0 { try await Task.sleep(nanoseconds: captureService.settleDelay) }
+            // Apple's region selector takes its image when the drag ends, long after Workbench's windows
+            // have gone, so the crosshair appears at once; a window pick and a whole screen still wait.
+            if captureService.settleDelay > 0, mode != .region { try await Task.sleep(nanoseconds: captureService.settleDelay) }
             guard captureRequest == request else { return }
             guard let bytes = try await captureService.capture(mode) else { notice = "Capture cancelled. Nothing was added to history."; return }
             guard captureRequest == request else { return }
