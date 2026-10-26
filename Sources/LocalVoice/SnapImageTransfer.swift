@@ -78,18 +78,19 @@ struct SnapImageDragSurface: NSViewRepresentable {
 
 /// Also used directly as the read-only workspace image. Editing the canvas
 /// remains mark manipulation; its Copy image button supplies the drag surface.
-final class SnapImageDragView: NSImageView, NSDraggingSource {
+class SnapImageDragView: NSImageView, NSDraggingSource {
     var transfer: (() throws -> SnapImageTransfer)?
     var click: (() -> Void)?
     var failure: ((Error) -> Void)?
-    private var mouseStart: NSPoint?
+    private var mouseDownEvent: NSEvent?
     private var activeTransfer: SnapImageTransfer?
 
-    override func mouseDown(with event: NSEvent) { mouseStart = isEnabled ? event.locationInWindow : nil }
+    override func mouseDown(with event: NSEvent) { mouseDownEvent = isEnabled ? event : nil }
     override func mouseDragged(with event: NSEvent) {
-        guard let start = mouseStart, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) >= 4,
+        guard let origin = mouseDownEvent,
+              hypot(event.locationInWindow.x - origin.locationInWindow.x, event.locationInWindow.y - origin.locationInWindow.y) >= 4,
               let transfer else { return }
-        mouseStart = nil
+        mouseDownEvent = nil
         do {
             let snapshot = try transfer()
             guard let preview = NSImage(data: snapshot.png) else { throw SnapError.message("This image could not be dragged. Its original is unchanged.") }
@@ -97,18 +98,20 @@ final class SnapImageDragView: NSImageView, NSDraggingSource {
             let item = NSDraggingItem(pasteboardWriter: snapshot)
             let factor = min(1, 220 / max(preview.size.width, preview.size.height))
             let size = NSSize(width: preview.size.width * factor, height: preview.size.height * factor)
-            let point = convert(event.locationInWindow, from: nil)
+            // AppKit derives the drag-image offset from the initiating mouse-down event.
+            // Keep its frame and event anchored together, even after coalesced movement.
+            let point = convert(origin.locationInWindow, from: nil)
             item.setDraggingFrame(NSRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), contents: preview)
-            beginDraggingSession(with: [item], event: event, source: self)
+            beginDraggingSession(with: [item], event: origin, source: self)
         } catch { failure?(error) }
     }
     override func mouseUp(with event: NSEvent) {
-        let wasClick = mouseStart != nil
-        mouseStart = nil
+        let wasClick = mouseDownEvent != nil
+        mouseDownEvent = nil
         if wasClick, bounds.contains(convert(event.locationInWindow, from: nil)) { click?() }
     }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        activeTransfer = nil; mouseStart = nil
+        activeTransfer = nil; mouseDownEvent = nil
     }
 }
