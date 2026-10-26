@@ -63,6 +63,21 @@
         "phase": "candidate"
       },
       {
+        "id": "D1",
+        "variant": "voice-to-text-target-paste-and-copy",
+        "phase": "candidate"
+      },
+      {
+        "id": "U1",
+        "variant": "annotate-escape-and-persona-show-hide-end",
+        "phase": "candidate"
+      },
+      {
+        "id": "P2",
+        "variant": "present-no-phone-and-return",
+        "phase": "candidate"
+      },
+      {
         "id": "I1",
         "variant": "public-first-install",
         "phase": "delivery"

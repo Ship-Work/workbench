@@ -7,7 +7,7 @@
 
 [Download Workbench](https://workbench-mac.vercel.app/) · [Product guide](https://workbench-mac.vercel.app/guide/) · [Contribute](CONTRIBUTING.md) · [Mac release gate](https://github.com/Ship-Work/workbench/issues/7)
 
-Workbench brings **Annotate**, **Voice to Text**, **Snap** and **Present** into one native Mac app. Present includes the phone stage, live camera, profile/persona and optional voice wave. Snap & Talk is available through **Settings → General → Experimental features**, disabled by default. Meetings runs as a separate Mac app; existing recordings and transcripts are preserved for explicit copy-only import.
+Workbench brings **Annotate**, **Voice to Text**, **Snap** and **Present** into one native Mac app. Present includes the phone stage, live camera, profile/persona and optional voice wave. Snap & Talk is available through **Settings → General → Experimental features**, disabled by default. Meetings runs as a separate, privately distributed Mac app; existing recordings and transcripts are preserved for explicit copy-only import, and remain accessible from Workbench without installing Meetings.
 
 ## Current focus: get Mac right
 
