@@ -137,7 +137,7 @@ final class ToolbarNextActionTests: XCTestCase {
             if operation == .captureNext, live.mode != .snapAndTalk { failures += 1 }
         }
         XCTAssertEqual(failures, 0)
-        XCTAssertEqual(ToolbarNextAction.resolve(ToolbarLiveState(mode: .draw, presenting: true)).title, "Draw")
+        XCTAssertEqual(ToolbarNextAction.resolve(ToolbarLiveState(mode: .draw, presenting: true)).title, "Annotate")
         XCTAssertEqual(ToolbarNextAction.resolve(ToolbarLiveState(mode: .snap, meetingRecording: true)).title, "Snap")
         XCTAssertEqual(ToolbarNextAction.resolve(ToolbarLiveState(mode: .snap, persona: .session)).title, "Snap")
     }
@@ -241,7 +241,7 @@ final class ToolbarNextActionTests: XCTestCase {
         next.drawing = false
         XCTAssertEqual(ToolbarNextAction.resolve(next).title, "Finish meeting", "Dictate owns the meeting")
         next.meetingRecording = false
-        XCTAssertEqual(ToolbarNextAction.resolve(next).title, "Dictate", "presenting and personas belong to other modes")
+        XCTAssertEqual(ToolbarNextAction.resolve(next).title, "Voice to Text", "presenting and personas belong to other modes")
         next.mode = .present
         XCTAssertEqual(ToolbarNextAction.resolve(next).title, "End presentation")
         next.presenting = false

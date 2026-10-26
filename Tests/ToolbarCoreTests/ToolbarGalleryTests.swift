@@ -67,14 +67,14 @@ final class ToolbarGalleryTests: XCTestCase {
         XCTAssertEqual(state.choices.filter(\.isLive).map(\.mode), [.draw])
         XCTAssertEqual(state.choices.filter(\.isSelected).map(\.mode), [.dictate], "one chosen tool, checked in the chooser")
         XCTAssertTrue(state.hasLiveWork, "the launcher's one aggregate indicator shows other work")
-        XCTAssertEqual(state.launcherDescription, "Dictate. Also running: Draw")
+        XCTAssertEqual(state.launcherDescription, "Voice to Text. Also running: Annotate")
     }
 
     /// A mode's own ending claims the label only in that mode.
     func testAnotherModesEndingLightsItsChipAndKeepsTheStartVerb() throws {
         let state = try XCTUnwrap(ToolbarGallery.activity.first { $0.name == "activity-presenting-in-draw" })
         XCTAssertEqual(state.mode, .draw)
-        XCTAssertEqual(state.actionTitle, "Draw")
+        XCTAssertEqual(state.actionTitle, "Annotate")
         XCTAssertFalse(state.isBusy)
         XCTAssertEqual(state.choices.filter(\.isLive).map(\.mode), [.present])
     }
