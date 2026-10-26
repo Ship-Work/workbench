@@ -541,7 +541,7 @@ struct HandoffReviewView: View {
                             }.padding(10).background(Workbench.surface, in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                    Text("Meeting speech and images start as reference material. “My instructions” means you adopt that text as your request. Connected tasks send the reviewed material to the chosen provider and return a draft for review.")
+                    Text("Selected text and images start as reference material. “My instructions” means you adopt that text as your request. Connected tasks send the reviewed material to the chosen provider and return a draft for review.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !skill.repliesInline {
                         Text("This skill uses the manual handoff so your assistant can create its requested files. Copy instructions, then attach the selected work folder.")

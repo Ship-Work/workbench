@@ -210,7 +210,7 @@ struct WorkbenchHome: View {
                         HStack {
                             Button("Persona, profile & camera…") { model.page = "personas" }
                             Text("Show a profile, live camera or voice wave.").font(.caption).foregroundStyle(.secondary)
-                        }
+                        }.padding(.horizontal, Workbench.pagePadding)
                         PresentWorkspaceView(model: model, stage: stage)
                     }
                 }
