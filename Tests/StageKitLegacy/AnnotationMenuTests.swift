@@ -45,7 +45,7 @@ final class AnnotationMenuTests: XCTestCase {
         // This fixture never starts, so even enabled synthetic shortcuts remain
         // display data and cannot compete with a running app's registrations.
         try withFixture(start: false) { app, menu in
-            XCTAssertEqual(menu.title, "Draw", "The menu bar shows this title for the Draw menu")
+            XCTAssertEqual(menu.title, "Annotate", "The menu bar uses the core tool's visible name")
             XCTAssertFalse(menu.autoenablesItems)
             for tool in DrawingTool.allCases {
                 XCTAssertNotNil(menu.items.first { $0.identifier?.rawValue == "annotation.\(tool.rawValue)" })

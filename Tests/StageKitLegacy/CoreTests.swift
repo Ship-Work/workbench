@@ -173,12 +173,12 @@ final class CoreTests: XCTestCase {
             XCTAssertEqual(shortcut.modifiers, UInt32(optionKey), "\(action) is Option plus one key")
             XCTAssertTrue(leftHand.contains(shortcut.keyCode), "\(action) sits under the left hand")
         }
-        // One name per presenter key (#76): Draw, Shape and Clear as Home teaches them, in every
+        // One name per presenter key (#76): Annotate, Shape and Clear as Home teaches them, in every
         // shortcut list, heading and conflict. The tools they hold keep their names.
-        XCTAssertEqual([Action.pen, .rectangle, .clear].map(\.title), ["Draw", "Shape", "Clear"])
+        XCTAssertEqual([Action.pen, .rectangle, .clear].map(\.title), ["Annotate", "Shape", "Clear"])
         XCTAssertEqual([DrawingTool.pen, .rectangle].map(\.title), ["Pen", "Rectangle"])
         let listed = Dictionary(uniqueKeysWithValues: StageShortcutSettings.descriptors(for: prefs).map { ($0.id, $0.label) })
-        XCTAssertEqual(["pen", "rectangle", "clear"].map { listed[$0] }, ["Draw", "Shape", "Clear"], "The shortcut list uses the key's name")
+        XCTAssertEqual(["pen", "rectangle", "clear"].map { listed[$0] }, ["Annotate", "Shape", "Clear"], "The shortcut list uses the key's name")
         XCTAssertEqual(["highlighter", "ellipse", "undo", "redo", "whiteboard"].map { listed[$0] }, ["Highlighter", "Oval", "Undo", "Redo", "Whiteboard"],
                        "Every other key keeps its name")
     }
