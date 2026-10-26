@@ -100,133 +100,8 @@ enum HomeMeetings {
     }
 }
 
-struct HomeMeetingTile: View {
-    @ObservedObject var model: AppModel
-    @ObservedObject var library: WorkbenchHistoryModel
-    @ObservedObject var jobs: HandoffJobsModel
-    var prepareFollowUp: (UUID) -> Void
-    /// Copy transcript's four-second confirmation, on the owner Meetings' Copy transcript uses.
-    @StateObject private var copyFeedback = TranscriptReviewFeedback()
-    /// A copy failure, kept with the meeting it was for.
-    @State private var copyProblem: (id: UUID, message: String)?
-    /// Meetings picked from History only when History or its details change, never on a level or
-    /// clock redraw while something records with Home open (#150).
-    @State private var recent: [HomeMeetings.Summary] = []
-
-    var body: some View {
-        WorkbenchTile("Your meetings", symbol: WorkbenchHome.symbol(of: "meeting"), accessory: {
-            if !recent.isEmpty {
-                Button("Open Meetings") { model.page = "meeting" }.buttonStyle(.workbenchLink).font(.callout)
-                    .accessibilityIdentifier("home.meeting.open")
-            }
-        }) {
-            // A meeting that is recording or finishing shows in Current work above, with its own
-            // door and ending; this tile keeps to saved meetings.
-            if let last = recent.first {
-                newest(last)
-                if recent.count > 1 {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(recent.dropFirst()) { earlier($0) }
-                    }
-                }
-            } else {
-                WorkbenchEmptyState(symbol: "waveform", title: "No meetings yet",
-                                    detail: "Record a call or meeting and leave with every word, ready to paste. Nothing records until you choose Start recording.") {
-                    Button("Open Meetings") { model.page = "meeting" }.controlSize(.small)
-                        .accessibilityIdentifier("home.meeting.open")
-                }
-            }
-        }
-        .task(id: HomeMeetings.taskStamps(jobs.jobs)) { await jobs.loadTaskFiles(jobs.visibleJobs) }
-        // As History does: a result written while Workbench was in the background is read on return.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await jobs.loadTaskFiles(jobs.visibleJobs) }
-        }
-        .onAppear(perform: pick)
-        .onReceive(model.$history.dropFirst()) { _ in DispatchQueue.main.async(execute: pick) }
-        .onReceive(library.objectWillChange) { _ in DispatchQueue.main.async(execute: pick) }
-        .accessibilityIdentifier("home.meeting")
-    }
-
-    /// The newest meeting, open: its names, date and length, its first words, and what to do with
-    /// it. A follow-up that has run replaces Prepare follow-up… with the way to it; one only
-    /// prepared by this door keeps Prepare follow-up…, so it can still run here (`HomeMeetings.opensFollowUp`).
-    @ViewBuilder private func newest(_ last: HomeMeetings.Summary) -> some View {
-        let followUp = HomeMeetings.followUp(for: last.id, in: jobs.visibleJobs,
-                                             inputs: { jobs.files($0)?.inputs.items.map(\.reference) ?? [] },
-                                             excluding: { jobs.isMetadataSuggestion($0) })
-        let recap = followUp.flatMap { jobs.files($0)?.resultText }.map { HomeMeetings.recap($0) }.flatMap { $0.isEmpty ? nil : $0 }
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(last.heading).font(.callout.weight(.semibold)).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(Self.stamp(last.date) + " · " + HomeMeetings.duration(last.seconds)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            if let note = last.note { WorkbenchNote(note, font: .caption) }
-            // Once a follow-up exists, its words are the recap; until then, the meeting's own.
-            if let recap {
-                Text("Follow-up").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Text(recap).font(.callout).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-            } else {
-                Text(last.excerpt).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                if let followUp {
-                    Text(HomeMeetings.followUpState(followUp.status)).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-        HStack(spacing: 8) {
-            Button { copy(last.id) } label: { Label("Copy transcript", systemImage: "doc.on.doc") }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("home.meeting.copy")
-            Button("Review transcript") { model.openHistory(HomeMeetings.review(last.id)) }
-                .help("Opens this transcript in History, with its original wording.")
-                .accessibilityIdentifier("home.meeting.review")
-            if let followUp, HomeMeetings.opensFollowUp(followUp, inputs: jobs.files(followUp)?.inputs, meeting: last.id) {
-                Button("Open follow-up") { model.openHistory(HistoryDoor(job: followUp.id)) }
-                    .help("Shows the follow-up made from this meeting in History, where Copy result copies it.")
-                    .accessibilityIdentifier("home.meeting.followup.open")
-            } else {
-                Button("Prepare follow-up…") { prepareFollowUp(last.id) }
-                    .help("Start task runs it here and brings its result to this tile; Copy instructions copies it for your own assistant.")
-                    .accessibilityIdentifier("home.meeting.followup")
-            }
-            Spacer(minLength: 4)
-        }.controlSize(.small)
-            // A confirmation belongs to the meeting it copied.
-            .onChange(of: last.id) { copyFeedback.finish(nil) }
-        // Confirmed under its control, in space kept for it, as Meetings does (Fit rule 7).
-        if let copyProblem, copyProblem.id == last.id {
-            WorkbenchNote(copyProblem.message, font: .caption)
-        } else {
-            ConfirmationLabel(text: copyFeedback.confirmation?.kind, reserving: ["Copied transcript"]).font(.caption)
-        }
-    }
-
-    private func pick() { recent = HomeMeetings.newest(model.history) { library.metadata(for: $0) } }
-
-    /// An earlier meeting: one line that opens it in History.
-    private func earlier(_ meeting: HomeMeetings.Summary) -> some View {
-        Button { model.openHistory(HomeMeetings.review(meeting.id)) } label: {
-            HStack(spacing: 10) {
-                Text(meeting.heading).font(.callout).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(Self.stamp(meeting.date) + " · " + HomeMeetings.duration(meeting.seconds)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true)
-            }.padding(.vertical, 7).contentShape(Rectangle())
-        }.buttonStyle(.plain).help("Show it in History")
-            .accessibilityLabel(meeting.heading + ", " + Self.stamp(meeting.date))
-    }
-
+enum HomeTimestamp {
     static func stamp(_ date: Date) -> String { date.formatted(date: .abbreviated, time: .shortened) }
-
-    /// History's complete current record, through the copy Meetings uses. A success is confirmed
-    /// under the buttons for four seconds, as Meetings does; a failure stays until the next try.
-    private func copy(_ id: UUID) {
-        copyProblem = model.copyMeetingTranscript(id).map { (id, $0) }
-        copyFeedback.finish(copyProblem == nil ? "Copied transcript" : nil)
-    }
 }
 
 // MARK: Sample deck
@@ -400,10 +275,10 @@ struct HomeDecksTile: View {
             }.frame(width: 140, alignment: .leading)
             VStack(alignment: .leading, spacing: 4) {
                 Text(deck.title).font(.callout.weight(.semibold)).lineLimit(2)
-                Text("\(deck.screens) \(deck.screens == 1 ? "screen" : "screens") · " + HomeMeetingTile.stamp(deck.updatedAt))
+                Text("\(deck.screens) \(deck.screens == 1 ? "screen" : "screens") · " + HomeTimestamp.stamp(deck.updatedAt))
                     .font(.caption).foregroundStyle(.secondary)
                 if let file = deck.deck {
-                    Label("Deck ready" + (deck.deckDate.map { " · " + HomeMeetingTile.stamp($0) } ?? ""), systemImage: "checkmark.circle.fill")
+                    Label("Deck ready" + (deck.deckDate.map { " · " + HomeTimestamp.stamp($0) } ?? ""), systemImage: "checkmark.circle.fill")
                         .font(.caption).foregroundStyle(Workbench.accent).help(file.lastPathComponent)
                 } else {
                     Text("No deck yet. Use Hand off in Snap & Talk to build it.")
@@ -535,8 +410,8 @@ enum HomeKeys {
     static let priority = ["voice.1", "stage.pen", "voice.5", "stage.clear", "stage.arrow", "voice.7",
                            "stage.personaToggle", "stage.undo", "stage.rectangle", "voice.2", "stage.personaNext", "voice.8"]
     /// A word short enough for a keycap; anything else uses its catalogue title.
-    static let shortNames = ["voice.1": "Dictate", "voice.2": "Controls", "voice.5": "Snap & Talk", "voice.7": "Present", "voice.8": "Snap",
-                             "stage.pen": "Draw", "stage.arrow": "Arrow", "stage.rectangle": "Shape", "stage.clear": "Clear",
+    static let shortNames = ["voice.1": "Voice to Text", "voice.2": "Controls", "voice.5": "Snap & Talk", "voice.7": "Present", "voice.8": "Snap",
+                             "stage.pen": "Annotate", "stage.arrow": "Arrow", "stage.rectangle": "Shape", "stage.clear": "Clear",
                              "stage.undo": "Undo", "stage.personaToggle": "Persona", "stage.personaNext": "Persona ›"]
     /// Core tools that ship without a key, with the free left-hand keys to offer, best first.
     /// E is never offered: Option-E is an accent key.

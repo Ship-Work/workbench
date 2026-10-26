@@ -94,7 +94,7 @@ checks() {
   "$BIN_DIR/LocalVoice" --check-history-journey "$CHECK_FOLDERS/history-journey"
   "$BIN_DIR/LocalVoice" --check-handoff-jobs
   "$BIN_DIR/LocalVoice" --check-subscription-cli
-  "$BIN_DIR/LocalVoice" --check-meetings
+  "$BIN_DIR/LocalVoice" --check-live-voice
   # Report a problem (#296): the manifest against the shared schema, the envelope and delivery against stubs.
   "$BIN_DIR/LocalVoice" --check-bug-report docs/bug-reporting-schema.md
   bash scripts/test-snap.sh

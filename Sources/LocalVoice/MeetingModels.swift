@@ -647,7 +647,11 @@ enum MeetingSummary {
     /// names that possibility beside where the switch is, in the words Home's Permissions row uses
     /// (MacPermission.callAudio.settingsPath); a broken tap is silent too, so it is a possibility,
     /// never a claim.
-    static func gaps(for manifest: MeetingManifest, settings: String = MacPermission.callAudio.settingsPath) -> [String] {
+    private static var legacyCallAudioSettingsPath: String {
+        if #available(macOS 15, *) { return "Privacy & Security › Screen & System Audio Recording › System Audio Recording Only" }
+        return "Privacy & Security"
+    }
+    static func gaps(for manifest: MeetingManifest, settings: String = legacyCallAudioSettingsPath) -> [String] {
         var notes: [String] = []
         let remote = manifest.tracks.first { $0.source == .remote }
         let local = manifest.tracks.first { $0.source == .local }
@@ -685,7 +689,7 @@ enum MeetingSummary {
                 guard gapLines.insert(note).inserted else { continue }
                 if let total = gaps[gap.source] { gaps[gap.source] = (total.count + 1, total.seconds + gap.seconds, total.line) }
                 else { gaps[gap.source] = (1, gap.seconds, lines.count); lines.append("") }
-            } else if note != MeetingModel.keptForLater {
+            } else if note != "Recording was cancelled. Original audio was kept." {
                 lines.append(note)
             }
         }

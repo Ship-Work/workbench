@@ -10,10 +10,10 @@ enum WorkbenchControlTool: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .dictate: return "Dictate"
+        case .dictate: return "Voice to Text"
         case .snap: return "Snap"
         case .snapAndTalk: return "Snap & Talk"
-        case .annotate: return "Draw"
+        case .annotate: return "Annotate"
         case .present: return "Present"
         case .persona: return "Persona"
         case .timer: return "Timer"
@@ -170,7 +170,7 @@ struct WorkbenchControlState {
     var personaDetail: String {
         switch personaAction.operation {
         case .pauseOverlays: return "Hide the set without ending it."
-        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish Dictate, Snap & Talk or the shortcut change before showing the set again."
+        case .resumeOverlays: return mayPresent ? "Show the set again, as you arranged it." : "Finish Voice to Text, Snap & Talk or the shortcut change before showing the set again."
         case .hidePersona: return "Hide the persona without ending the scene."
         case .cancelPersonaCamera: return "Cancel the camera request."
         case .hidePersonaCamera: return "Hide the bubble and release the camera."
@@ -264,7 +264,7 @@ struct WorkbenchControlContext {
     let stage: StageKitController
     var snap: SnapModel? = nil
     var state: WorkbenchControlState {
-        WorkbenchControlState(phase: model.phase, ready: model.mayDictate, meetingBusy: model.meetings.isBusy,
+        WorkbenchControlState(phase: model.phase, ready: model.mayDictate,
             narrating: readback.isRecording, capturing: readback.isCapturing,
             pendingNarration: readback.hasPendingTranscriptions, hasSession: readback.sessionURL != nil,
             captureCount: readback.sessionURL == nil ? nil : readback.activeSections.count,
@@ -275,7 +275,7 @@ struct WorkbenchControlContext {
             overlaysPaused: stage.isPersonaSessionPaused, personaCamera: stage.personaCameraPhase,
             personaCameraMayResume: stage.personaCameraMayResume, personaIdentity: stage.personaSessionIdentity, timerStarted: stage.hasTimerSession,
             timerRunning: stage.isTimerRunning, timerTransport: stage.timerTransport, canRecordAgain: model.canRecordAgain,
-            insertingPrompt: model.promptInsertion.running, meetingRecording: model.meetings.isRecording,
+            insertingPrompt: model.promptInsertion.running,
             screenshotting: stage.isTakingScreenshot || snap?.isCapturing == true, snapBusy: snap?.disablesCaptureDoors == true,
             waitingForDrawing: model.waitingForDrawing)
     }
@@ -287,7 +287,6 @@ struct WorkbenchControlContext {
         var capture: ToolbarActivity.Capture?, level: Double?
         if model.phase == .recording { capture = .dictation; level = model.level }
         else if readback.isRecording { capture = .narration; level = readback.recordingLevel }
-        else if model.meetings.isRecording { capture = .meeting }
         let dictationBusy: Bool
         switch model.phase {
         case .requesting, .transcribing, .cleaning, .cancelling: dictationBusy = true
@@ -307,7 +306,7 @@ struct WorkbenchControlContext {
         }
         return ToolbarActivity(capture: capture, level: level,
             processing: dictationBusy || readback.isCapturing || readback.hasPendingTranscriptions
-                || model.meetings.isStarting || model.meetings.isProcessing || snap?.isCapturing == true,
+                || snap?.isCapturing == true,
             // Saved recovery and clipboard records remain with their owners. They are not
             // live activity and must not follow the person into another tool's toolbar.
             pendingDelivery: model.waitingForDrawing,

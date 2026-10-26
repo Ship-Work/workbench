@@ -202,7 +202,7 @@ struct ContentView: View {
     private var dictateHeader: some View {
         WorkbenchPageHeader("dictate", summary: "Speak instead of typing. Your words are ready to paste, or to edit here.") {
             Button("Import audio…") { dictateResult = nil; model.importAudio() }.disabled(!model.ready || model.phase != .idle)
-            Button("Settings…") { showDictateSettings = true }.accessibilityLabel("Dictate settings")
+            Button("Settings…") { showDictateSettings = true }.accessibilityLabel("Voice to Text settings")
         }
     }
 
@@ -491,7 +491,7 @@ struct DictateSettingsView: View {
     let done: () -> Void
 
     var body: some View {
-        VoiceWorkspaceSettingsSheet(title: "Dictate settings", identifier: "dictate.settings", done: done) {
+        VoiceWorkspaceSettingsSheet(title: "Voice to Text settings", identifier: "dictate.settings", done: done) {
             VStack(alignment: .leading, spacing: 16) {
                 DictateTaskOptions(model: model)
                 SettingsRow("Models") {
@@ -553,7 +553,7 @@ struct DictionaryView: View {
         VStack(alignment: .leading, spacing: Workbench.sectionSpacing) {
             // The title sits where every other page has it; the way back is the header's door.
             WorkbenchPageHeader("dictionary", summary: "Names and spellings for future dictations.") {
-                Button { model.page = "dictate" } label: { Label("Back to Dictate", systemImage: "chevron.left") }
+                Button { model.page = "dictate" } label: { Label("Back to Voice to Text", systemImage: "chevron.left") }
             }
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 12) {

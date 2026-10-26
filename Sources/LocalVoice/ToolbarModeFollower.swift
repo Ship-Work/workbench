@@ -17,13 +17,13 @@ import ToolbarCore
     private let read: () -> Set<ToolbarMode>
     private let select: (ToolbarMode) -> Void
 
-    init(model: AppModel, readback: ReadbackModel, stage: StageKitController, meetings: MeetingModel, snap: SnapModel,
+    init(model: AppModel, readback: ReadbackModel, stage: StageKitController, snap: SnapModel,
          select: @escaping (ToolbarMode) -> Void) {
         self.select = select
-        read = { [weak model, weak readback, weak stage, weak meetings, weak snap] in
-            guard let model, let readback, let stage, let meetings, let snap else { return [] }
+        read = { [weak model, weak readback, weak stage, weak snap] in
+            guard let model, let readback, let stage, let snap else { return [] }
             return Self.liveModes(
-                dictating: model.phase != .idle || meetings.isRecording,
+                dictating: model.phase != .idle,
                 narrating: readback.isRecording || readback.isCapturing,
                 drawing: stage.isDrawing, presenting: stage.isPresenting,
                 persona: stage.hasActivePersona, snapping: snap.isCapturing)
@@ -35,7 +35,6 @@ import ToolbarCore
             model.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             readback.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             stage.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
-            meetings.objectWillChange.map { _ in () }.eraseToAnyPublisher(),
             snap.objectWillChange.map { _ in () }.eraseToAnyPublisher()
         ]
         // objectWillChange fires before the value lands; read on the next turn.

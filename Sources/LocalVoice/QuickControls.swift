@@ -74,8 +74,8 @@ struct VoiceOptions: View {
         }.disabled(model.phase != .idle)
     }
     nonisolated static func activationHint(_ shortcut: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
-        guard shortcut.enabled else { return "Applies to the Dictate shortcut, which is off. Click the shortcut above to set one." }
-        guard failure == nil else { return "Applies to the Dictate shortcut, which isn’t available. Click the shortcut above to choose another." }
+        guard shortcut.enabled else { return "Applies to the Voice to Text shortcut, which is off. Click the shortcut above to set one." }
+        guard failure == nil else { return "Applies to the Voice to Text shortcut, which isn’t available. Click the shortcut above to choose another." }
         return capture == .hold ? HoldLesson.title(shortcut: shortcut.label) + " " + HoldLesson.body
             : "Press \(shortcut.label) to start dictating, and again to finish."
     }

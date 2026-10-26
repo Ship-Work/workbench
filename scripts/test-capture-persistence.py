@@ -350,6 +350,8 @@ struct FixtureVoicePreferences { var capture = CaptureMode.hold; var dictationSh
     let engine = Engine(), cleanupEngine = Cleanup(), store = StateStore()
     let clipboardReceipt = ReceiptSpy(), shortcutRequest = DictationRequest()
     let meetings = AuxiliaryCaptureWork(), handoffJobs = AuxiliaryCaptureWork()
+    struct LegacyArchive { func hasRecording(for id: UUID) -> Bool { true } }
+    let legacyMeetings = LegacyArchive()
     let captureRecovery: CaptureRecoveryStore
     var captureStateWriter: ((SavedState) throws -> Void)?
     var loaded = true
@@ -534,11 +536,6 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         try check(independent.captureFailure == nil && (try Data(contentsOf: retainedAudio)) == wav,
                   "explicit Dismiss still clears the result without deleting retained audio")
 
-        let meetingBusy = CaptureHarness(directory: folder("meeting-busy"))
-        meetingBusy.meetings.isBusy = true
-        meetingBusy.importAudio(folder("unread.wav"))
-        try check(meetingBusy.error?.contains("meeting") == true && meetingBusy.engine.calls == 0,
-                  "audio import cannot race the meeting recognizer")
         func finish(_ model: CaptureHarness) async { let task = model.transcriptionTask; await task?.value }
         func waitUntil(_ name: String, _ condition: () -> Bool) async throws {
             let deadline = ProcessInfo.processInfo.systemUptime + 5
@@ -596,8 +593,8 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         let quitting = CaptureHarness(directory: folder("quit")); quitting.store.fails = true
         let quitURL = try quitting.makeRecording(wav)
         quitting.run(quitURL, owned: true); await finish(quitting); quitting.shutdown()
-        try check(quitting.meetings.shutdownCount == 1 && quitting.handoffJobs.shutdownCount == 1,
-                  "ordinary shutdown forwards cancellation to independent work")
+        try check(quitting.meetings.shutdownCount == 0 && quitting.handoffJobs.shutdownCount == 1,
+                  "ordinary shutdown cancels independent Workbench work without owning a Meetings lifecycle")
         try check(FileManager.default.fileExists(atPath: quitURL.path) && quitting.captureRecovery.hasRecovery, "Quit never deletes a failed capture")
         let cold = CaptureHarness(directory: folder("quit"), state: SavedState()); cold.restore()
         try check(cold.transcript == quitting.transcript && cold.rawTranscript == quitting.rawTranscript && cold.canRetry, "Cold recovery restores recognized draft and original without recognition")
@@ -1336,14 +1333,14 @@ struct CheckFailure: Error, CustomStringConvertible { let description: String }
         removing.store.fails = true
         removing.removeTranscript(removed)
         try check(removing.history.first?.id == removed.id && removing.meetings.removedTranscripts.isEmpty,
-                  "failed transcript-only removal keeps History and the meeting completion link")
+                  "failed transcript-only removal keeps History and never changes old recordings")
         removing.store.fails = false
         removing.removeTranscript(removed)
         try check(removing.history.isEmpty && removing.unresolvedDelivery == nil && removing.undelivered.entry == nil
                   && removing.store.saved?.undelivered == nil && removing.store.saved?.history.isEmpty == true,
                   "removing its transcript drops it, from memory and from the saved session")
-        try check(removing.meetings.removedTranscripts == [removed.id],
-                  "successful transcript-only removal invalidates exactly its meeting completion link")
+        try check(removing.meetings.removedTranscripts.isEmpty && removing.status.contains("original recording remains"),
+                  "successful transcript-only removal keeps the old recording and reports its recovery route")
 
         // A draft entry acts only while the draft is the one that failed.
         let draft = CaptureHarness(directory: folder("draft-copy"))

@@ -13,10 +13,10 @@ public enum ToolbarMode: String, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        case .dictate: return "Dictate"
+        case .dictate: return "Voice to Text"
         case .snap: return "Snap"
         case .snapAndTalk: return "Snap & Talk"
-        case .draw: return "Draw"
+        case .draw: return "Annotate"
         case .present: return "Present"
         case .persona: return "Persona"
         }

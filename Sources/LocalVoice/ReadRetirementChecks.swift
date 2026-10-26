@@ -31,8 +31,8 @@ import ToolbarCore
         let bytes = Data(text.utf8)
 
         let exact = try folder("exact"), stateStore = StateStore(directory: exact)
-        var original = SavedState(draft: "Independent Dictate draft", speechText: text,
-                                  voice: "Legacy provider voice", rate: 197.5, rawDraft: "Original Dictate wording")
+        var original = SavedState(draft: "Independent Voice to Text draft", speechText: text,
+                                  voice: "Legacy provider voice", rate: 197.5, rawDraft: "Original Voice to Text wording")
         original.replacements = [Replacement(heard: "work bench", written: "Workbench")]
         try stateStore.save(original)
         let originalStateBytes = try Data(contentsOf: stateStore.url)

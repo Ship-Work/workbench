@@ -84,7 +84,6 @@ struct FloatingToolbar: View {
     @ObservedObject var stage: StageKitController
     @ObservedObject var controls: CaptureHUDControls
     @ObservedObject var promptInsertion: PromptInsertion
-    @ObservedObject var meetings: MeetingModel
     @ObservedObject var snapModel: SnapModel
     /// The clipboard receipt is its own owner: a new one must redraw the mark's status (#134 T4).
     @ObservedObject var receipts: ClipboardReceiptModel
@@ -138,12 +137,10 @@ struct FloatingToolbar: View {
         let phase: LiveVoicePhase?
         switch activity.capture {
         case .dictation?: phase = model.voiceSession.phase
-        case .meeting?: phase = meetings.voiceSession.phase
         default: phase = nil
         }
         if phase == .paused { activity.captureTransport = .paused }
         else if phase == .reconnecting { activity.captureTransport = .reconnecting }
-        activity.meetingFinishesSoon = meetings.isRecording && meetings.autoFinishSeconds != nil
         return activity
     }
 
@@ -284,13 +281,11 @@ struct FloatingToolbar: View {
         }
         let personaIdentity = stage.personaSessionIdentity
         let captureIdentity = model.toolbarCaptureIdentity
-        let meetingIdentity = meetings.recordingIdentity
         return controls.pressGate.press({ ToolbarNextAction.resolve(live) }, perform: { operation in
             guard operation.mode != .persona || stage.personaSessionIdentity == personaIdentity else { return }
             // The operation can remain Stop while a session is replaced between redraws.
             // The held click belongs only to the recording it actually showed.
             if operation == .stopDictation, model.toolbarCaptureIdentity != captureIdentity { return }
-            if operation == .stopMeetingTranscription, meetings.recordingIdentity != meetingIdentity { return }
             perform(operation)
         })
     }
@@ -345,7 +340,7 @@ struct FloatingToolbar: View {
     /// Each operation goes to the owner that already does it. The toolbar never
     /// ends anything but what its label names.
     private func perform(_ operation: ToolbarOperation) {
-        WorkbenchOperationDispatch(model: model, readback: readback, stage: stage, meetings: meetings) { mode in
+        WorkbenchOperationDispatch(model: model, readback: readback, stage: stage) { mode in
             switch mode {
             case .dictate: dictate()
             case .snap: snapCapture()
@@ -394,7 +389,6 @@ struct WorkbenchFloatingContent: View {
     @ObservedObject var stage: StageKitController
     @ObservedObject var controls: CaptureHUDControls
     @ObservedObject var receipts: ClipboardReceiptModel
-    @ObservedObject var meetings: MeetingModel
     let snapModel: SnapModel
     let dictate: () -> Void
     let snap: () -> Void
@@ -413,7 +407,7 @@ struct WorkbenchFloatingContent: View {
             ClipboardCueHUD(receipts: receipts)
         } else {
             FloatingToolbar(model: model, readback: readback, stage: stage, controls: controls, promptInsertion: model.promptInsertion,
-                            meetings: model.meetings, snapModel: snapModel, receipts: model.clipboardReceipt,
+                            snapModel: snapModel, receipts: model.clipboardReceipt,
                             dictate: dictate, snap: snap, snapCapture: snapCapture, draw: draw, present: present, capture: capture)
         }
     }

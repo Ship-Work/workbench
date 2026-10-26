@@ -456,7 +456,6 @@ extension AppDelegate {
         services.microphoneAdmission = { [weak self] in
             guard let self, !self.isTerminatingForReports else { return "Workbench is closing." }
             if self.model.phase != .idle { return "Finish dictation before recording a voice note." }
-            if self.model.meetings.isRecording || self.model.meetings.isStarting { return "Finish the meeting recording before recording a voice note." }
             if self.readback.isRecording || self.readback.isCapturing { return "Finish the Snap & Talk capture before recording a voice note." }
             if self.shortcutsSuspended { return "Finish changing the shortcut first." }
             return nil
@@ -466,7 +465,7 @@ extension AppDelegate {
         }
         services.transcriptionReady = { [weak self] in
             guard let self else { return false }
-            return self.model.recognition.canTranscribe && self.model.phase == .idle && !self.model.meetings.isBusy
+            return self.model.recognition.canTranscribe && self.model.phase == .idle
                 && !self.readback.isRecording && !self.readback.hasPendingTranscriptions
         }
         services.transcribe = { [weak self] url in
@@ -495,7 +494,6 @@ extension AppDelegate {
         var context = BugReportContext(surface: origin.surface, errorCode: origin.errorCode)
         var tools: [BugReportTool] = []
         if model.phase != .idle { tools.append(.dictate) }
-        if model.meetings.isBusy { tools.append(.meetings) }
         if snap.isBusy { tools.append(.snap) }
         if readback.isRecording || readback.isCapturing || readback.hasPendingTranscriptions { tools.append(.readback) }
         if stage.isDrawing { tools.append(.draw) }

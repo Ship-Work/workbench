@@ -52,7 +52,7 @@ enum ShortcutMigrationChecks {
             try saveStage(["timer": option(kVK_ANSI_V)], to: stage)
             let (v, s) = load(voice, stage)
             try check(stageKey("timer", in: s) == option(kVK_ANSI_V), "Stage's chosen Option-V remains enabled")
-            try check(v.shortcut(1) == VoicePreferences.legacyDefaults[1], "Dictate falls back instead of claiming Stage's choice")
+            try check(v.shortcut(1) == VoicePreferences.legacyDefaults[1], "Voice to Text falls back instead of claiming Stage's choice")
             try check(ShortcutConflict.duplicateFailures(in: entries(v, s)).isEmpty, "the complete migrated catalogues have no duplicates")
             let stageFailures = StageShortcutSettings.registrationFailures(in: s) { code, modifiers in
                 v.enabledCombinations.contains(.init(keyCode: code, modifiers: modifiers)) ? "Used by Voice" : nil
@@ -107,7 +107,7 @@ enum ShortcutMigrationChecks {
             legacyVoice().save(to: voice)
             try saveStage(["timer": option(kVK_ANSI_V), "pointer": VoiceShortcut()], to: stage)
             let (v, s) = load(voice, stage)
-            try check(!v.shortcut(1).enabled, "Dictate stays off when both new and fallback keys are chosen elsewhere")
+            try check(!v.shortcut(1).enabled, "Voice to Text stays off when both new and fallback keys are chosen elsewhere")
             try check(stageKey("timer", in: s).enabled && stageKey("pointer", in: s).enabled, "both Stage choices survive fallback exhaustion")
             try check(ShortcutConflict.duplicateFailures(in: entries(v, s)).isEmpty, "fallback exhaustion adds no collision")
         }

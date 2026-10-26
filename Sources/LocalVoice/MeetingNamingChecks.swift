@@ -263,7 +263,7 @@ enum MeetingNamingChecks {
         let d = UUID(); store[d] = ("You: d.", TranscriptMetadata(purpose: .meeting))
         namer.enqueue([d])
         try await Task.sleep(for: .milliseconds(60))
-        try check(store[d]?.metadata.summary == nil && namer.isBusy, "a meeting waits while Dictate or a recording runs")
+        try check(store[d]?.metadata.summary == nil && namer.isBusy, "a meeting waits while Voice to Text or a recording runs")
         busy = false
         try await settle(namer)
         try check(store[d]?.metadata.summary?.title == "On", "and is named once it ends")

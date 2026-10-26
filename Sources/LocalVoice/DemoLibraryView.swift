@@ -60,7 +60,7 @@ struct DemoLibraryView: View {
                     // Opens the prompt editor with the clipboard's text, so it asks for more (…).
                     // The shortcut shows here and works while this menu is open.
                     Button("Save clipboard as prompt…") { saveClipboard() }.keyboardShortcut("s", modifiers: [.command, .shift])
-                    Button("Save Dictate transcript as prompt…") { library.newPrompt(model.transcript) }.disabled(model.transcript.isEmpty)
+                    Button("Save Voice to Text transcript as prompt…") { library.newPrompt(model.transcript) }.disabled(model.transcript.isEmpty)
                 } label: { Label("Add", systemImage: "plus") }
                     .disabled(library.savingDisabled || library.importReview != nil).fixedSize()
             }

@@ -254,6 +254,7 @@ final class PackLibraryModel: ObservableObject {
         }
         let id = Self.skillID(pack: record, entry: definition)
         if chosen == .snapAndTalk {
+            guard readback.isEnabled else { throw VoiceError.message("Enable Snap & Talk in Settings › Experimental features to use this skill.") }
             guard readback.selectSkill(id) else { throw VoiceError.message(readback.notice ?? "Finish the current Snap & Talk work before choosing a skill.") }
             readback.notice = "Selected \(entry.name) for your next session. Existing sessions keep their own skill; choose New session when ready."
         } else {

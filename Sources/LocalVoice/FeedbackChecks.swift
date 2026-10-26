@@ -275,7 +275,7 @@ enum FeedbackChecks {
                                 UnresolvedDelivery(kind: kind, reference: .draft(revision: 1), wordCount: 1)] }
             .flatMap { [$0.title, $0.detail] }.joined(separator: " ")
         try check(!words.contains("—") && !words.contains("–") && !words.lowercased().contains("attention") && words.contains("History")
-                  && words.contains("Dictate draft"), "each says where the words are, in plain words")
+                  && words.contains("Voice to Text draft"), "each says where the words are, in plain words")
         try checkUnresolvedSlot(check)
         try checkUnresolvedPersistence(check)
     }
@@ -323,7 +323,7 @@ enum FeedbackChecks {
         draft = (text: "A new dictation replaced the draft.", revision: 8)
         let changed = slot.shown(in: records)
         try check(slot.wordsToCopy(in: records) == nil && changed?.offersCopy == false && changed?.draftChanged == true
-                  && changed?.detail == "Your Dictate draft has changed since. Review it before copying." && changed?.isDraft == true,
+                  && changed?.detail == "Your Voice to Text draft has changed since. Review it before copying." && changed?.isDraft == true,
                   "once the draft changes, Copy again never copies whatever the draft became; it says so and offers Review")
         slot.note(sent(), text: draft.text, from: .draft(revision: draft.revision), in: records)
         try check(slot.entry != nil, "copying the new draft does not resolve the old failure")

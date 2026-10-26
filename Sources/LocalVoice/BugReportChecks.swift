@@ -315,7 +315,7 @@ enum BugReportChecks {
                    && BugReportAdmission.microphone(recording: false, transcribing: false) == nil, "the report's microphone rule")
         do {
             let main = try String(contentsOf: repository.appendingPathComponent("Sources/LocalVoice/main.swift"), encoding: .utf8)
-            for owner in ["model.microphoneStartFailure = {", "model.meetings.hostAdmission = {", "readback.mayBeginCapture = {"] {
+            for owner in ["model.microphoneStartFailure = {", "readback.mayBeginCapture = {"] {
                 guard let start = main.range(of: owner) else { throw VoiceError.message("Report a problem check failed: \(owner) not found in main.swift") }
                 let body = main[start.upperBound...].prefix(900)
                 try expect(body.contains("bugReportMicrophoneBusy"), "\(owner) asks the report's microphone rule")

@@ -59,7 +59,7 @@ struct WorkbenchQuickPanel: View {
             Self.header(toolbarVisible: $model.floatingToolbarVisible)
             Divider()
             VStack(spacing: 2) {
-                ForEach(WorkbenchControlTool.allCases) { tool in
+                ForEach(WorkbenchControlTool.allCases.filter { $0 != .snapAndTalk || model.experimentalFeaturesEnabled }) { tool in
                     let renderedAction = state.rowAction(tool)
                     HStack(spacing: 8) {
                         // Each capability retains its own symbol, action and live accent.
@@ -84,7 +84,6 @@ struct WorkbenchQuickPanel: View {
                 }
             }
             Divider()
-            MeetingQuickStatus(model: model.meetings) { open("meeting") }
             // Feedback grows below the tools; an idle panel has no empty well.
             if hasFeedback {
                 if editor.shortcutID != nil { shortcutEditor }
@@ -200,7 +199,7 @@ struct WorkbenchQuickPanel: View {
         case .dictate:
             // A native menu like every other row's, so its Options chevron matches theirs.
             NativeControlMenu(title: "Options", accessibilityName: optionsName(tool)) {
-                let menu = NSMenu(title: "Dictate"); menu.autoenablesItems = false
+                let menu = NSMenu(title: "Voice to Text"); menu.autoenablesItems = false
                 let idle = model.phase == .idle
                 // The same two choices, under the same names, as the Dictate page's task region.
                 menu.addItem(.sectionHeader(title: "Delivery"))
@@ -223,8 +222,7 @@ struct WorkbenchQuickPanel: View {
                 menu.addItem(.separator())
                 // Capture history belongs to Dictate, so its option opens History on Transcripts.
                 menu.addItem(ToolbarMenuAction("History…") { model.openHistory(HistoryDoor(filter: .transcripts)); open("history") })
-                menu.addItem(ToolbarMenuAction("Meetings…") { open("meeting") })
-                menu.addItem(ToolbarMenuAction("Open Dictate…") { open("dictate") })
+                menu.addItem(ToolbarMenuAction("Open Voice to Text…") { open("dictate") })
                 return menu
             }
         case .snap:
@@ -287,7 +285,7 @@ struct WorkbenchQuickPanel: View {
     /// this surface's own door.
     private func perform(_ tool: WorkbenchControlTool, renderedAction: WorkbenchRowAction, personaIdentity: UUID?) {
         guard !keyboard.isInteracting, context.state.admits(renderedAction, for: tool, personaIdentity: personaIdentity) else { return }
-        let dispatch = WorkbenchOperationDispatch(model: model, readback: readback, stage: stage, meetings: model.meetings) { mode in
+        let dispatch = WorkbenchOperationDispatch(model: model, readback: readback, stage: stage) { mode in
             switch mode {
             case .dictate: model.onMenuRecording?()
             case .snap: snapCapture(.region)

@@ -41,7 +41,7 @@ enum WorkbenchControlChecks {
             try check(controls.preferredToolbarSize == landing, "result measurement never overwrites the toolbar column")
             controls.suspendToolbar()
         }
-        try check(WorkbenchControlTool.allCases.map(\.title) == ["Dictate", "Snap", "Snap & Talk", "Draw", "Present", "Persona", "Timer"], "panel rows contain only the retained tools")
+        try check(WorkbenchControlTool.allCases.map(\.title) == ["Voice to Text", "Snap", "Snap & Talk", "Annotate", "Present", "Persona", "Timer"], "panel rows contain only the retained tools")
         try check(WorkbenchControlTool.allCases.contains(.snap) && WorkbenchControlTool(mode: .snap) == .snap && WorkbenchControlTool.timer.mode == nil, "Snap is a real row sharing the toolbar's Snap mode; Timer is a row without a mode")
         try check(VoicePreferences().shortcut(8).enabled == false, "the Snap shortcut (voice.8) starts off")
         do {
@@ -54,7 +54,7 @@ enum WorkbenchControlChecks {
             var live = WorkbenchControlState()
             try check(WorkbenchControlTool.allCases.allSatisfy { live.actionTitle($0) == $0.title }, "idle rows read their capability's name")
             live.phase = .recording
-            try check(live.actionTitle(.dictate) == "Finish dictation", "Dictate names the shared Finish action while recording")
+            try check(live.actionTitle(.dictate) == "Finish dictation", "Voice to Text names the shared Finish action while recording")
             live = WorkbenchControlState(); live.snapBusy = true
             try check(live.actionTitle(.snap) == "Snap" && !live.enabled(.snap), "Snap keeps its name and disables while a Snap is busy")
             live = WorkbenchControlState(); live.narrating = true
@@ -71,7 +71,7 @@ enum WorkbenchControlChecks {
             try check(live.actionTitle(.timer) == "Stop timer", "Timer reads Stop timer once started")
             live = WorkbenchControlState(); live.drawing = true; live.presenting = true; live.overlays = true; live.timerStarted = true
             let independent: [(WorkbenchControlTool, WorkbenchRowAction, String)] = [
-                (.dictate, .operation(.start(.dictate)), "Dictate"),
+                (.dictate, .operation(.start(.dictate)), "Voice to Text"),
                 (.snap, .operation(.start(.snap)), "Snap"),
                 (.snapAndTalk, .operation(.start(.snapAndTalk)), "Snap & Talk"),
                 (.annotate, .operation(.finishDrawing), "Stop drawing"),
@@ -89,7 +89,7 @@ enum WorkbenchControlChecks {
                 try check(live.rowAction(tool) == operation && live.actionTitle(tool) == title,
                           "recording does not replace \(tool.title)'s action with Stop")
             }
-            try check(live.rowAction(.dictate) == .operation(.stopDictation) && live.enabled(.dictate), "only Dictate stops its recording")
+            try check(live.rowAction(.dictate) == .operation(.stopDictation) && live.enabled(.dictate), "only Voice to Text stops its recording")
             try check(!live.enabled(.snap) && !live.enabled(.snapAndTalk),
                       "recording disables incompatible captures")
             try check([WorkbenchControlTool.annotate, .present, .persona, .timer].allSatisfy(live.enabled),
@@ -113,7 +113,7 @@ enum WorkbenchControlChecks {
             var live = WorkbenchControlState(); live.hasSession = true; live.captureCount = 3
             live.phase = .recording
             try check(live.rowAction(.snapAndTalk) == .operation(.captureNext) && !live.enabled(.snapAndTalk),
-                      "Capture next stays visible but disabled while Dictate owns the microphone")
+                      "Capture next stays visible but disabled while Voice to Text owns the microphone")
             live.phase = .idle; live.meetingBusy = true
             try check(!live.enabled(.dictate) && !live.enabled(.snapAndTalk), "meeting work retains shared audio admission")
             live.meetingRecording = true
@@ -126,7 +126,7 @@ enum WorkbenchControlChecks {
                 live = WorkbenchControlState(); live.phase = phase; live.drawing = true
                 try check(live.rowAction(.dictate) == .operation(.wait) && !live.enabled(.dictate)
                           && !live.admits(.operation(.wait), for: .dictate) && live.enabled(.annotate),
-                          "Dictate waits during \(phase.rawValue) while Draw keeps Stop drawing")
+                          "Voice to Text waits during \(phase.rawValue) while Draw keeps Stop drawing")
             }
             live = WorkbenchControlState(); live.overlays = true; live.overlaySession = true; live.overlaysPaused = true
             live.phase = .recording; live.mayPresent = false
@@ -174,7 +174,7 @@ enum WorkbenchControlChecks {
             try check(homeResume.isAdmitted(in: live), "Home admits an unchanged enabled Show personas")
             live.mayPresent = false
             try check(!homeResume.isAdmitted(in: live), "Home rejects a rendered Show personas when its owner becomes busy")
-            try check(["Dictate", "Snap & Talk", "shortcut change"].allSatisfy { live.personaDetail.contains($0) },
+            try check(["Voice to Text", "Snap & Talk", "shortcut change"].allSatisfy { live.personaDetail.contains($0) },
                       "a refused Show personas names each kind of work that holds it")
             live.overlaysPaused = false
             let homeHide = HomePersonaControl(live)
@@ -199,7 +199,7 @@ enum WorkbenchControlChecks {
         try check(ToolbarModeFollower.modeToSelect(previous: [.draw], current: [.draw, .present]) == .present, "a Present door pressed in Draw mode starts a presentation and moves the mode to Present")
         try check(ToolbarNextAction.resolve(ToolbarLiveState(mode: .present, drawing: true, presenting: true)).title == "Stop drawing"
                   && ToolbarNextAction.resolve(ToolbarLiveState(mode: .present, presenting: true)).title == "End presentation", "after that start the resting label reads End presentation once drawing has stopped")
-        try check(ToolbarNextAction.resolve(ToolbarLiveState(mode: .draw, presenting: true)).title == "Draw"
+        try check(ToolbarNextAction.resolve(ToolbarLiveState(mode: .draw, presenting: true)).title == "Annotate"
                   && ToolbarNextAction.choices(for: ToolbarLiveState(mode: .draw, presenting: true)).contains { $0.mode == .present && $0.isLive },
                   "choosing Draw during a live scene keeps Draw as the label and lights the chooser's Present row")
         try check(ToolbarModeFollower.modeToSelect(previous: [], current: [.draw, .persona, .present]) == .present, "several starts in one tick: Present before Persona before the rest")
@@ -253,7 +253,7 @@ enum WorkbenchControlChecks {
             try check(waiting.live(.dictate).dictation == .waitingForDrawing && ToolbarNextAction.resolve(waiting.live(.dictate)).operation == .finishDrawing,
                       "the toolbar leads words waiting for drawing with Stop drawing, not a disabled Processing…")
             try check(waiting.rowAction(.dictate) == .operation(.wait) && !waiting.enabled(.dictate) && waiting.actionTitle(.dictate) == "Processing…",
-                      "the menu's Dictate row waits for them, disabled")
+                      "the menu's Voice to Text row waits for them, disabled")
             try check(waiting.rowAction(.annotate) == .operation(.finishDrawing) && waiting.enabled(.annotate) && waiting.actionTitle(.annotate) == "Stop drawing",
                       "and Draw's own row offers Stop drawing")
             waiting.drawing = false

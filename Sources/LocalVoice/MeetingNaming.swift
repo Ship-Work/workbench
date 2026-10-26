@@ -477,32 +477,6 @@ extension AppModel {
     /// opening: earlier meetings learn their app from their recordings, then every meeting
     /// without a summary is described, newest first, while the switch in Recording options is on.
     /// `paused` holds naming while something else is listening or transcribing.
-    func startMeetingNaming(after delay: Duration = .seconds(20), paused: @escaping () -> Bool) {
-        meetingNamer.isOn = meetings.describesMeetings
-        meetingNamer.isPaused = paused
-        meetingNamer.read = { [weak self] id in
-            guard let self, self.historyLibrary.error == nil, let item = self.history.first(where: { $0.id == id }) else { return nil }
-            return (item.text, self.historyLibrary.metadata(for: id))
-        }
-        meetingNamer.write = { [weak self] id, summary in
-            // Only a summary the details accept is offered to them, so naming never raises History's error.
-            guard let self, self.historyLibrary.error == nil, let valid = try? summary.validated() else { return }
-            var metadata = self.historyLibrary.metadata(for: id)
-            metadata.summary = valid
-            self.historyLibrary.setMetadata(metadata, for: id)
-        }
-        meetingSwitch = meetingNamer.follow(meetings.$describesMeetings.dropFirst()) { [weak self] in self?.meetingsNeedingSummary() ?? [] }
-        let root = meetings.directory
-        Task { [weak self] in
-            try? await Task.sleep(for: delay)
-            let apps = await Task.detached(priority: .utility) { MeetingNaming.appNames(in: root) }.value
-            guard let self else { return }
-            self.fillMeetingApps(apps)
-            self.meetingNamer.activate()
-            self.meetingNamer.enqueue(self.meetingsNeedingSummary())
-        }
-    }
-
     /// Meetings and calls whose current words have no summary, newest first.
     func meetingsNeedingSummary() -> [UUID] {
         history.sorted { $0.date > $1.date }.filter { item in

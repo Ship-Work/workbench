@@ -14,7 +14,7 @@ final class AnnotationMenu: AnnotationShortcutMenu, NSMenuDelegate {
         self.includeSettings = includeSettings
         self.trailing = trailing
         // The menu bar shows this title for the app's Draw menu.
-        super.init(title: "Draw")
+        super.init(title: "Annotate")
         autoenablesItems = false
         delegate = self
         refresh()

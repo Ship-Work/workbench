@@ -17,7 +17,7 @@ extension ToolbarGalleryRenderer {
         for anchor in ToolbarAnchor.allCases {
             let live = anchor == .right
             var state = ToolbarViewState(name: "motion", tier: .resting, anchor: anchor,
-                mode: live ? .present : .draw, actionTitle: live ? "End presentation" : "Draw",
+                mode: live ? .present : .draw, actionTitle: live ? "End presentation" : "Annotate",
                 actionSymbol: live ? "stop.fill" : ToolbarOperation.start(.draw).symbol,
                 actionHint: live ? "⌥Q" : "⌥D", isBusy: live,
                 status: live ? .resolve(ToolbarActivity(live: [.presenting])) : .idle,

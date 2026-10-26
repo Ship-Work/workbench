@@ -74,13 +74,13 @@ class RetirementAdmission(unittest.TestCase):
     def test_retained_audio_and_update_insertion_owners(self):
         main = (ROOT / "Sources/LocalVoice/main.swift").read_text()
         self.assertIn("insertion: self.model.promptInsertion.running", main)
-        self.assertIn("recordingPlayback", main)
-        self.assertIn("ReadbackModel(engine: model.engine)", main)
+        self.assertNotIn("model.meetings", main)
+        self.assertIn("ReadbackModel(engine: model.engine, enabled: model.experimentalFeaturesEnabled)", main)
         persona_check = main.split('case "--check-persona-voice-native":', 1)[1].split('case "--render-surfaces":', 1)[0]
         self.assertIn("guard args.count == 2", persona_check)
         self.assertIn("speak: false", persona_check)
         self.assertTrue((ROOT / "Sources/LocalVoice/RecognitionProviders.swift").exists())
-        self.assertTrue((ROOT / "Sources/LocalVoice/MeetingAudio.swift").exists())
+        self.assertTrue((ROOT / "Sources/LocalVoice/MicrophoneAudio.swift").exists())
 
     def test_readme_credits_describe_no_reading_voice_download(self):
         # The README keeps Pocket TTS's credit but must not offer its retired download.

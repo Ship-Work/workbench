@@ -438,6 +438,7 @@ struct HandoffReviewView: View {
     var skills: [TranscriptHandoffSkill]
     var initialTask: String?
     var preferredSkillID: String? = nil
+    var experimentalFeaturesEnabled = false
     var selectedSnapTalkSession: URL? = nil
     var initialEvidenceURL: URL? = nil
     /// Why a Snap & Talk session cannot be packaged yet: its owner is still
@@ -496,7 +497,7 @@ struct HandoffReviewView: View {
                             }
                         }
                     }
-                    HStack {
+                    if experimentalFeaturesEnabled { HStack {
                         if let evidenceURL {
                             Label("Snap & Talk: " + evidenceURL.lastPathComponent, systemImage: "photo.on.rectangle").font(.caption)
                             Button("Remove evidence") { self.evidenceURL = nil; refreshSources() }.font(.caption)
@@ -511,7 +512,8 @@ struct HandoffReviewView: View {
                             }.fixedSize().font(.caption)
                         }
                     }
-                    if evidenceURL != nil {
+                    }
+                    if experimentalFeaturesEnabled && evidenceURL != nil {
                         Text("Includes live screenshots and the saved narration paired with each one. Original audio stays in the session; its own Hand off action retains the complete portable workflow.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
@@ -585,12 +587,16 @@ struct HandoffReviewView: View {
                       let suggested = skills.first(where: { $0.id == current })?.defaultTask else { return }
                 task = suggested
             }
+            .onChange(of: experimentalFeaturesEnabled) { _, enabled in
+                guard !enabled, evidenceURL != nil else { return }
+                evidenceURL = nil; refreshSources()
+            }
             .onAppear {
                 guard !initialized else { return }
                 initialized = true
                 task = initialTask ?? TranscriptHandoffSkill.followUp.defaultTask ?? ""
                 if let preferredSkillID, skills.contains(where: { $0.id == preferredSkillID }) { skillID = preferredSkillID }
-                evidenceURL = initialEvidenceURL
+                evidenceURL = experimentalFeaturesEnabled ? initialEvidenceURL : nil
                 selectedProvider = HandoffRunReadiness.defaultProvider(enabled: { jobs.enabled($0) }, jobs: jobs.jobs)
                 loadSkill()
                 refreshSources()
@@ -628,6 +634,9 @@ struct HandoffReviewView: View {
             }
     }
     private func submit(provider: SubscriptionProvider?) {
+        guard evidenceURL == nil || experimentalFeaturesEnabled else {
+            problem = "Snap & Talk is off. Remove its evidence or enable it in Experimental features before continuing."; return
+        }
         if let evidenceURL, let waiting = evidenceProblem(evidenceURL) { problem = waiting; return }
         do {
             var latest = try currentSources()
@@ -711,7 +720,7 @@ struct HandoffReviewView: View {
     }
     private func currentSources() throws -> [HandoffSourceSnapshot] {
         var result = try resolveSources()
-        if let evidenceURL { result += try HandoffSessionEvidence.snapshots(at: evidenceURL) }
+        if experimentalFeaturesEnabled, let evidenceURL { result += try HandoffSessionEvidence.snapshots(at: evidenceURL) }
         return result
     }
     private func refreshSources() {
@@ -719,6 +728,7 @@ struct HandoffReviewView: View {
         catch { problem = error.localizedDescription }
     }
     private func useEvidence(_ url: URL) {
+        guard experimentalFeaturesEnabled else { return }
         if let waiting = evidenceProblem(url) { problem = waiting; return }
         do {
             _ = try HandoffSessionEvidence.snapshots(at: url)

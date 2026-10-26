@@ -7,15 +7,15 @@ enum KeyboardCoachChecks {
         _ = NSApplication.shared
         let target = VoiceShortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey))
         let other = VoiceShortcut(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(controlKey | optionKey))
-        let entries = [ShortcutEntry(id: "voice.dictation", title: "Dictation", shortcut: target), ShortcutEntry(id: "stage.draw", title: "Draw", shortcut: other)]
+        let entries = [ShortcutEntry(id: "voice.dictation", title: "Dictation", shortcut: target), ShortcutEntry(id: "stage.draw", title: "Annotate", shortcut: other)]
         func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
             guard condition() else { throw VoiceError.message("Keyboard coach: \(message)") }
         }
         try check(ShortcutConflict.message(for: target, replacing: "voice.dictation", in: entries) == nil, "the legacy default must remain available")
-        try check(ShortcutConflict.message(for: other, replacing: "voice.dictation", in: entries)?.contains("Draw") == true, "cross-module duplicate must name its owner")
+        try check(ShortcutConflict.message(for: other, replacing: "voice.dictation", in: entries)?.contains("Annotate") == true, "cross-module duplicate must name its owner")
         var disabled = other; disabled.enabled = false
         try check(ShortcutConflict.message(for: disabled, replacing: "voice.dictation", in: entries) == nil, "turning off a shortcut cannot conflict")
-        let disabledEntry = [entries[0], ShortcutEntry(id: "stage.draw", title: "Draw", shortcut: disabled)]
+        let disabledEntry = [entries[0], ShortcutEntry(id: "stage.draw", title: "Annotate", shortcut: disabled)]
         try check(ShortcutConflict.message(for: other, replacing: "voice.dictation", in: disabledEntry) == nil, "disabled actions must release their combination")
         try check(ShortcutConflict.message(for: VoiceShortcut(keyCode: UInt32(kVK_ANSI_A), modifiers: UInt32(shiftKey)), replacing: "voice.dictation", in: entries) != nil, "ordinary shifted typing must stay available")
         for (key, modifiers) in [(kVK_Space, cmdKey), (kVK_Tab, cmdKey), (kVK_ANSI_Q, controlKey | cmdKey), (kVK_ANSI_4, shiftKey | cmdKey), (kVK_LeftArrow, controlKey), (kVK_ANSI_Q, cmdKey), (kVK_ANSI_Z, cmdKey | shiftKey)] {
@@ -132,7 +132,7 @@ enum KeyboardCoachChecks {
         var suspensions: [Bool] = []
         let center = NotificationCenter()
         let keyboard = KeyboardCoachModel(entries: [ShortcutEntry(id: "voice.8", title: "Snap", shortcut: snap),
-                                                    ShortcutEntry(id: "voice.1", title: "Dictate", shortcut: dictate)],
+                                                    ShortcutEntry(id: "voice.1", title: "Voice to Text", shortcut: dictate)],
                                           update: { id, candidate in updates.append((id, candidate)); return nil },
                                           suspend: { suspensions.append($0) }, probe: { _ in nil }, notifications: center)
         let editor = PanelShortcutEditor(keyboard: keyboard)
@@ -209,7 +209,7 @@ enum KeyboardCoachChecks {
         }
         var suspensions: [Bool] = []
         let keyboard = KeyboardCoachModel(entries: [
-            ShortcutEntry(id: "voice.1", title: "Dictate", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))),
+            ShortcutEntry(id: "voice.1", title: "Voice to Text", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey))),
             ShortcutEntry(id: "voice.5", title: "Snap & Talk", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(optionKey))),
             ShortcutEntry(id: "stage.pen", title: "Pen", shortcut: VoiceShortcut(keyCode: UInt32(kVK_ANSI_D), modifiers: UInt32(optionKey)))],
             update: { _, _ in nil }, suspend: { suspensions.append($0) }, probe: { _ in nil }, notifications: NotificationCenter())
@@ -240,7 +240,7 @@ enum KeyboardCoachChecks {
             guard condition() else { throw VoiceError.message("Shortcut defaults: \(message)") }
         }
         let fresh = VoicePreferences()
-        try check([UInt32(1), 2, 5, 7].allSatisfy { fresh.shortcut($0).enabled && fresh.shortcut($0).modifiers == UInt32(optionKey) } && ![UInt32(3), 4, 6].contains { fresh.shortcut($0).enabled }, "only Dictate, Quick controls, Snap & Talk and Present start on, each Option plus one key")
+        try check([UInt32(1), 2, 5, 7].allSatisfy { fresh.shortcut($0).enabled && fresh.shortcut($0).modifiers == UInt32(optionKey) } && ![UInt32(3), 4, 6].contains { fresh.shortcut($0).enabled }, "only Voice to Text, Quick controls, Snap & Talk and Present start on, each Option plus one key")
         let suite = FileManager.default.temporaryDirectory.appendingPathComponent("WorkbenchShortcutChecks.\(UUID().uuidString)").path
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -254,7 +254,7 @@ enum KeyboardCoachChecks {
         previous.save(to: defaults)
         let updated = VoicePreferences.load(from: defaults)
         try check(!updated.shortcut(3).enabled, "an untouched ⌃⌥J turns off")
-        try check(updated.shortcut(1) == VoicePreferences().dictationShortcut, "Dictate leaves ⌘3 to other apps and returns to ⌃⌥Space")
+        try check(updated.shortcut(1) == VoicePreferences().dictationShortcut, "Voice to Text leaves ⌘3 to other apps and returns to ⌃⌥Space")
         try check(updated.shortcut(4) == chosen, "a chosen combination is kept")
         try check(updated.shortcut(5) == chosenSnap && !updated.shortcut(7).enabled, "Present's new ⌥Q never takes a key someone chose")
         var turnedBackOn = updated

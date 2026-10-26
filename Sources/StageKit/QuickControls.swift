@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum QuickTab: String, CaseIterable, Identifiable {
-    case draw = "Draw", cursor = "Cursor", timer = "Timer", general = "General"
+    case draw = "Annotate", cursor = "Cursor", timer = "Timer", general = "General"
     var id: String { rawValue }
 }
 
