@@ -3,6 +3,49 @@ import SwiftUI
 
 @MainActor
 enum ImageWorkspaceChecks {
+    private final class PromiseResult: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<Data, Error>?
+        func complete(_ value: Result<Data, Error>) { lock.withLock { result = value } }
+        var value: Result<Data, Error>? { lock.withLock { result } }
+    }
+
+    private static func checkImageTransfer(png: Data, root: URL, check: (Bool, String) throws -> Void) async throws {
+        let transfer = SnapImageTransfer(png: png, title: "../Walkthrough: first/step.png")
+        try check(transfer.filename == "Walkthrough  first step.png", "dragged filenames cannot escape the receiving folder")
+        try check(SnapImageTransfer.filename("...") == "Snap.png"
+                  && SnapImageTransfer.filename(String(repeating: "😀", count: 100)).utf8.count <= 184,
+                  "empty and long Unicode drag names stay valid filenames")
+        let board = NSPasteboard(name: .init("Workbench.SnapTransfer.Check." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        try check(board.writeObjects([transfer]), "the native drag pasteboard accepts a PNG file promise")
+        try check(board.data(forType: .png) == png, "image-aware receivers get full-resolution PNG bytes")
+        let receivers = board.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
+        try check(receivers.count == 1, "Finder-compatible receivers recognize one promised PNG")
+        let destination = root.appendingPathComponent("Promised images")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        // AppKit establishes the promise's IPC identity only during a real dragging session.
+        // The isolated board verifies receiver recognition; exercise the same writer here.
+        // The installed Finder drop remains separate native acceptance.
+        let result = PromiseResult()
+        let promisedURL = destination.appendingPathComponent(transfer.filename)
+        transfer.filePromiseProvider(transfer, writePromiseTo: promisedURL) { error in
+            if let error { result.complete(.failure(error)) }
+            else { result.complete(Result { try Data(contentsOf: promisedURL) }) }
+        }
+        try check(try result.value?.get() == png, "the native file-promise writer delivers the exact frozen image")
+        let existing = destination.appendingPathComponent("Keep existing.png")
+        let previous = Data("Existing receiver file".utf8)
+        try previous.write(to: existing)
+        let collision = PromiseResult()
+        transfer.filePromiseProvider(transfer, writePromiseTo: existing) { error in
+            collision.complete(error.map { .failure($0) } ?? .success(Data()))
+        }
+        if case .failure = collision.value { try check(true, "a conflicting destination reports failure") }
+        else { try check(false, "a conflicting destination must report failure") }
+        try check(try Data(contentsOf: existing) == previous, "a file promise never replaces the receiver's existing file")
+    }
+
     static func run(output: URL? = nil) async throws {
         var checks = 0
         func check(_ value: Bool, _ message: String) throws {
@@ -60,6 +103,45 @@ enum ImageWorkspaceChecks {
         let textID = editor.selected
         try check(editor.selectedMark?.kind == .text && editor.selectedMark?.text?.contains("workspace") == true, "a comment box is editable text on the image")
         editor.updateSelected { $0 = ImageWorkspaceGeometry.moved($0, dx: -0.15, dy: 0.15) }
+        // A draft can be used immediately without Save, closing it or losing Undo.
+        var copiedDraft: Data?
+        snap.copyImage = { copiedDraft = $0; return true }
+        let undoBeforeCopy = editor.undoStack, draftBeforeCopy = editor.draft
+        snap.copyDraft(editor.draft)
+        try check(copiedDraft == (try SnapRendering.render(png, edit: editor.draft.edit)), "Copy image includes the unfinished crop and marks at full resolution")
+        try check(editor.draft.id == draftBeforeCopy.id && editor.draft.edit == draftBeforeCopy.edit
+                  && editor.undoStack == undoBeforeCopy && (try store.load()).items.count == 2,
+                  "Copy image keeps the draft, Undo and saved History unchanged")
+        snap.copyDraft(editor.draft, original: true)
+        try check(copiedDraft == png && editor.draft.edit == draftBeforeCopy.edit, "Original comparison copies the original without discarding marks")
+        snap.copyImage = { _ in false }
+        snap.copyDraft(editor.draft)
+        try check(snap.notice?.contains("could not be copied") == true && snap.draft?.id == draftBeforeCopy.id,
+                  "a failed copy leaves the draft available to retry")
+        snap.copyImage = nil
+        snap.notice = nil
+        try await checkImageTransfer(png: png, root: root, check: check)
+        // The transparent native drag surface must cover the actual button and keep click working.
+        func dragViews(_ view: NSView) -> [SnapImageDragView] {
+            (view as? SnapImageDragView).map { [$0] } ?? view.subviews.flatMap(dragViews)
+        }
+        if let content = preview.panel?.contentView, let drag = dragViews(content).first {
+            try check(drag.bounds.width > 50 && drag.bounds.height >= 20, "the Copy image drag surface covers its visible control")
+            var clicks = 0
+            let originalClick = drag.click
+            drag.click = { clicks += 1 }
+            let point = drag.convert(NSPoint(x: drag.bounds.midX, y: drag.bounds.midY), to: nil)
+            func mouse(_ kind: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with: kind, location: point, modifierFlags: [], timestamp: 0,
+                                   windowNumber: preview.panel?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+            }
+            drag.mouseDown(with: mouse(.leftMouseDown)); drag.mouseUp(with: mouse(.leftMouseUp))
+            try check(clicks == 1, "clicking the drag surface still invokes Copy once")
+            drag.isEnabled = false
+            drag.mouseDown(with: mouse(.leftMouseDown)); drag.mouseUp(with: mouse(.leftMouseUp))
+            try check(clicks == 1, "a disabled drag surface cannot invoke its action")
+            drag.isEnabled = true; drag.click = originalClick
+        } else { try check(false, "the editor has one native Copy image drag surface") }
         let beforeCrop = editor.draft.edit
         editor.setAspect(.widescreen)
         let size = SnapRendering.outputSize(image: editor.imageSize, edit: editor.draft.edit)

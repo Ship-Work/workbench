@@ -8,7 +8,7 @@ struct SnapWorkspaceView: View {
     var savedSelectionID: UUID?
     /// The shared selection owner's problem, such as a selection that could not be saved.
     var selectionProblem: String?
-    var onAddToNarratedSession: ([UUID]) -> Void = { _ in }
+    var onAddToNarratedSession: (([UUID]) -> Void)? = nil
     var onOrganiseHandOff: (String) -> Void = { _ in }
     @State private var reviewingOrganization = false
     @State private var importCandidates: [URL] = []
@@ -184,7 +184,7 @@ struct SnapWorkspaceView: View {
             Button("Select visible") { selectedIDs.formUnion(model.visibleItems.map(\.id)) }.disabled(model.visibleItems.isEmpty)
             Button("Clear") { selectedIDs.removeAll() }.disabled(selectedIDs.isEmpty)
             Menu("Use selected") {
-                Button("Add to Snap & Talk") { onAddToNarratedSession(Array(selectedIDs)) }
+                if let onAddToNarratedSession { Button("Add to Snap & Talk") { onAddToNarratedSession(Array(selectedIDs)) } }
                 Button("Organise…") { reviewingOrganization = true }
                 Divider()
                 Button(model.showingArchived ? "Restore selected" : "Archive selected") { model.archive(selectedIDs, archived: !model.showingArchived) }
