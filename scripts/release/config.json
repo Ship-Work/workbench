@@ -49,7 +49,7 @@
       },
       {
         "id": "S1",
-        "variant": "capture-copy-drag-and-cancel",
+        "variant": "capture-copy-export-and-cancel",
         "phase": "candidate"
       },
       {
@@ -110,7 +110,7 @@
         "I",
         "J"
       ],
-      "reason": "2.8.0 (26 October 2026), #401: the maintainer requested autonomous implementation, native verification, signed/notarized direct distribution and production delivery of four core utilities, experimental Snap & Talk and separate Meetings. Candidate acceptance covers the exact-edition signed upgrade and saved-work smoke, Snap capture/copy/drag/cancel, the scoped Meetings retirement and experimental opt-in lifecycle, and four-tool navigation. These scoped variants do not attest every foundation journey. Real iPhone/USB/Continuity Camera, named call receivers, minimum macOS, fresh-account permissions, complete Snap & Talk assistant output and long two-sided Meetings capture retain their hardware/account limits in #7 and the separate Meetings verification record. Public download and feed delivery are observed only after publication."
+      "reason": "2.8.0 (26 October 2026), #401: the maintainer requested autonomous implementation, native verification, signed/notarized direct distribution and production delivery of four core utilities, experimental Snap & Talk and separate Meetings. Candidate acceptance covers the exact-edition signed upgrade and saved-work smoke, Snap capture/copy/export/cancel, the scoped Meetings retirement and experimental opt-in lifecycle, and four-tool navigation. Native Snap drag initiation and cancellation were observed, but receiver delivery remains unverified: the app-scoped automation also failed a Finder-to-Finder synthetic control drag. S1 therefore covers capture, copy, export and cancellation; the previous capture-copy-drag-and-cancel variant is not attested. These scoped variants do not attest every foundation journey. Real iPhone/USB/Continuity Camera, named call receivers, minimum macOS, fresh-account permissions, complete Snap & Talk assistant output and long two-sided Meetings capture retain their hardware/account limits in #7 and the separate Meetings verification record. Public download and feed delivery are observed only after publication."
     }
   }
 }

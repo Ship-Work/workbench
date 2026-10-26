@@ -622,6 +622,7 @@ for turn in 1...3 {
 }
 
 try MainActor.assumeIsolated {
+    checks += try SnapDragChecks.run(png: png)
     checks += try SnapRefreshChecks.run(root: directory.appendingPathComponent("background-refresh"), png: png)
 }
 
