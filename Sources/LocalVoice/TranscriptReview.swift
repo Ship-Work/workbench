@@ -84,8 +84,7 @@ struct TranscriptReviewView: View {
     private var item: Transcript { review.transcript }
     private var text: String { TranscriptExport.text(for: item, version: version) }
     private var recordingAvailable: Bool {
-        let purpose = model.historyLibrary.metadata(for: item.id).purpose
-        return purpose == .meeting || purpose == .call || model.meetings.hasRecording(for: item.id)
+        return model.legacyMeetings.hasRecording(for: item.id)
     }
 
     var body: some View {
@@ -178,7 +177,7 @@ struct TranscriptReviewView: View {
             // Escape is Done even when no control has keyboard focus; the visible Done is Return.
             .background { Button("Done", action: done).keyboardShortcut(.cancelAction).hidden() }
             .sheet(item: $recording) { item in
-                MeetingRecordingReviewView(meetings: model.meetings, playback: model.meetings.recordingPlayback,
+                LegacyMeetingRecoveryView(archive: model.legacyMeetings,
                                            transcript: item) { recording = nil }
             }
     }

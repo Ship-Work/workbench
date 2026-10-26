@@ -28,7 +28,7 @@ struct CaptureCue: Identifiable, Equatable {
         switch reason {
         case .tooShort, .nothingRecognised(keptAudio: false): return "Nothing was added."
         case .tooQuiet: return "Check the microphone if you spoke."
-        case .nothingRecognised(keptAudio: true): return "Recording kept on the Dictate page."
+        case .nothingRecognised(keptAudio: true): return "Recording kept in Voice to Text."
         case .narrationNotHeard: return "The screenshot was kept."
         }
     }

@@ -579,6 +579,14 @@ final class SnapModel: ObservableObject {
             else { finish(.failed, notice: "The image could not be copied. Try again.", code: "snap.copy_failed") }
         } catch { finish(.failed, notice: error.localizedDescription, code: "snap.copy_failed") }
     }
+    /// Copying an unfinished image leaves its draft, immutable source and Undo history intact.
+    func copyDraft(_ draft: SnapDraft, original: Bool = false) {
+        do {
+            let png = try SnapRendering.render(draft.originalPNG, edit: original ? SnapEdit() : draft.edit)
+            if copyBytes(png) { finish(.copied, notice: nil) }
+            else { finish(.failed, notice: "The image could not be copied. Try again.", code: "snap.copy_failed") }
+        } catch { finish(.failed, notice: error.localizedDescription, code: "snap.copy_failed") }
+    }
     /// Checks replace the pasteboard write to exercise a failed copy; the app never sets it.
     var copyImage: ((Data) -> Bool)?
     private func copyBytes(_ bytes: Data) -> Bool {

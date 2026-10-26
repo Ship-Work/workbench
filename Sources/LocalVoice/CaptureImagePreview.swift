@@ -239,7 +239,7 @@ struct CaptureImagePreviewView: View {
                     Text(model.item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 12)
-                if let copy { Button("Copy image", action: copy).disabled(!model.isShowingImage) }
+                if let copy { Button("Copy image", action: copy).keyboardShortcut("c", modifiers: .command).disabled(!model.isShowingImage) }
                 if let export { Button("Export…", action: export).disabled(!model.isShowingImage) }
                 if let edit { Button(editTitle, action: edit).buttonStyle(.borderedProminent).disabled(!model.isShowingImage) }
                 Button("Close", action: close).keyboardShortcut(.cancelAction)
@@ -284,6 +284,7 @@ private struct PreviewImage: NSViewRepresentable {
     func makeNSView(context: Context) -> PreviewImageScrollView {
         let view = PreviewImageScrollView()
         view.onZoom = { [weak model] percent in if let model, model.percent != percent { model.percent = percent } }
+        view.onDragFailure = { [weak model] error in model?.report(error.localizedDescription, success: false) }
         model.view = view
         view.show(loaded, label: accessibilityLabel)
         return view
@@ -297,13 +298,16 @@ private struct PreviewImage: NSViewRepresentable {
 /// window until the person zooms, stays centred when smaller than the window,
 /// and follows pinch.
 final class PreviewImageScrollView: NSScrollView {
-    private let imageView = NSImageView()
+    private let imageView = SnapImageDragView()
     private(set) var image: CGImage?
     /// The original image's pixels, which Actual size shows one to one.
     private(set) var pixelSize: CGSize = .zero
     /// Fitting follows window resizes until the person chooses a zoom.
     private(set) var fitting = true
     var onZoom: ((Int) -> Void)?
+    var onDragFailure: ((Error) -> Void)? {
+        didSet { imageView.failure = onDragFailure }
+    }
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
@@ -332,6 +336,10 @@ final class PreviewImageScrollView: NSScrollView {
         image = loaded.image; pixelSize = loaded.pixelSize
         imageView.image = NSImage(cgImage: loaded.image, size: .zero)
         imageView.setAccessibilityLabel(label)
+        imageView.setAccessibilityHelp("Drag this image to another app or Finder. Copy image is also available above.")
+        imageView.transfer = loaded.sourceBytes.map { bytes in
+            { SnapImageTransfer(png: try SnapRendering.png(bytes), title: label) }
+        }
         layoutImage()
         fit(afterLayout: true)
     }
@@ -683,6 +691,7 @@ struct CapturePreviewButton<Label: View>: View {
     let item: () -> CaptureImagePreviewItem
     let label: Label
     let collection: () -> [CaptureImagePreviewItem]
+    @State private var dragProblem: String?
 
     init(_ accessibilityLabel: String, item: @escaping () -> CaptureImagePreviewItem, collection: @escaping () -> [CaptureImagePreviewItem] = { [] }, @ViewBuilder label: () -> Label) {
         self.accessibilityLabel = accessibilityLabel; self.item = item; self.label = label(); self.collection = collection
@@ -693,7 +702,15 @@ struct CapturePreviewButton<Label: View>: View {
             .buttonStyle(.plain)
             .accessibilityLabel(accessibilityLabel)
             .accessibilityHint("Opens a larger view to read. Escape closes it.")
-            .help(accessibilityLabel)
+            .help(accessibilityLabel + ". Drag to another app or Finder.")
+            .overlay(SnapImageDragSurface(transfer: {
+                let image = item()
+                let bytes = try image.render?() ?? CaptureImageLoader.bytes(image.source)
+                return SnapImageTransfer(png: try SnapRendering.png(bytes), title: image.title)
+            }, click: { CaptureImagePreview.shared.show(item(), collection: collection()) }, failure: { dragProblem = $0.localizedDescription }))
+            .alert("Image could not be dragged", isPresented: Binding(get: { dragProblem != nil }, set: { if !$0 { dragProblem = nil } })) {
+                Button("OK") { dragProblem = nil }
+            } message: { Text(dragProblem ?? "Your image is unchanged.") }
             .onKeyPress(.return) { CaptureImagePreview.shared.show(item(), collection: collection()); return .handled }
     }
 }

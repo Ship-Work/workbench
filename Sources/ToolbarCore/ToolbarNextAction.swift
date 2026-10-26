@@ -235,10 +235,10 @@ public struct ToolbarNextAction: Equatable, Sendable {
         case .wait: return live.dictation == .cancelling ? "Cancelling…" : live.dictation == .processing || live.dictation == .waitingForDrawing ? "Processing…" : "Capturing…"
         case .start(let mode):
             switch mode {
-            case .dictate: return live.canRecordAgain ? "Record again" : "Dictate"
+            case .dictate: return live.canRecordAgain ? "Record again" : "Voice to Text"
             case .snap: return "Snap"
             case .snapAndTalk: return "Snap & Talk"
-            case .draw: return "Draw"
+            case .draw: return "Annotate"
             case .present: return "Present"
             case .persona: return "Show persona"
             }

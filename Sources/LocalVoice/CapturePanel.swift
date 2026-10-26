@@ -307,7 +307,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let hosting = CaptureHostingView(rootView: WorkbenchFloatingContent(model: model, readback: readback,
-            stage: stage, controls: controls, receipts: model.clipboardReceipt, meetings: model.meetings, snapModel: snapModel, dictate: dictate, snap: snap, snapCapture: snapCapture,
+            stage: stage, controls: controls, receipts: model.clipboardReceipt, snapModel: snapModel, dictate: dictate, snap: snap, snapCapture: snapCapture,
             draw: draw, present: present, capture: capture))
         hosting.sizingOptions = []
         hosting.autoresizingMask = [.width, .height]
@@ -338,9 +338,6 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
             .sink { [weak self, weak model] _ in if let model { self?.update(model: model) } }
             .store(in: &observations)
         model.$floatingToolbarVisible.receive(on: RunLoop.main)
-            .sink { [weak self, weak model] _ in if let model { self?.update(model: model) } }
-            .store(in: &observations)
-        model.meetings.objectWillChange.receive(on: RunLoop.main)
             .sink { [weak self, weak model] _ in if let model { self?.update(model: model) } }
             .store(in: &observations)
         stage.objectWillChange.receive(on: RunLoop.main)
@@ -415,7 +412,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
             presenting: stage?.isPresenting == true, persona: stage?.hasActivePersona == true, inserting: model.promptInsertion.running,
             capturingScreen: capturingScreen,
             dictation: Self.showsDictation(model), narration: narrating,
-            meeting: model.meetings.isRecording || model.meetings.isProcessing,
+            meeting: false,
             cue: (Self.showsCue(model) || Self.showsDeliveryCue(model)) && !narrating)
         if surface != self.surface {
             self.surface = surface
@@ -504,7 +501,7 @@ final class CapturePanelController: NSWindowController, NSWindowDelegate, Floati
     /// Delivery feedback never replaces the revealed row or adds recovery badges.
     static func showsDeliveryCue(_ model: AppModel) -> Bool {
         model.phase == .idle && model.captureCue == nil && model.captureFailure == nil
-            && !model.promptInsertion.running && !model.meetings.isBusy
+            && !model.promptInsertion.running
             && model.clipboardReceipt.isHUDVisible && model.clipboardReceipt.receipt != nil
     }
 
@@ -1129,9 +1126,9 @@ struct DictationResultView: View {
                     .focused($focused, equals: .openWorkbench).resultAction("Sound Settings…", controls)
             } else if !model.canRetry || model.hasCaptureRecovery {
                 Button { model.dismissCaptureFailure(); model.onShowEditor?("dictate") } label: {
-                    Text("Open Dictate…").font(.system(size: 12)).frame(minHeight: 28)
+                    Text("Open Voice to Text…").font(.system(size: 12)).frame(minHeight: 28)
                 }.buttonStyle(.bordered)
-                    .focused($focused, equals: .openWorkbench).resultAction("Open Dictate…", controls)
+                    .focused($focused, equals: .openWorkbench).resultAction("Open Voice to Text…", controls)
             }
             Button { model.dismissCaptureFailure() } label: { Image(systemName: "xmark").frame(width: 28, height: 28) }
                 .buttonStyle(.plain).accessibilityLabel("Dismiss dictation error")

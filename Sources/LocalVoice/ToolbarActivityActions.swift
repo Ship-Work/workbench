@@ -81,38 +81,6 @@ extension FloatingToolbar {
             }
             command(end, id: "persona.end", .persona, identity: stage.personaSessionIdentity.uuidString + end + String(describing: stage.selectedPersonaCopy)) { stage.endPersona() }
         }
-        if let identity = meetings.recordingIdentity {
-            if meetings.autoFinishSeconds != nil {
-                command("Keep recording", id: "meeting.keep-recording", nil, identity: identity.uuidString) {
-                    guard meetings.recordingIdentity == identity, meetings.autoFinishSeconds != nil else { return }
-                    meetings.keepRecording()
-                }
-            }
-            command("Finish meeting", id: "meeting.stop", nil, identity: identity.uuidString) {
-                Task { await meetings.stop(expected: identity) }
-            }
-            let voicePhase = meetings.voiceSession.phase
-            if voicePhase == .listening {
-                command("Pause meeting", id: "meeting.pause", nil, identity: identity.uuidString + voicePhase.rawValue) {
-                    Task {
-                        guard meetings.recordingIdentity == identity, meetings.voiceSession.phase == voicePhase else { return }
-                        await meetings.pause()
-                    }
-                }
-            } else if voicePhase == .paused {
-                command("Resume meeting", id: "meeting.resume", nil, identity: identity.uuidString + voicePhase.rawValue) {
-                    Task {
-                        guard meetings.recordingIdentity == identity, meetings.voiceSession.phase == voicePhase else { return }
-                        await meetings.resume()
-                    }
-                }
-            }
-        }
-        if meetings.isBusy || meetings.hasRecovery {
-            command("Open Meetings…", id: "meeting.review", nil) { model.onShowEditor?("meeting") }
-        }
-        // The timer's one word set on every surface: its next step, Show or Hide timer for the
-        // window alone, and Stop timer, which ends the countdown and closes its window.
         if stage.hasTimerSession {
             let step = stage.timerStep, shown = stage.isTimerShown
             command(step.transport.title + " timer", id: "timer.transport", nil, identity: String(describing: step)) { stage.performTimerTransport(expected: step) }
@@ -124,7 +92,7 @@ extension FloatingToolbar {
 
     var chooserChoices: [ToolbarToolChoice] {
         let commands = chooserCommands
-        return ToolbarNextAction.choices(for: live, key: key).map { choice in
+        return ToolbarNextAction.choices(for: live, key: key).filter { $0.mode != .snapAndTalk || model.experimentalFeaturesEnabled }.map { choice in
             var choice = choice
             choice.actions = commands.filter { $0.mode == choice.mode }.map(\.value)
             switch choice.mode {
@@ -157,23 +125,6 @@ extension FloatingToolbar {
     var chooserActivities: ToolbarChooserActivities {
         let actions = chooserCommands.filter { $0.mode == nil }.map(\.value)
         var rows: [ToolbarChooserActivity] = []
-        let meeting = actions.filter { $0.id.hasPrefix("meeting.") }
-        if !meeting.isEmpty {
-            var detail: String
-            if meetings.isRecording, let seconds = meetings.autoFinishSeconds {
-                detail = "Call audio ended · finishing in \(seconds)s"
-            } else if meetings.isRecording {
-                switch meetings.voiceSession.phase {
-                case .paused: detail = "Paused · recording kept"
-                case .reconnecting: detail = "Reconnecting audio · recording kept"
-                default: detail = "Recording"
-                }
-                // The two-hour limit's warning, in the words of the page and the panel (#377).
-                if let warning = meetings.timeLimitWarning { detail += " · " + warning.lowercased() }
-            } else { detail = meetings.isStarting ? "Starting" : meetings.isBusy ? "Processing" : "Recording kept for recovery" }
-            rows.append(.init(id: "meeting", title: "Meetings", symbol: "person.2.wave.2",
-                detail: detail, actions: meeting))
-        }
         let timer = actions.filter { $0.id.hasPrefix("timer.") }
         if !timer.isEmpty { rows.append(.init(id: "timer", title: "Timer", symbol: "timer", detail: stage.timerStateDetail, actions: timer)) }
         return .init(rows)

@@ -48,6 +48,36 @@
         "phase": "candidate"
       },
       {
+        "id": "S1",
+        "variant": "capture-copy-drag-and-cancel",
+        "phase": "candidate"
+      },
+      {
+        "id": "X2",
+        "variant": "meetings-retirement-and-experimental-opt-in",
+        "phase": "candidate"
+      },
+      {
+        "id": "L4",
+        "variant": "four-core-tools-navigation",
+        "phase": "candidate"
+      },
+      {
+        "id": "D1",
+        "variant": "voice-to-text-target-paste-and-copy",
+        "phase": "candidate"
+      },
+      {
+        "id": "U1",
+        "variant": "annotate-escape-and-persona-show-hide-end",
+        "phase": "candidate"
+      },
+      {
+        "id": "P2",
+        "variant": "present-no-phone-and-return",
+        "phase": "candidate"
+      },
+      {
         "id": "I1",
         "variant": "public-first-install",
         "phase": "delivery"
@@ -80,7 +110,7 @@
         "I",
         "J"
       ],
-      "reason": "2.7.0 (22 October 2026): the maintainer asked to \"Run all PRs to Production - I will test what truely needs me there\", continuing his standing choice since 2.5.0: he tests the foundation journeys in production on his own Mac and reports through Report a Problem. This release attests only the fresh smoke (opening, permissions by unchanged signing identity, saved work) and the signed 2.6.0-to-2.7.0 upgrade on the exact notarized package. D1, Meetings' two-sided capture (M1, M2, which also needs System Audio Recording allowed for the edition and a real call) and the other foundation journeys (H1, H2, S1, ST1, P1, P2, R1, U1, I2, Q1-Q3, L1-L4, X1-X3) are not attested here and stay owed in #7."
+      "reason": "2.8.0 (26 October 2026), #401: the maintainer requested autonomous implementation, native verification, signed/notarized direct distribution and production delivery of four core utilities, experimental Snap & Talk and separate Meetings. Candidate acceptance covers the exact-edition signed upgrade and saved-work smoke, Snap capture/copy/drag/cancel, the scoped Meetings retirement and experimental opt-in lifecycle, and four-tool navigation. These scoped variants do not attest every foundation journey. Real iPhone/USB/Continuity Camera, named call receivers, minimum macOS, fresh-account permissions, complete Snap & Talk assistant output and long two-sided Meetings capture retain their hardware/account limits in #7 and the separate Meetings verification record. Public download and feed delivery are observed only after publication."
     }
   }
 }

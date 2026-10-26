@@ -38,6 +38,7 @@ struct PackShelfItem: Identifiable {
 
 struct PackLibraryView: View {
     @ObservedObject var model: PackLibraryModel
+    var experimentalFeaturesEnabled = false
     var onUseEntry: (PackShelfItem, PackShelfEntry, PackInputKind?) -> Void
     var onRetrySavedResource: () -> Void
     @State private var source = ""
@@ -51,9 +52,10 @@ struct PackLibraryView: View {
         let entry: PackShelfEntry
     }
 
-    init(model: PackLibraryModel, showingAdd: Bool = false,
+    init(model: PackLibraryModel, showingAdd: Bool = false, experimentalFeaturesEnabled: Bool = false,
          onUseEntry: @escaping (PackShelfItem, PackShelfEntry, PackInputKind?) -> Void,
          onRetrySavedResource: @escaping () -> Void) {
+        self.experimentalFeaturesEnabled = experimentalFeaturesEnabled
         self.model = model; self.onUseEntry = onUseEntry; self.onRetrySavedResource = onRetrySavedResource
         self._showingAdd = State(initialValue: showingAdd)
     }
@@ -85,7 +87,7 @@ struct PackLibraryView: View {
         .confirmationDialog("Use \(skillChoice?.entry.name ?? "this skill") with…", isPresented: Binding(
             get: { skillChoice != nil }, set: { if !$0 { skillChoice = nil } }), titleVisibility: .visible) {
             Button("Use with transcripts") { chooseSkill(.transcripts) }
-            Button("Use with Snap & Talk") { chooseSkill(.snapAndTalk) }
+            if experimentalFeaturesEnabled { Button("Use with Snap & Talk") { chooseSkill(.snapAndTalk) } }
             Button("Cancel", role: .cancel) { skillChoice = nil }
         } message: {
             Text("Prepare the chosen tool. Nothing is captured, submitted or started automatically.")
@@ -271,7 +273,7 @@ struct PackLibraryView: View {
             if let problem = pack.problem { WorkbenchNote(problem) }
             if model.operationPackID == pack.id { progress }
             if model.noticePackID == pack.id { feedback }
-            ForEach(pack.entries) { entry in entryRow(entry, pack: pack) }
+            ForEach(pack.entries.filter { experimentalFeaturesEnabled || $0.kind != "skill" || $0.inputKinds.contains(.transcripts) }) { entry in entryRow(entry, pack: pack) }
             DisclosureGroup("Workspace appearance") { HStack {
                 if model.brandPackID == pack.id {
                     Label("Workspace appearance", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary)
@@ -289,8 +291,8 @@ struct PackLibraryView: View {
             Text(entry.name)
             Spacer()
             Button(entry.actionTitle) {
-                if entry.kind == "skill", entry.inputKinds.count > 1 { skillChoice = SkillChoice(pack: pack, entry: entry) }
-                else { onUseEntry(pack, entry, entry.inputKinds.first) }
+                if entry.kind == "skill", entry.inputKinds.filter { $0 != .snapAndTalk || experimentalFeaturesEnabled }.count > 1 { skillChoice = SkillChoice(pack: pack, entry: entry) }
+                else { onUseEntry(pack, entry, entry.inputKinds.first { $0 != .snapAndTalk || experimentalFeaturesEnabled }) }
             }
         }
     }

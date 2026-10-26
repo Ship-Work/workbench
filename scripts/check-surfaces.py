@@ -171,11 +171,7 @@ ENTRY_POINTS = [
     # copy, save) out. A closure the host injects, such as ReadbackView's
     # onOpenPacks, counts because the page cannot know where it leads.
     ('LocalVoice/Views.swift', 'ContentView.dictate', 'dictate page', 'doors'),
-    ('LocalVoice/MeetingWorkspaceView.swift', 'MeetingWorkspaceView', 'meeting page', 'doors'),
     # Meetings owns its offer to start when a call begins (Grammar: options live with their capability).
-    ('LocalVoice/MeetingWorkspaceView.swift', 'MeetingDetectionSettings', 'meeting page', 'page'),
-    ('LocalVoice/MeetingWorkspaceView.swift', 'MeetingFinishSettings', 'meeting page', 'page'),
-    ('LocalVoice/MeetingWorkspaceView.swift', 'MeetingNamingSettings', 'meeting page', 'page'),
     ('LocalVoice/ReadbackView.swift', 'ReadbackView', 'snap & talk page', 'doors'),
     ('LocalVoice/SnapWorkspaceView.swift', 'SnapWorkspaceView', 'snap page', 'doors'),
     # History is one page made of several views: its header, the transcript,
@@ -591,7 +587,14 @@ class Tree:
     """Lazily lexed Mac module sources, with a raw-text index for lookups."""
     def __init__(self, root):
         self.root = root
-        self.paths = sorted(p for module in MODULES for p in (root / 'Sources' / module).glob('*.swift'))
+        # Archived sources excluded from the app target are not live product surfaces.
+        package = root / 'Package.swift'
+        excluded = set()
+        if package.exists():
+            matches = re.findall(r'exclude:\s*(\[[^\]]*\])', package.read_text())
+            for match in matches:
+                excluded.update(json.loads(match))
+        self.paths = sorted(p for module in MODULES for p in (root / 'Sources' / module).glob('*.swift') if p.name not in excluded)
         self.texts = {p: p.read_text() for p in self.paths}
         self.parsed = {}
 

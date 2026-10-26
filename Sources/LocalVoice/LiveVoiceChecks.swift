@@ -312,7 +312,7 @@ enum LiveVoiceChecks {
         let dictationShows = try await wordsShown(previewSeconds: 1)
         let meetingWindow = LiveVoiceWindow(source: .app, start: 0, rate: 16_000, samples: Array(samples(1..<3)[0..<19_200]))
         try expect(dictationShows && meetingWindow.request(finishing: false) == nil,
-                   "Dictate's one-second cadence shows words after 1.2 s of speech; a meeting's two seconds does not read yet")
+                   "Voice to Text's one-second cadence shows words after 1.2 s of speech; a meeting's two seconds does not read yet")
 
         let failingDecoder = FixtureDecoder(failOn: 2)
         let lastFailedSnapshot = SnapshotBox()
@@ -361,7 +361,7 @@ enum LiveVoiceChecks {
         }
         let meetingEnding = await deafEnding(dictating: false), dictationEnding = await deafEnding(dictating: true)
         try expect(meetingEnding.complete && !dictationEnding.complete && dictationEnding.notes.count == 1,
-                   "a last reading that stays empty over sound leaves a meeting's pass complete and Dictate's to the recording")
+                   "a last reading that stays empty over sound leaves a meeting's pass complete and Voice to Text's to the recording")
 
         let mailbox = LiveVoiceInput(maximumFrames: 10)
         mailbox.append(.init(source: .microphone, samples: [Float](repeating: 0.1, count: 11), sampleRate: 16_000, start: 0))
@@ -405,7 +405,7 @@ enum LiveVoiceChecks {
                    "live words skip a backlog past 60 s and continue with the newest audio")
         try expect(!caughtUp.complete && caughtUp.notes.count == 1 && caughtUp.notes[0].contains("fell behind"),
                    "a dropped backlog marks the pass incomplete with one note; the original audio gives the saved words")
-        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, Dictate's one-second cadence, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
+        print("Live voice checks passed (\(count)): overlap, source separation, gaps, progressive text, journal recovery, short replies, bounded input, failure, phrases cut in quiet, readings that hear nothing over speech, a doubtful last reading read again, Voice to Text's one-second cadence, live words that outlast a backlog, turns across a pause, overlapping speakers, the microphone's copy of the call, and publishing on change. No devices or models were used.")
     }
 
     private struct CheckFailure: Error {}

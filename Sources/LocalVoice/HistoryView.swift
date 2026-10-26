@@ -330,7 +330,7 @@ struct HistoryView: View {
     nonisolated static func emptyDetail(_ dictate: VoiceShortcut, failure: String?, capture: CaptureMode) -> String {
         "Dictations, Snaps and Hand off results land here, newest first. "
             + (dictate.usableLabel(failure: failure).map { (capture == .hold ? "Hold " : "Press ") + "\($0) to dictate, or choose Snap in the menu bar." }
-                ?? "Choose Dictate or Snap in the menu bar.")
+                ?? "Choose Voice to Text or Snap in the menu bar.")
     }
 
     var body: some View {
@@ -407,7 +407,7 @@ struct HistoryView: View {
         WorkbenchPageHeader("history", summary: "What you dictated, snapped and handed off, newest first.") {
             ConfirmationLabel(text: snap.confirmation?.kind.rawValue, reserving: SnapConfirmation.texts)
             if let openSnapTalkSessions {
-                Button("Snap & Talk sessions…", action: openSnapTalkSessions)
+                if model.experimentalFeaturesEnabled { Button("Snap & Talk sessions…", action: openSnapTalkSessions) }
             }
             Button("Connections…") { showingConnections = true }
         }
@@ -459,8 +459,8 @@ struct HistoryView: View {
     private var emptyFilterDetail: String {
         switch filter {
         case .all: "Dictations, Snaps and Hand off results land here, newest first."
-        case .meetings: "Meetings and calls you record land here, each with its name and what it was about."
-        case .transcripts: "What you dictate and record in Meetings lands here."
+        case .meetings: "Earlier meeting transcripts are kept here. New recordings belong to the separate Meetings app."
+        case .transcripts: "Words you capture with Voice to Text, including your earlier meeting transcripts."
         case .snaps: "Snaps you take land here; archived ones are under Archived."
         case .results: "Choose items, then Hand off… to prepare a task. Its result lands here."
         case .archived: "Snaps you archive wait here until you restore them."

@@ -261,6 +261,7 @@ its impact is every package, yet it attests only the core smoke, D1 and the sign
 upgrade, because the maintainer tests the other journeys in production. Restore the
 foundation-candidate policy once those journeys are attested.
 These are acceptance targets, not claims that the held work already passes.
+The 2.8.0 scope in `config.json` supersedes that historical 2.5.0 example. It requires the signed upgrade, Snap capture/copy/drag/cancel, scoped Meetings retirement and experimental opt-in, four-tool navigation, Voice to Text paste/copy, Annotate and Persona exits, and the no-phone Present route. Unavailable physical phone/call receiver and fresh-account checks remain explicit limits; they do not replace these available native checks.
 An independently accepted bounded slice may instead use an explained, reviewed
 `bounded-slice` policy with core smoke and its affected journeys, narrower claims
 and outstanding limits in #7. The candidate receipt cannot change that policy,

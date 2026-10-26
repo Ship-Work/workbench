@@ -66,8 +66,8 @@ struct UnresolvedDelivery: Identifiable, Equatable {
     }
 
     var detail: String {
-        if draftChanged { return "Your Dictate draft has changed since. Review it before copying." }
-        let kept = isDraft ? "Your words are in the Dictate draft." : "Your words are saved in History."
+        if draftChanged { return "Your Voice to Text draft has changed since. Review it before copying." }
+        let kept = isDraft ? "Your words are in the Voice to Text draft." : "Your words are saved in History."
         switch kind {
         case .copyFailed: return "\(kept) Copy them again when you're ready."
         case .pasteUnconfirmed: return "Check where you were typing before pasting again. \(kept)"

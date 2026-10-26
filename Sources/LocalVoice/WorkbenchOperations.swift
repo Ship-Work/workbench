@@ -17,7 +17,6 @@ enum WorkbenchRowAction: Hashable {
     let model: AppModel
     let readback: ReadbackModel
     let stage: StageKitController
-    let meetings: MeetingModel
     let start: (ToolbarMode) -> Void
 
     func perform(_ operation: ToolbarOperation) {
@@ -30,9 +29,7 @@ enum WorkbenchRowAction: Hashable {
         case .hidePersona, .pauseOverlays, .resumeOverlays,
              .cancelPersonaCamera, .hidePersonaCamera, .showPersonaCamera, .retryPersonaCamera: stage.togglePersona()
         case .captureNext: start(.snapAndTalk)
-        case .stopMeetingTranscription:
-            guard let identity = meetings.recordingIdentity else { return }
-            Task { await meetings.stop(expected: identity) }
+        case .stopMeetingTranscription: break // No capture owner in Workbench; retained shared operation compatibility.
         case .endPresentation: stage.endDeviceScene()
         case .wait: break
         case .start(let mode):

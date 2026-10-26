@@ -50,9 +50,9 @@
       <div>
         <ul>
           <li>Drafts, transcripts, dictionary entries and preferences.</li>
-          <li>Meeting recordings and their processing checkpoints, kept for recovery. Removing a saved meeting transcript also removes its recording, after you confirm.</li>
+          <li>Previous meeting recordings and recovery checkpoints remain untouched in Workbench’s saved-data folder. The separate Meetings app imports copies only when you choose; Workbench no longer records or detects meetings.</li>
           <li>Snaps: the original, crops, annotations and notes. A hand-off to an assistant contains the visible crop and annotations by default.</li>
-          <li>Snap &amp; Talk sessions, in a folder you choose. A session folder can hold original and edited images plus your narration, so review the whole folder before sharing it.</li>
+          <li>Snap &amp; Talk sessions, in a folder you choose, preserved even when Experimental features is off. A session folder can hold original and edited images plus your narration, so review the whole folder before sharing it.</li>
           <li>Drawings, boards, imported images, persona cards and scenes. Drawing uses overlay windows and doesn’t record the screen. Boards and the standalone persona library are never uploaded; a persona placed in a synced scene uploads as part of that scene.</li>
           <li>Assistant work: the selected snapshot, the provider’s receipt and the returned draft. Transcripts, saved selections, hand-off snapshots and results are separate local records, outside sync.</li>
           <li>Exported audio goes only where you choose.</li>
@@ -103,15 +103,15 @@
       <div><p class="tool-name">Permissions</p><h2 id="permissions-title">Asked for only when you need them.</h2><p class="lead">Nothing is requested at first launch. You can change any of these in macOS System Settings.</p></div>
       <div>
         <ul>
-          <li><strong>Microphone:</strong> when you start dictation, narration, a meeting recording or a problem report’s voice note, and while a persona’s React to my voice is on. React to my voice measures loudness and records nothing.</li>
+          <li><strong>Microphone:</strong> when you start Voice to Text, enabled Snap &amp; Talk narration or a problem report’s voice note, and while a persona’s React to my voice is on. React to my voice measures loudness and records nothing.</li>
           <li><strong>Screen Recording:</strong> for Snap, Snap &amp; Talk and a problem report’s screenshot. Capture happens only when you start Region, Window or Screen, use a shortcut, or choose Replace screenshot or Add screenshot.</li>
           <li><strong>Accessibility</strong> (optional): to paste automatically into your chosen field. Workbench doesn’t press Return.</li>
-          <li><strong>System Audio Recording</strong> (macOS 15 and later list it under Screen &amp; System Audio Recording; macOS 14.2 calls it Audio Recording): to capture another app’s audio for a meeting or call. macOS asks the first time Meetings records a call. App audio can include other tabs in the same browser.</li>
+          <li><strong>System Audio Recording:</strong> Workbench does not request it. The separate Meetings app owns its own recording permissions.</li>
           <li><strong>Camera:</strong> only for a profile photo, Persona’s live camera bubble, or device video in a presentation. The bubble is a mirrored live picture: it records no audio or video, saves no photo and streams nowhere. Hide, End, Quit and sleep release the camera.</li>
           <li><strong>Device capture</strong> needs the relevant macOS permission.</li>
         </ul>
-        <details><summary>More detail: meeting detection and Desktop screenshots</summary>
-          <p><strong>Detect Meetings &amp; Calls</strong> is off by default. It checks which apps are using audio, but doesn’t listen or record. Recording starts only after you choose an app, an optional microphone, and Start.</p>
+        <details><summary>More detail: optional features and Desktop screenshots</summary>
+          <p><strong>Experimental features</strong> starts off. Snap &amp; Talk’s controls, shortcuts and background work stay inactive until you enable it. Disabling it preserves your session folders. Workbench performs no meeting detection.</p>
           <p><strong>Import Desktop screenshots…</strong> reads your Desktop only when you choose it, saves the screenshots to History and moves the originals to the Trash. <strong>Keep new screenshots off the Desktop</strong> changes the macOS save location to <code>~/Pictures/Workbench Screenshots</code>.</p>
         </details>
       </div>

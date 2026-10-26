@@ -429,6 +429,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var reviewedSectionID: UUID?
     var reviewedSection: ReadbackSection? { activeSections.first { $0.id == reviewedSectionID } }
     func reviewSection(_ id: UUID) {
+        guard isEnabled else { return }
         guard activeSections.contains(where: { $0.id == id }) else { return }
         reviewedSectionID = id
     }
@@ -443,6 +444,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// only it waits, for the same reasons as this page's own Hand off; any other
     /// chosen folder is read as saved.
     func handOffProblem(forEvidence url: URL) -> String? {
+        guard isEnabled else { return "Enable Snap & Talk in Experimental features first." }
         guard let sessionURL, url.standardizedFileURL == sessionURL.standardizedFileURL else { return nil }
         if hasUnsavedNarration { return "Save the edited narration before handing off this session." }
         if currentSessionProblem != nil { return "Locate this session folder before handing it off." }
@@ -466,7 +468,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     @Published private(set) var recordingScreenFrame: CGRect?
     @Published private(set) var pendingTranscriptionCount = 0
     @Published private(set) var screenPermissionGranted = false
-    @Published private(set) var microphonePermission = AVCaptureDevice.authorizationStatus(for: .audio)
+    @Published private(set) var microphonePermission = AVAuthorizationStatus.notDetermined
     @Published private(set) var isRequestingCaptureAccess = false
     @Published private(set) var shortcutFailure: String?
     @Published var notice: String? {
@@ -579,7 +581,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     private static let recentsKey = "readback.recentSessionPaths.v1"
     private static let styleKey = "readback.newSessionDeckStyle.v1"
 
-    init(engine: RecognitionEngine, defaults: UserDefaults = .standard,
+    init(engine: RecognitionEngine, enabled: Bool = true, defaults: UserDefaults = .standard,
          captureDisplay: @escaping @MainActor () async throws -> ReadbackScreenshot = { try await ReadbackScreenCapture.currentDisplay() },
          transcribeAudio: (@MainActor (URL) async throws -> String)? = nil,
          skillPacks: ReadbackSkillPackStore? = nil, screenAccess: ScreenCaptureAccess = .system,
@@ -598,6 +600,14 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         self.requestMicrophoneAccess = requestMicrophoneAccess
         self.makeNarrationRecorder = makeNarrationRecorder
         super.init()
+        if enabled { activate() }
+    }
+
+    @Published private(set) var isEnabled = false
+    /// No session reads, permission observation or queued work before explicit opt-in.
+    func activate() {
+        guard !isEnabled else { return }
+        isEnabled = true
         microphonePermission = microphoneAccess()
         screenPermissionGranted = screenAccess.isGranted()
         activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -612,11 +622,26 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
             setCurrent(url: recent, manifest: restored)
             enqueuePending(in: recent)
         }
-        Task { [weak self] in self?.resumeRecentJobs() }
+        Task { [weak self] in guard self?.isEnabled == true else { return }; self?.resumeRecentJobs() }
         refreshSessionAvailability()
     }
 
+    /// Keep unsaved editing and narration visible until it can be saved. Never hide recovery.
+    var canDisable: Bool { !isRecording && !isCapturing && !hasPendingTranscriptions && !hasUnsavedNarration }
+    func deactivate() -> Bool {
+        guard canDisable else { return false }
+        isEnabled = false
+        sessionURL = nil; manifest = nil; transcriptDrafts = [:]; recentSessionURLs = []
+        notice = nil
+        cancelCaptureAccess()
+        processor?.cancel(); processor = nil
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        activationObserver = nil
+        return true
+    }
+
     func refreshSessionAvailability() {
+        guard isEnabled else { return }
         let wasUnavailable = currentSessionProblem != nil
         var problems: [String: String] = [:]
         for url in Set(recentSessionURLs + [sessionURL].compactMap({ $0 })) {
@@ -636,6 +661,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func forgetRecentSession(_ url: URL) {
+        guard isEnabled else { return }
         let root = url.standardizedFileURL
         guard sessionURL?.path != root.path || !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return }
         guard sessionURL?.path != root.path || (!isRecording && !isCapturing) else {
@@ -649,6 +675,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func locateSession(_ oldURL: URL) {
+        guard isEnabled else { return }
         guard !isRecording, !isCapturing, !hasPendingTranscriptions else {
             notice = "Finish capture and transcription before locating a moved session."; return
         }
@@ -662,6 +689,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     @discardableResult
     func relinkSession(_ oldURL: URL, to url: URL) -> Bool {
+        guard isEnabled else { return false }
         guard !isRecording, !isCapturing, !hasPendingTranscriptions else { return false }
         guard !hasUnsavedNarration || oldURL.standardizedFileURL == sessionURL?.standardizedFileURL else { notice = Self.unsavedNarrationNotice; return false }
         do {
@@ -685,6 +713,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// Workbench is active again, perhaps back from System Settings. Only a
     /// return after Snap & Talk opened Screen Recording settings suggests reopening.
     func returnedToWorkbench() {
+        guard isEnabled else { return }
         cancelCaptureAccess()
         microphonePermission = microphoneAccess()
         let granted = screenAccess.isGranted()
@@ -694,6 +723,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func refreshPermissionState() {
+        guard isEnabled else { return }
         cancelCaptureAccess()
         refreshSessionAvailability()
         refreshSkillPacks()
@@ -708,6 +738,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func createSession() {
+        guard isEnabled else { return }
         guard !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return }
         guard !isRecording else { notice = "Finish the current narration before creating another session."; return }
         refreshSkillPacks()
@@ -729,6 +760,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     @discardableResult
     func createSession(at url: URL, title: String) throws -> ReadbackManifest {
+        guard isEnabled else { throw ReadbackError.message("Enable Snap & Talk in Experimental features first.") }
         guard !hasUnsavedNarration else { throw ReadbackError.message(Self.unsavedNarrationNotice) }
         let snapshot = try selectedSkillSnapshot()
         let created = try ReadbackStore.create(at: url, title: title, skillPack: snapshot)
@@ -737,6 +769,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func selectNewSessionStyle(_ style: ReadbackDeckStyle) {
+        guard isEnabled else { return }
         newSessionSkillID = nil
         defaults.removeObject(forKey: "readback.newSessionSkillID.v1")
         newSessionStyle = style
@@ -751,6 +784,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
         refreshSkillPacks()
     }
     @discardableResult func selectSkill(_ id: String) -> Bool {
+        guard isEnabled else { return false }
         guard !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return false }
         guard !isRecording, !isCapturing, !hasPendingTranscriptions else {
             notice = "Finish capture and transcription before choosing the skill for a new session."; return false
@@ -778,12 +812,14 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func refreshSkillPacks() {
+        guard isEnabled else { return }
         installedServiceNow = (try? skillPacks.snapshot(for: .serviceNow))?.reference
         do { _ = try selectedSkillSnapshot(); newSessionStyleProblem = nil }
         catch { newSessionStyleProblem = error.localizedDescription }
     }
 
     func uninstallServiceNowPack() {
+        guard isEnabled else { return }
         do {
             try skillPacks.uninstallServiceNow()
             skillPackNotice = "ServiceNow pack removed. Existing sessions keep their complete copy. Choose Neutral or reinstall before creating another ServiceNow session."
@@ -792,6 +828,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func openSession() {
+        guard isEnabled else { return }
         guard !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return }
         guard !isRecording else { notice = "Finish the current narration before switching sessions."; return }
         let panel = NSOpenPanel()
@@ -805,6 +842,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func openRecent(_ url: URL) { guard !isRecording else { notice = "Finish the current narration before switching sessions."; return }; open(url) }
 
     private func open(_ url: URL) {
+        guard isEnabled else { return }
         guard !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return }
         do {
             let loaded = try ReadbackStore.load(from: url)
@@ -815,6 +853,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func closeSession() {
+        guard isEnabled else { return }
         guard !hasUnsavedNarration else { notice = Self.unsavedNarrationNotice; return }
         guard !isRecording else { notice = "Finish the current narration before closing this session."; return }
         cancelCapture()
@@ -822,11 +861,13 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func revealSession() {
+        guard isEnabled else { return }
         refreshSessionAvailability()
         if let sessionURL, currentSessionProblem == nil { NSWorkspace.shared.activateFileViewerSelecting([sessionURL]) }
     }
 
     func handOff(to target: ReadbackHandoffTarget) {
+        guard isEnabled else { return }
         guard !hasUnsavedNarration else { notice = "Save the edited narration before handing off this session."; return }
         refreshSessionAvailability()
         guard currentSessionProblem == nil else { notice = "Locate this session folder before handing it off."; return }
@@ -862,6 +903,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func preflightPermissions() async {
+        guard isEnabled else { return }
         cancelCaptureAccess()
         screenPermissionGranted = screenAccess.isGranted()
         microphonePermission = microphoneAccess()
@@ -872,6 +914,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     /// Explicit capture setup only. Opening/reviewing a session never requests access.
     func requestCaptureAccess() async {
+        guard isEnabled else { return }
         guard captureAccessRequest == nil, !Task.isCancelled else { return }
         let request = UUID(), visit = captureAccessVisit
         captureAccessRequest = request; isRequestingCaptureAccess = true
@@ -899,11 +942,13 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func cancelCaptureAccess() { captureAccessVisit = UUID() }
 
     func openScreenRecordingSettings() {
+        guard isEnabled else { return }
         openedScreenAccessSettings = true
         screenAccess.openSettings()
     }
 
     func openMicrophoneSettings() {
+        guard isEnabled else { return }
         if !NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!) {
             notice = "System Settings could not be opened. Open it manually and choose Privacy & Security › Microphone."
             stateChanged()
@@ -911,11 +956,13 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func toggleCapture() async {
+        guard isEnabled else { return }
         if isRecording { stopNarration(); return }
         await captureNewSection(fromEditor: false)
     }
 
     func captureNewSection(fromEditor: Bool, mode: SnapCapture.Mode = .screen) async {
+        guard isEnabled else { return }
         guard !isCapturing, !isRecording else { return }
         if let reason = mayBeginCapture?() { notice = reason; stateChanged(); return }
         guard let root = sessionURL, let sessionID = manifest?.id else { notice = "Create or open a Snap & Talk session first."; stateChanged(); return }
@@ -986,6 +1033,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// Reuses saved Snaps without acquiring the screen or microphone. Narration
     /// can be typed or explicitly recorded after the portable copy is saved.
     func importSnapSnapshots(_ snapshots: [SnapHandoffSnapshot]) {
+        guard isEnabled else { return }
         guard !isCapturing, !isRecording else { notice = "Finish the current capture or narration before adding Snaps."; return }
         guard let root = sessionURL, let sessionID = manifest?.id else {
             notice = "Create or open a Snap & Talk session, then add your selected Snaps."; stateChanged(); return
@@ -1007,6 +1055,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func startNarration(for sectionID: UUID) {
+        guard isEnabled else { return }
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before recording again."; return }
         guard !isRecording, !isCapturing, let root = sessionURL, activeSections.contains(where: { $0.id == sectionID }) else { return }
         if let reason = mayBeginCapture?() { notice = reason; stateChanged(); return }
@@ -1154,6 +1203,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// Replace and Redo use the page's Capture area and own their capture as Capture & narrate
     /// does: Escape changes nothing, and closing the session or quitting discards a late image.
     func replaceScreenshot(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
+        guard isEnabled else { return }
         guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
         // Replacing records no audio, so it needs only Screen Recording.
         guard screenPermissionGranted else { notice = permissionsProblem; stateChanged(); return }
@@ -1184,6 +1234,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func redoBoth(_ sectionID: UUID, mode: SnapCapture.Mode = .screen) async {
+        guard isEnabled else { return }
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before replacing it."; return }
         guard !isCapturing, !isRecording, let root = sessionURL, let sessionID = manifest?.id else { return }
         if let reason = mayBeginCapture?() { notice = reason; stateChanged(); return }
@@ -1221,6 +1272,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func retryTranscription(_ sectionID: UUID) {
+        guard isEnabled else { return }
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before retrying transcription."; return }
         guard let root = sessionURL, var current = try? ReadbackStore.load(from: root),
               let index = current.sections.firstIndex(where: { $0.id == sectionID && $0.audio != nil && $0.deletedAt == nil }) else { return }
@@ -1229,12 +1281,14 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func updateTranscript(_ text: String, for sectionID: UUID) {
+        guard isEnabled else { return }
         guard activeSections.contains(where: { $0.id == sectionID }) else { return }
         transcriptDrafts[sectionID] = text
         retryTranscriptSave(sectionID)
     }
 
     func retryTranscriptSave(_ sectionID: UUID) {
+        guard isEnabled else { return }
         guard let root = sessionURL, let text = transcriptDrafts[sectionID] else { return }
         // Mark before I/O: publication from another section must never reload over this edit.
         transcriptSaveFailures[sectionID] = "Saving narration…"
@@ -1264,6 +1318,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     /// Explicit discard ends only the unsaved edit; no session file or original is removed.
     func discardTranscriptEdit(_ sectionID: UUID) {
+        guard isEnabled else { return }
         guard transcriptSaveFailures[sectionID] != nil else { return }
         transcriptDrafts[sectionID] = sessionURL.flatMap { root in
             manifest?.sections.first(where: { $0.id == sectionID }).map { ReadbackStore.readText(root: root, relative: $0.transcript) }
@@ -1280,6 +1335,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     /// records so completed transcription and replacement metadata survive.
     @discardableResult
     func saveSectionOrder(_ ids: [UUID], expectedOrder: [UUID], session root: URL) -> Bool {
+        guard isEnabled else { return false }
         do {
             guard sessionURL?.standardizedFileURL == root.standardizedFileURL else {
                 throw ReadbackError.message("The session changed. Reopen Reorder sections in the session you want.")
@@ -1306,6 +1362,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func deleteSection(_ sectionID: UUID) {
+        guard isEnabled else { return }
         guard transcriptSaveFailures[sectionID] == nil else { notice = "Save or discard this section's unsaved edit before moving it to Recently Deleted."; return }
         guard !isRecording, let root = sessionURL, var current = try? ReadbackStore.load(from: root),
               let index = current.sections.firstIndex(where: { $0.id == sectionID && $0.deletedAt == nil }),
@@ -1327,6 +1384,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func restoreSection(_ sectionID: UUID) {
+        guard isEnabled else { return }
         guard let root = sessionURL, var current = try? ReadbackStore.load(from: root),
               let index = current.sections.firstIndex(where: { $0.id == sectionID && $0.deletedAt != nil }) else { return }
         do {
@@ -1343,6 +1401,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func emptyRecentlyDeleted() {
+        guard isEnabled else { return }
         guard let root = sessionURL else { return }
         do {
             var current = try ReadbackStore.load(from: root)
@@ -1428,6 +1487,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     private func enqueue(_ job: Job) {
+        guard isEnabled else { return }
         guard activeJob != job, !queue.contains(job) else { return }
         queue.append(job); updateQueueCount()
         if processor == nil {
@@ -1436,7 +1496,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     private func drainQueue() async {
-        while !Task.isCancelled, !queue.isEmpty {
+        while isEnabled, !Task.isCancelled, !queue.isEmpty {
             // A take kept at Quit, or stopped while the model loads, waits for speech and
             // then transcribes; a model that could not be prepared still fails it with its reason.
             if await speechPreparing() { try? await Task.sleep(nanoseconds: 500_000_000); continue }
@@ -1525,6 +1585,7 @@ final class ReadbackModel: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     private func resumeRecentJobs() {
+        guard isEnabled else { return }
         for root in recentSessionURLs {
             guard let current = try? ReadbackStore.load(from: root) else { continue }
             let repaired = recovered(current, at: root)

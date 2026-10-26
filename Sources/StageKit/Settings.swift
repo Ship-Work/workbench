@@ -21,7 +21,7 @@ enum Action: String, CaseIterable, Codable, Identifiable {
         switch self {
         // The presenter keys go by the names Home teaches, here and wherever a key is listed or
         // reported; the tools they hold keep their own names in Draw's tool list (#76).
-        case .pen: return "Draw"
+        case .pen: return "Annotate"
         case .rectangle: return "Shape"
         case .clear: return "Clear"
         case .undo: return "Undo"

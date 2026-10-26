@@ -7,10 +7,10 @@ import { hero } from './home.mjs';
 
 const NS = 'http://www.w3.org/2000/svg';
 const SAY = {
-  dictate: 'Dictate: a sentence types itself into the slide.',
-  snap: 'Snap & Talk: the chart is snapped and three snaps become a deck.',
-  draw: 'Draw: the headline gets circled. Now draw anywhere on this page. Escape clears it.',
-  persona: 'Persona: the Site manager comes on screen and its ring moves with the voice.'
+  dictate: 'Voice to Text: a sentence types itself into the slide.',
+  snap: 'Snap: the chart becomes an image, ready to copy or drag into your work.',
+  draw: 'Annotate: the headline gets circled. Now draw anywhere on this page. Escape clears it.',
+  persona: 'Present: a persona comes on screen and its ring moves with the voice.'
 };
 const layer = document.getElementById('toolbar-try');
 

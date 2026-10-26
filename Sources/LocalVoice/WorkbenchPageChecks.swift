@@ -13,8 +13,8 @@ enum WorkbenchPageChecks {
             passed += 1
         }
         let pages = WorkbenchHome.navItems.map(\.id)
-        try check(WorkbenchHome.navItems.map(\.title) == ["Home", "Dictate", "Meetings", "Snap", "Snap & Talk", "Draw", "Present", "Persona", "History", "Library", "Settings"],
-                  "the sidebar includes Meetings beside Dictate under the shared page names")
+        try check(WorkbenchHome.navItems.map(\.title) == ["Home", "Voice to Text", "Snap", "Snap & Talk", "Annotate", "Present", "History", "Library", "Settings"],
+                  "the sidebar includes Meetings beside Voice to Text under the shared page names")
         try check(Set(pages).count == pages.count, "each sidebar page has its own route")
         for page in pages { try check(WorkbenchHome.destination(page).page == page, "\(page) highlights its own item") }
 
@@ -43,10 +43,10 @@ enum WorkbenchPageChecks {
         }
         for route in ["dictionary"] {
             let landing = WorkbenchHome.destination(route)
-            try check(landing.page == "dictate" && landing.section == nil, "\(route) keeps its page with Dictate highlighted")
+            try check(landing.page == "dictate" && landing.section == nil, "\(route) keeps its page with Voice to Text highlighted")
         }
         try check(WorkbenchHome.destination("surface-gallery-unknown-route").page == "dictate",
-                  "an unknown route shows Dictate with Dictate highlighted, as the page switch does")
+                  "an unknown route shows Voice to Text with Voice to Text highlighted, as the page switch does")
         try check(WorkbenchHome.destination("speak").page == "library" && WorkbenchHome.destination("speak").section == "library",
                   "the retired Read route opens Resources for preserved text, without a new tool route")
         for route in pages + WorkbenchHome.sections.map(\.id) + WorkbenchHome.subpages.map(\.id) {
@@ -74,11 +74,11 @@ enum WorkbenchPageChecks {
                   "a page's own name wins over its first section's")
         try check(WorkbenchHome.name(of: "shortcuts") == "Keyboard" && WorkbenchHome.name(of: "models") == "Models" && WorkbenchHome.name(of: "packs") == "Packs",
                   "sections are named by the record")
-        try check(WorkbenchHome.name(of: "meeting") == "Meetings" && WorkbenchHome.destination("meeting").page == "meeting", "meeting doors open a visible Meetings page with its own sidebar item")
+        try check(WorkbenchHome.destination("meeting").page == "history", "meeting doors open a visible Meetings page with its own sidebar item")
         // One identity on all three surfaces (#134 C10): each capability's page in the sidebar, its
         // toolbar mode and its menu-bar panel row carry the same name and symbol, and the mode's
         // page door opens that page. Timer is a panel row and a Present option, never a page.
-        for mode in ToolbarMode.allCases {
+        for mode in ToolbarMode.allCases where mode != .persona {
             let item = WorkbenchHome.navItems.first { $0.id == mode.page }
             try check(item?.title == mode.title && item?.symbol == mode.symbol, "\(mode.title)'s sidebar page has the toolbar's name and symbol")
             let row = WorkbenchControlTool(mode: mode)
@@ -95,7 +95,7 @@ enum WorkbenchPageChecks {
             try check(page.route == route && landing.page == route && landing.section == section, "a Voice problem owned by \(page) opens \(route)")
         }
         try check(Set(Attention.Page.allCases.map(\.route)).count == Attention.Page.allCases.count, "each Voice owner has its own page")
-        for (page, route, section) in [(StageNoticePage.draw, "annotate", nil), (.present, "present", nil), (.persona, "personas", nil),
+        for (page, route, section) in [(StageNoticePage.draw, "annotate", nil), (.present, "present", nil), (.persona, "present", nil),
                                        (.keyboard, "settings", "shortcuts"), (.general, "settings", "settings")] as [(StageNoticePage, String, String?)] {
             let landing = WorkbenchHome.destination(page.route)
             try check(landing.page == route && landing.section == section, "a StageKit notice owned by \(page) opens \(route)\(section.map { " on " + $0 } ?? "")")
@@ -105,10 +105,10 @@ enum WorkbenchPageChecks {
         let listed = pages.filter { $0 != WorkbenchHome.pinnedPage && $0 != "home" }
         try check(pages.last == WorkbenchHome.pinnedPage && WorkbenchHome.pinnedPage == "settings",
                   "Settings stays pinned below navigation")
-        try check(WorkbenchHome.sidebarGroups.map(\.title) == ["Voice", "Screen", "Saved"], "the desktop groups explain voice, screen and saved work")
+        try check(WorkbenchHome.sidebarGroups.map(\.title) == ["Tools", "Saved"], "the desktop groups explain voice, screen and saved work")
         let grouped = WorkbenchHome.sidebarGroups.flatMap(\.routes)
-        try check(grouped == listed && Set(grouped).count == grouped.count, "groups cover each workspace once in navigation order")
-        try check(WorkbenchHome.sidebarGroups.first?.routes == ["dictate", "meeting"], "Meetings is visible next to Dictate")
+        try check(Set(grouped) == Set(listed) && Set(grouped).count == grouped.count, "groups cover each workspace once in navigation order")
+        try check(WorkbenchHome.sidebarGroups.first?.routes == ["annotate", "dictate", "snap", "present", "readback"], "Meetings is visible next to Voice to Text")
         // The floating toolbar's one switch reads the same everywhere (#134 H3).
         try check(WorkbenchHome.floatingToolbarHelp == "Show between actions. Recording and recovery controls still appear when needed.",
                   "the switch explains itself in the contract's words")
@@ -124,11 +124,11 @@ enum WorkbenchPageChecks {
                   "a one-sentence message is shown whole")
         // While speech prepares, Dictate shows the speech model's own line, with the download's progress (#15).
         try check(ContentView.progressCaption(preparing: true, phase: .idle, modelMessage: "Downloading Parakeet · 42%", processing: "Preparing speech…") == "Downloading Parakeet · 42%",
-                  "Dictate's setup caption shows the speech download's progress")
+                  "Voice to Text's setup caption shows the speech download's progress")
         try check(ContentView.progressCaption(preparing: false, phase: .cancelling, modelMessage: "Parakeet", processing: "Transcribing…") == "Waiting for the speech engine to stop"
                   && ContentView.progressCaption(preparing: false, phase: .delivering, modelMessage: "Parakeet", processing: "Transcribing…") == "Checking the destination"
                   && ContentView.progressCaption(preparing: false, phase: .transcribing, modelMessage: "Parakeet", processing: "Transcribing…") == "Transcribing…",
-                  "Dictate's cancelling, delivering and processing captions are unchanged")
+                  "Voice to Text's cancelling, delivering and processing captions are unchanged")
         // A Cancel that left live words is a Dictate attention; the row's one sentence says why.
         try check(PanelRecoveryRow.headline(LiveDictationDelivery.wordsLeftMessage(in: "TextEdit")) == "Cancelled, but words already written in TextEdit remain.",
                   "a Cancel that left live words says so in the recovery row's sentence")

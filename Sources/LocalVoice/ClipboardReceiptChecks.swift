@@ -119,10 +119,10 @@ enum ClipboardReceiptChecks {
         model.record(outcome: TextDelivery.Outcome(message: "Sent to Notes · still copied.", clipboardChangeCount: 12,
                                                  wasPasted: false, destinationName: "Notes", pasteWasAttempted: true), wordCount: 2)
         try check(model.receipt.map(DictateDeliveryReceipt.line) == "Sent to Notes · still copied.",
-                  "Dictate's delivery line says a title the detail already starts with once")
+                  "Voice to Text's delivery line says a title the detail already starts with once")
         model.record(outcome: copied(12), wordCount: 2)
         try check(model.receipt.map(DictateDeliveryReceipt.line) == "Copied. Paste with ⌘V.",
-                  "Dictate's delivery line keeps the title before any other detail")
+                  "Voice to Text's delivery line keeps the title before any other detail")
         model.clear()
 
         // Use a unique pasteboard: these checks never touch the user's clipboard.

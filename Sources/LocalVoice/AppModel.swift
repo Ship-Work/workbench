@@ -15,7 +15,6 @@ final class AppModel: NSObject, ObservableObject {
     func transcribeForShortcut(_ url: URL, id: UUID = UUID()) async throws -> String {
         guard ready else { throw VoiceError.message("Open Workbench and finish preparing the speech model, then run this shortcut again.") }
         guard phase == .idle else { throw VoiceError.message("Workbench is busy. Finish the current recording first.") }
-        guard !meetings.isBusy else { throw VoiceError.message("Finish the meeting recording or transcription first.") }
         guard loaded || !captureRecovery.hasRecovery else { throw VoiceError.message(Self.savingOffRefusal) }
         guard !captureRecovery.hasRecovery else { throw CaptureRecoveryError.pending }
         let file = try ImportedAudio.open(url)
@@ -69,6 +68,20 @@ final class AppModel: NSObject, ObservableObject {
             preferences.save()
             if VoicePreferences.shortcutIDs.contains(where: { oldValue.shortcut($0) != preferences.shortcut($0) }) { onShortcutsChanged?() }
         }
+    }
+    static let experimentalFeaturesKey = "workbench.experimentalFeatures.v1"
+    @Published private(set) var experimentalFeaturesEnabled = UserDefaults.standard.bool(forKey: experimentalFeaturesKey)
+    var onExperimentalFeaturesChanged: ((Bool) -> Bool)?
+    func setExperimentalFeatures(_ enabled: Bool) {
+        guard enabled != experimentalFeaturesEnabled else { return }
+        guard onExperimentalFeaturesChanged?(enabled) != false else { return }
+        experimentalFeaturesEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.experimentalFeaturesKey)
+        if !enabled {
+            if page == "readback" { page = "settings" }
+            if toolbarMode == .snapAndTalk { toolbarMode = .snap }
+        }
+        onShortcutsChanged?()
     }
     @Published var rawTranscript = ""
     @Published var cleanupMethod = ""
@@ -141,7 +154,7 @@ final class AppModel: NSObject, ObservableObject {
     let meetingNamer = MeetingNamer()
     var meetingSwitch: AnyCancellable?
     let handoffJobs = HandoffJobsModel(directory: Workbench.supportDirectory(component: "Handoffs"))
-    lazy var meetings = MeetingModel(engine: engine, directory: Workbench.supportDirectory(component: "Meetings"))
+    let legacyMeetings = LegacyMeetingArchive()
     var onHandOffSelection: ((String?) -> Void)?
     var onSuggestTranscriptDetails: ((UUID) -> Void)?
     var resolveAdditionalHandoffItems: ((Set<WorkbenchItemReference>) throws -> [HandoffSourceSnapshot])?
@@ -234,7 +247,7 @@ final class AppModel: NSObject, ObservableObject {
             Task { await prepare() }
         }
         appActivation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.refreshMicrophoneAuthorization(); self?.meetings.refreshAdmission() }
+            .sink { [weak self] _ in self?.refreshMicrophoneAuthorization() }
         var savedUndelivered: UnresolvedDelivery?
         var loadedDraftRevision = draftRevision
         do {
@@ -245,11 +258,7 @@ final class AppModel: NSObject, ObservableObject {
             recordFirstDictation()
             rawTranscript = state.rawDraft ?? state.draft
             replacements = state.replacements; voice = state.voice; rate = state.rate
-            let removalIssues = MeetingTranscriptRemoval.reconcile(
-                root: Workbench.supportDirectory(component: "Meetings"), history: store)
-            if !removalIssues.isEmpty {
-                report("A recording couldn’t be removed completely. " + removalIssues.joined(separator: " "), on: .history)
-            }
+
         } catch {
             let backup = store.url.deletingLastPathComponent().appendingPathComponent("state-unreadable-\(UUID().uuidString).json")
             do {
@@ -273,7 +282,6 @@ final class AppModel: NSObject, ObservableObject {
         guard state.sequence >= recognition.sequence else { return }
         recognition = state; ready = state.canTranscribe; preparing = state.isPreparing
         modelMessage = state.line; modelFailure = state.failure?.errorDescription
-        meetings.refreshAdmission()  // Meetings never says Ready to record while speech is not ready.
     }
     func prepare() async {
         do { try await engine.prepareCached() } catch { /* The engine owns the typed failure. */ }
@@ -585,7 +593,6 @@ final class AppModel: NSObject, ObservableObject {
     }
 
     func importAudio() {
-        guard !meetings.isBusy else { report("Finish the meeting recording or transcription first.", on: .dictate); return }
         guard phase == .idle, ready else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.audio]; panel.canChooseDirectories = false
         panel.message = "Choose an audio file up to 30 minutes. Your selected speech engine will transcribe it."
@@ -593,7 +600,6 @@ final class AppModel: NSObject, ObservableObject {
         importAudio(url)
     }
     func importAudio(_ url: URL) {
-        guard !meetings.isBusy else { report("Finish the meeting recording or transcription first.", on: .dictate); return }
         guard phase == .idle, ready else { return }
         do {
             let file = try ImportedAudio.open(url)
@@ -763,7 +769,7 @@ final class AppModel: NSObject, ObservableObject {
 
     /// With automatic saving off, Retry saving cannot succeed and is not offered, so a new start
     /// names the door that is there: Discard recovery…, in Dictate and in a Shortcuts error.
-    private static let savingOffRefusal = "Automatic saving is off for this session, and a dictation is kept in Dictate. Copy its words, then use Discard recovery… to dictate again, or reopen Workbench."
+    private static let savingOffRefusal = "Automatic saving is off for this session, and a dictation is kept in Voice to Text. Copy its words, then use Discard recovery… to dictate again, or reopen Workbench."
 
     private func admitNewCapture() -> Bool {
         guard captureRecovery.hasRecovery else { return true }
@@ -816,7 +822,7 @@ final class AppModel: NSObject, ObservableObject {
             canRetry = false
             // Live words may already be in the field; fail() says so, so this does not claim nothing was sent.
             let notSaved = liveDictation?.attempted == true ? "was not added to History" : "was not added to History or sent to your app"
-            fail("Automatic saving is off for this session, so this dictation \(notSaved). The words are in Dictate. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
+            fail("Automatic saving is off for this session, so this dictation \(notSaved). The words are in Voice to Text. Copy them, then use Discard recovery… to dictate again, or reopen Workbench.", code: "dictate.saving_disabled")
             captureFailure = self.error; onPhaseChange?(); return false
         }
         guard let record = captureRecovery.pending, let capture = record.capture else { return false }
@@ -1225,51 +1231,20 @@ final class AppModel: NSObject, ObservableObject {
     func dismissRememberedCorrection() { rememberedCorrection = nil }
     func removeTranscript(_ item: Transcript, includingRecording: Bool = false) {
         guard loaded, history.contains(where: { $0.id == item.id }) else { return }
-        guard includingRecording || !meetings.hasRecording(for: item.id) else {
-            report("This transcript has a saved recording. Choose Remove again to review removing both.", on: .history)
-            return
-        }
         let next = history.filter { $0.id != item.id }
         let commit = {
             try self.store.save(self.session(draft: self.transcript, history: next, replacements: self.replacements))
             self.persistWork?.cancel()
             self.history = next
-            self.meetings.transcriptRemoved(item.id)
             // Removing the transcript is the person's choice: nothing is left to deliver.
             self.undelivered.transcriptRemoved(item.id)
         }
         do {
-            if includingRecording {
-                if let issue = try meetings.removeCompletedRecording(for: item.id, commit: commit) { report(issue, on: .history) }
-                else { attention = nil; status = "Transcript and recording removed." }
-            } else {
-                try commit()
-                status = "Transcript removed."
-            }
+            try commit()
+            status = legacyMeetings.hasRecording(for: item.id) ? "Transcript removed. Its original recording remains available in Meetings." : "Transcript removed."
             // Named selections retain the missing reference until the person
             // deliberately removes it, so an old selection cannot silently shrink.
         } catch { report("Could not finish removing the transcript. " + error.localizedDescription, on: .history) }
-    }
-    func retainMeetingTranscript(_ capture: Transcript, purpose: String) throws {
-        guard loaded else { throw VoiceError.message("The transcript library is not ready.") }
-        // A failed final meeting-journal write can follow a successful History
-        // commit. That retry may not replace later edits or their saved metadata.
-        if try savedMeetingTranscript(capture.id) != nil { return }
-        let next = TranscriptHistory.adding(capture, to: history)
-        // Save metadata first: if history saving fails the meeting's durable
-        // journal retains this same UUID for a safe retry.
-        var metadata = historyLibrary.metadata(for: capture.id)
-        metadata.purpose = purpose == "call" ? .call : .meeting
-        metadata.captureNotes = meetings.pendingTranscriptNotes
-        metadata.app = MeetingNaming.appName(meetings.pendingTranscriptApp)
-        historyLibrary.setMetadata(metadata, for: capture.id)
-        if let error = historyLibrary.error { throw VoiceError.message(error) }
-        try store.save(session(draft: transcript, history: next, replacements: replacements))
-        history = next
-        status = "Meeting saved in History."
-        onPhaseChange?()
-        // Named after it is safely saved, ahead of older meetings still waiting.
-        meetingNamer.enqueue([capture.id], first: true)
     }
     func savedMeetingTranscript(_ id: UUID) throws -> (transcript: Transcript, notes: [String])? {
         guard let saved = try store.load().history.first(where: { $0.id == id }) else { return nil }
@@ -1434,7 +1409,7 @@ final class AppModel: NSObject, ObservableObject {
         // Quit never attempts another external write. Preserve provisional field text
         // and the existing recovery audio; next launch cannot replay this target.
         liveDictation?.end(); liveDictation = nil
-        meetings.shutdown(); handoffJobs.shutdown()
+        handoffJobs.shutdown()
         appActivation = nil
         shortcutRequest.cancel(); transcriptionTask?.cancel(); transcriptionID = nil; recordingAttempt = nil
         clipboardReceipt.clear(); coach.remove(); liveCapture?.requestStop(); meter?.invalidate(); meter = nil

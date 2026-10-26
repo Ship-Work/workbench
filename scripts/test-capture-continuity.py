@@ -9,7 +9,7 @@ sys.dont_write_bytecode = True
 from swift_extract import SwiftFile
 
 ROOT = Path(__file__).resolve().parents[1]
-audio = SwiftFile(ROOT / "Sources/LocalVoice/MeetingAudio.swift").extract([
+audio = SwiftFile(ROOT / "Sources/LocalVoice/MicrophoneAudio.swift").extract([
     "MeetingClock", "MeetingAudioChunk", "MeetingCaptureTimeline", "MeetingTrackTiming",
     "MeetingAudioGap", "MeetingAudioFeed", "MeetingTrackRecorder",
 ])

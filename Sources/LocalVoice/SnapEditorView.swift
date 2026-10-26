@@ -20,7 +20,7 @@ struct SnapEditorView: View {
                 Image(systemName: "photo").font(.title3).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(editing.draft.existing == nil ? "New Snap" : editing.draft.title).font(.headline).lineLimit(1)
-                    Text("Edit image · Original preserved").font(.caption).foregroundStyle(.secondary)
+                    Text(model.confirmation?.kind == .copied ? "Image copied · Paste with ⌘V" : "Edit image · Original preserved").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("Discard…", role: .destructive, action: discard)
@@ -85,6 +85,13 @@ struct SnapEditorView: View {
                 Text("\(Int(size.width)) × \(Int(size.height)) px").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Toggle("Original", isOn: $editing.showingOriginal).toggleStyle(.button).help("Compare with the untouched original")
                 Spacer()
+                Button { model.copyDraft(editing.draft, original: editing.showingOriginal) } label: {
+                    Label("Copy image", systemImage: "doc.on.doc")
+                }
+                .help("Click to copy, or drag to another app or Finder. Your draft stays open.")
+                .overlay(SnapImageDragSurface(transfer: {
+                    SnapImageTransfer(png: try SnapRendering.render(editing.draft.originalPNG, edit: editing.showingOriginal ? SnapEdit() : editing.draft.edit), title: editing.draft.title)
+                }, click: { model.copyDraft(editing.draft, original: editing.showingOriginal) }, failure: { model.notice = $0.localizedDescription }))
                 ImageWorkspaceZoomControls(percent: editing.percent, perform: editing.zoom)
             }.padding(.horizontal, 16).padding(.vertical, 10)
         }.frame(minWidth: 820, minHeight: 520).tint(Workbench.accent).workbenchTheme()

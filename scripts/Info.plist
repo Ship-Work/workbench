@@ -15,7 +15,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.7.0</string>
+	<string>2.8.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>WorkbenchGitHubClientID</key>
@@ -42,9 +42,7 @@
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Workbench reads your Desktop only when you choose Import Desktop screenshots, to save those screenshots in History.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Workbench records your microphone only when you start dictation, narration, a meeting or a voice note for a problem report. Your chosen speech engine processes dictation, narration and meetings; a voice note is sent as recorded only when you send the report. A persona's voice ring, when you turn it on, measures loudness and records nothing.</string>
-	<key>NSAudioCaptureUsageDescription</key>
-	<string>Workbench captures audio from the Mac app you select only after you start meeting or call transcription.</string>
+	<string>Workbench records your microphone only when you start Voice to Text, experimental narration or a voice note for a problem report. Your chosen speech engine processes dictation and narration; a voice note is sent as recorded only when you send the report. A persona's voice ring, when you turn it on, measures loudness and records nothing.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 <key>UTExportedTypeDeclarations</key><array><dict>

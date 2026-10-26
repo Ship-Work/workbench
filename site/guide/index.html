@@ -12,7 +12,7 @@
   <meta property="og:description" content="Three setup steps, three ways in, and the few things worth trying first. Free, no account, and speech stays on your Mac.">
   <meta property="og:image" content="{{SITE_ORIGIN}}/assets/share/workbench.png">
   <meta property="og:image:width" content="2400"><meta property="og:image:height" content="1260">
-  <meta property="og:image:alt" content="Say it. Snap it. Show it. A Mac window with a dictated sentence and a chart, the Workbench toolbar recording underneath, three snaps handed to Claude as a deck, and a persona bubble with a voice ring.">
+  <meta property="og:image:alt" content="Say it. Snap it. Show it. A Mac window with a dictated sentence and a chart, the Workbench toolbar recording underneath, a captured image ready to copy or drag, and a persona bubble with a voice ring.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Workbench · You’re three steps away.">
   <meta name="twitter:description" content="Three setup steps, three ways in, and the few things worth trying first. Free, no account, and speech stays on your Mac.">
@@ -38,7 +38,7 @@
       <div>
         <ol>
           <li><a href="/#download">Download Workbench</a> and move it into Applications. For a first install, choose Finder › Go › Home and use the Applications folder there, creating it if needed. To replace a copy, quit it and use the same Applications folder.</li>
-          <li>Open it. Home walks you through your first dictation.</li>
+          <li>Open it. Choose a tool. Voice to Text offers a short first-use guide; the visual tools work without downloading a speech model.</li>
           <li>Allow each permission when a tool first asks. Nothing is requested up front.</li>
         </ol>
         <p class="note" id="mac-only">For Macs with M1 or later, on macOS 14 or newer. The iPhone, iPad and Chrome editions are paused while the Mac app comes first.</p>
@@ -52,7 +52,7 @@
         <ul>
           <li><strong>The menu bar.</strong> Every tool, one row each, ready in a click.</li>
           <li><strong>The floating toolbar.</strong> Stays out of the way and becomes whatever you used last. Hover it for the next step.</li>
-          <li><strong>The Workbench window.</strong> Home greets you, shows your My Profile photo and keeps current work first, then a short first-dictation guide, Permissions, your meetings and decks, and your keys. Opening a workspace starts nothing. With Present on the floating toolbar, Prompts types a saved prompt into the field in front; Library’s Saved Prompts copies the complete text for you to paste.</li>
+          <li><strong>The Workbench window.</strong> Home keeps current work and the four core tools close at hand. Settings holds optional setup and Experimental features. Opening a workspace starts nothing. With Present on the floating toolbar, Prompts types a saved prompt into the field in front; Library’s Saved Prompts copies the complete text for you to paste.</li>
         </ul>
         <p class="note">Every tool has a keyboard shortcut. See them all, change them or practise them in Settings → Keyboard.</p>
       </div>
@@ -63,31 +63,33 @@
       <div class="tiles">
       <article class="tile" id="dictate"><span id="dictation" class="alias"></span>
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
-        <p class="tool-name">Dictate</p>
+        <p class="tool-name">Voice to Text</p>
         <h3>Talk, and it types.</h3>
-        <p>Click into any text field, start Dictate and speak. Your words land where you were working, and every transcript is kept in History. The live voice update adds words as you speak in supported text fields; other fields receive the completed text. Moving or editing the field stops live insertion, and the complete words are copied so you can replace what was written.</p>
+        <p>Click into any text field, start Voice to Text and speak. Your words land where you were working, and every transcript is kept in History. The live voice update adds words as you speak in supported text fields; other fields receive the completed text. Moving or editing the field stops live insertion, and the complete words are copied so you can replace what was written.</p>
       </article>
       <article class="tile" id="meetings">
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></span>
         <p class="tool-name">Meetings</p>
-        <h3>Your calls, written up.</h3>
-        <p>Pick the call’s app and press Start, or switch on Detect Meetings &amp; Calls in Recording options and start from its offer. Words appear as the conversation happens, labelled You and Others, with Pause, Resume and Finish. Supported calls can finish after their audio ends and a cancellable countdown. Prepare follow-up opens a review for decisions and next steps. Nothing records until you press Start.</p>
+        <h3>A separate app for your calls.</h3>
+        <p>Meetings is a separate, privately distributed app. People with repository access can <a href="https://github.com/Ship-Work/meetings/releases/latest">download Meetings</a>; it is not included in the Workbench download. Once installed, use Import from Workbench to copy previous recordings and transcripts from the edition you used. Meetings asks for its own permissions when you start recording.</p>
+        <p>Your originals stay in place. Without Meetings, earlier transcripts remain readable in Workbench’s History, and Settings → General → Show saved recordings opens the original files.</p>
       </article>
-      <article class="tile" id="snap"><span id="snap-talk" class="alias"></span>
+      <article class="tile" id="snap">
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="15" height="12" rx="2" stroke-dasharray="2.6 2.2"/><circle cx="18.5" cy="17.5" r="3.2"/></svg></span>
-        <p class="tool-name">Snap &amp; Talk</p>
-        <h3>Explain your screens. Get a deck.</h3>
-        <p>Snap a few screens while you talk about them. Review, then hand the set to Claude or Codex to build the slides.</p>
+        <p class="tool-name">Snap</p>
+        <h3>Capture, copy, drag.</h3>
+        <p>Choose Region, Window or Screen. Copy the result, drag it into another app, or crop and annotate it first. Save keeps it in History without changing the original.</p>
+        <details id="snap-talk"><summary>Experimental: Snap &amp; Talk</summary><p>Enable it in Settings → General → Experimental features. Capture screens with narration, review the session, then hand it to an assistant to build a deck. It stays inactive while disabled, and existing session folders are preserved.</p></details>
       </article>
       <article class="tile" id="draw"><span id="utilities" class="alias"></span>
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19.5l1.2-4.3L16.4 5a1.9 1.9 0 0 1 2.7 2.7L8.8 17.9z"/><path d="M14.6 6.8l2.7 2.7"/></svg></span>
-        <p class="tool-name">Draw</p>
+        <p class="tool-name">Annotate</p>
         <h3>Point at anything.</h3>
         <p>Circle, arrow or sketch over whatever is on screen, then press Escape and carry on. Whiteboard and Timer live here too.</p>
       </article>
       <article class="tile" id="persona"><span id="personas" class="alias"></span>
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="12" cy="10.5" r="2.8"/><path d="M7.5 18c.9-2.4 2.6-3.4 4.5-3.4s3.6 1 4.5 3.4"/></svg></span>
-        <p class="tool-name">Persona</p>
+        <p class="tool-name">Present · Persona</p>
         <h3>Put yourself on screen.</h3>
         <p>Your photo, a live camera bubble or a role card, floating over any app. Its ring can move as you talk.</p>
       </article>
@@ -95,8 +97,8 @@
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/><path d="M12 8v4.5l3 2"/></svg></span>
         <p class="tool-name">History and Hand off</p>
         <h3>Nothing gets lost.</h3>
-        <p>Dictations, meetings, snaps and decks in one searchable place. Select a few and hand them to an assistant; the result comes back here.</p>
-        <details><summary>Review and reuse saved work</summary><p>Review transcript shows the full current text and original wording without replacing your Dictate draft. Search can find words inside an assistant’s saved answer. Open Review result to copy its exact words. Read text-to-speech is retired; an old Read draft is preserved as a text file in Library. Existing exported audio stays where you saved it.</p></details>
+        <p>Voice transcripts, Snaps and assistant results in one searchable place. Select a few and hand them to an assistant; the result comes back here.</p>
+        <details><summary>Review and reuse saved work</summary><p>Review transcript shows the full current text and original wording without replacing your Voice to Text draft. Search can find words inside an assistant’s saved answer. Open Review result to copy its exact words. Read text-to-speech is retired; an old Read draft is preserved as a text file in Library. Existing exported audio stays where you saved it.</p></details>
         <details><summary>Keep useful resources</summary><p>Library → Resources keeps reusable prompts, links and file references. Search or show favourites, then copy the complete prompt or open the selected link or file. If a file moved, Locate file lets you review a replacement before saving it. Full paths and Change file are under File details; original files stay in their own folders. Text beyond the prompt limit is refused with guidance to save it as a file, never shortened silently.</p></details>
       </article>
       <article class="tile" id="servicenow-pack">
@@ -110,9 +112,9 @@
         <span class="tile-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/></svg></span>
         <p class="tool-name">Present</p>
         <h3>Put on a proper demo.</h3>
-        <p>Pick a scene, plug in your iPhone (unlocked, trusting this Mac) and present in a window you can share in any call. The phone shows as video; you tap and talk on the phone itself.</p>
+        <p>Pick a scene, plug in your iPhone (unlocked, trusting this Mac) and choose the Present window in your call app’s sharing controls. Check the participant’s view before the demo. The phone shows as video; you tap and talk on the phone itself.</p>
         <details id="scenes"><summary>Scenes and backdrops</summary><p>Start from a starter or your own photo, add your logo, and drag the phone and backdrop into place. Scene options holds the rest: the device frame, logo, crop, device shape and hand. Every scene is a still picture you can also export.</p></details>
-        <details id="phone-share"><summary>Sharing your phone in a call</summary><p>Plug your iPhone in with a data cable, unlock it and tap Trust. It appears in Present’s preview before you start; press Present and share the Workbench window in your call. To include Draw, the Timer or a floating persona, share your entire display instead. If this Mac can’t see the phone, as some work Macs can’t, share straight from the Teams or Zoom app on the phone instead, or use Zoom’s cable share on the Mac to include the phone’s sound. Keep one device’s microphone and speaker on to avoid echo. In Present, Can’t see your phone? walks through the usual causes, checks the Mac with QuickTime Player and copies the details for IT. Sharing a browser tab shows only that tab. Rehearse once: talk, have someone remote reply, and try a reconnect.</p></details>
+        <details id="phone-share"><summary>Sharing your phone in a call</summary><p>Plug your iPhone in with a data cable, unlock it and tap Trust. It appears in Present’s preview before you start; press Present and share the Workbench window in your call. To include Annotate, the Timer or a floating persona, share your entire display instead. If this Mac can’t see the phone, as some work Macs can’t, share straight from the Teams or Zoom app on the phone instead, or use Zoom’s cable share on the Mac to include the phone’s sound. Keep one device’s microphone and speaker on to avoid echo. In Present, Can’t see your phone? walks through the usual causes, checks the Mac with QuickTime Player and copies the details for IT. Sharing a browser tab shows only that tab. Rehearse once: talk, have someone remote reply, and try a reconnect.</p></details>
       </article>
       </div>
     </section>

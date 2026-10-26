@@ -38,7 +38,7 @@ struct TranscriptHistoryDialogs: ViewModifier {
                 TranscriptReviewView(model: model, review: item) { review = nil }
             }
             .sheet(item: $recording) { item in
-                MeetingRecordingReviewView(meetings: model.meetings, playback: model.meetings.recordingPlayback,
+                LegacyMeetingRecoveryView(archive: model.legacyMeetings,
                                            transcript: item) { recording = nil }
             }
             .sheet(item: $details) { item in
@@ -92,7 +92,7 @@ struct TranscriptHistoryRow: View {
         let metadata = library.metadata(for: item.id)
         let ref = WorkbenchItemReference(kind: .transcript, id: item.id)
         let words = TextRules.wordCount(item.text)
-        let hasRecording = metadata.isConversation || model.meetings.hasRecording(for: item.id)
+        let hasRecording = metadata.isConversation || model.legacyMeetings.hasRecording(for: item.id)
         HStack(alignment: .top, spacing: 12) {
             Toggle("", isOn: Binding(get: { library.selected.contains(ref) }, set: { include in
                 var refs = library.selected
@@ -171,7 +171,7 @@ struct TranscriptHistoryRow: View {
                     ConfirmationLabel(text: copyConfirmation, reserving: ["Copied"])
                     Spacer()
                     Button {
-                        removal = TranscriptRemoval(transcript: item, includesRecording: model.meetings.hasRecording(for: item.id))
+                        removal = TranscriptRemoval(transcript: item, includesRecording: false)
                     } label: { Image(systemName: "trash") }
                         .accessibilityLabel(CaptureHistoryAccessibility.label("Remove transcript", context: context))
                         .help("Remove transcript…")
@@ -190,13 +190,13 @@ struct TranscriptHistoryRow: View {
                 moreActions
                 Divider()
                 Button("Remove transcript…", role: .destructive) {
-                    removal = TranscriptRemoval(transcript: item, includesRecording: model.meetings.hasRecording(for: item.id))
+                    removal = TranscriptRemoval(transcript: item, includesRecording: false)
                 }
             }
     }
 
     @ViewBuilder private var moreActions: some View {
-        Button("Open in Dictate") { model.openTranscript(item) }
+        Button("Open in Voice to Text") { model.openTranscript(item) }
         Button("Save prompt") { model.savePrompt(item.text) }
         Button("Export current text…") { model.exportCapture(item, version: .cleaned) }
         Button("Export original wording…") { model.exportCapture(item, version: .original) }

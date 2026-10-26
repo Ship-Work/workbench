@@ -117,7 +117,7 @@
     "surface": "report a problem window",
     "label": null,
     "expression": "model . playing ? \"Pause\" : \"Play\"",
-    "note": "Report a problem window (#296): acts only on the report being written or a frozen report's receipt; it opens no page and starts no capability. Play or Pause the voice note on this Mac. Runtime label: Play, or Pause while playing. Runtime label from model . playing ? \"Pause\" : \"Play\"; no rendered text assumed.",
+    "note": "Runtime label from model . playing ? \"Pause\" : \"Play\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "app"
   },
@@ -199,7 +199,7 @@
     "surface": "report a problem window",
     "label": null,
     "expression": "model . available ? \"This report goes privately to the Workbench team.\" : \"Nothing is sent from this build.\"",
-    "note": "Report a problem window (#296): acts only on the report being written or a frozen report's receipt; it opens no page and starts no capability. The inclusion summary's heading: This report goes privately to the Workbench team, or Nothing is sent from this build. Runtime label from model . available ? \"This report goes privately to the Workbench team.\" : \"Nothing is sent from this build.\"; no rendered text assumed.",
+    "note": "Runtime label from model . available ? \"This report goes privately to the Workbench team.\" : \"Nothing is sent from this build.\"; no rendered text assumed.",
     "kind": "status",
     "belongsTo": "app"
   },
@@ -221,9 +221,9 @@
     "note": "The same door and name, in sentence case as a button (the Help item is title case as a menu item), beside a recoverable Dictate problem banner and a Snap failure notice (#296). It opens the same window with the problem's typed code, never its words, and is not shown on timed success notices."
   },
   {
-    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.open-in-dictate",
+    "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.open-in-voice-to-text",
     "surface": "history page",
-    "label": "Open in Dictate",
+    "label": "Open in Voice to Text",
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Quality (#137): the existing draft-replacement door is explicitly named and lives in More. Review transcript opens the full saved result inside History without replacing a draft."
@@ -255,12 +255,12 @@
     "note": "Quality: a dictation refused the microphone opens its System Settings pane where the person acted, in place of Open Dictate…; Snap, Snap & Talk and Camera already offer their settings."
   },
   {
-    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-dictate",
+    "id": "LocalVoice.CapturePanel.DictationResultView.Button.open-voice-to-text",
     "surface": "floating toolbar live controls",
-    "label": "Open Dictate…",
+    "label": "Open Voice to Text…",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality rename (Fit 6): the failure card's door opens Dictate, so it carries the name the panel's recovery row and the toolbar chooser already give that door; it was Open Workbench, the name of the panel footer's door to Home and the app menu's to the current page. Same control in the same result view (#134 T4)."
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
   },
   {
     "id": "LocalVoice.CapturePanel.DictationResultView.Button.record-again",
@@ -277,7 +277,7 @@
     "expression": "model . retryCaptureLabel",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself. Runtime label from model . retryCaptureLabel; no rendered text assumed."
+    "note": "Runtime label from model . retryCaptureLabel; no rendered text assumed."
   },
   {
     "id": "LocalVoice.CapturePanel.DictationResultView.Button.runtime-772d4201867d",
@@ -286,7 +286,7 @@
     "expression": "Image ( systemName : \"xmark\" )",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality (#134 T4): the same control in the same result view, which the toolbar now reveals from its compact rest in place of its row instead of showing it by itself. Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed."
+    "note": "Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed."
   },
   {
     "id": "LocalVoice.CapturePanel.DictationResultView.Button.sound-settings",
@@ -599,180 +599,11 @@
     "aliasOf": "LocalVoice.HistoryView.HistoryView.Button.snap-talk-sessions"
   },
   {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingDetectionSettings.Toggle.detect-meetings-calls",
-    "surface": "meeting page",
-    "label": "Detect Meetings & Calls",
-    "kind": "setting",
-    "belongsTo": "dictate"
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingFinishSettings.Toggle.finish-when-call-audio-ends",
-    "surface": "meeting page",
-    "label": "Finish when call audio ends",
-    "kind": "option",
-    "belongsTo": "dictate",
-    "note": "Core meeting quality requested by Ethan: guarded automatic Finish after sustained call-audio inactivity, with a cancellable grace period. Never starts recording; microphone-only and unclassified apps remain manual."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingNamingSettings.Toggle.name-meetings-on-this-mac",
-    "surface": "meeting page",
-    "label": "Name meetings on this Mac",
-    "kind": "option",
-    "belongsTo": "dictate",
-    "note": "Quality of Meetings asked for by Ethan on 22 October 2026 (meetings in History had no titles and read as a log): a saved meeting gets a name, what it was about and its points from Apple Intelligence on this Mac, beside its unchanged words. One switch, on by default as the core behaviour he asked for (Rule 5's one switch); nothing leaves the Mac, nothing acts, and his own name in Details… always wins."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.not-now",
-    "surface": "proactive offer MeetingOfferPanelController",
-    "label": "Not now",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "aliasOf": "dictate",
-    "note": "Contextual dismissal inside the meeting offer; Home's speech setup uses the same words."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.review",
-    "surface": "proactive offer MeetingOfferPanelController",
-    "label": "Review",
-    "kind": "action",
-    "belongsTo": "dictate"
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.snooze",
-    "surface": "proactive offer MeetingOfferPanelController",
-    "label": "Snooze",
-    "kind": "action",
-    "belongsTo": "dictate"
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.start-recording",
-    "surface": "proactive offer MeetingOfferPanelController",
-    "label": "Start recording",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: explicit one-click Start for the displayed source, with stale-offer and recording admission checks; source review remains available."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Label.runtime-ce4398117a5f",
-    "surface": "proactive offer MeetingOfferPanelController",
-    "label": null,
-    "expression": "MeetingDetector . offerTitle ( for : offer )",
-    "kind": "status",
-    "belongsTo": "dictate",
-    "note": "The meeting offer title: \"Possible call in <app>\" or \"Possible call on this Mac\". Runtime label from MeetingDetector . offerTitle ( for : offer )."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.finish-meeting",
-    "surface": "quick panel status rows",
-    "label": "Finish meeting",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.cancel-start",
-    "surface": "quick panel status rows",
-    "label": "Cancel start",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality (#377): a meeting that is still starting offers the Meetings page's own Cancel start, where it read finishing with Stop processing. The same row shows in Home's Current work."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.keep-recording",
-    "surface": "quick panel status rows",
-    "label": "Keep recording",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality (#377): during the call-audio countdown the row offers the page's and toolbar's Keep recording beside Finish meeting, so the automatic finish can be cancelled without opening Meetings. Never starts another capture. The same row shows in Home's Current work."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.runtime-d6237faf6167",
-    "surface": "quick panel status rows",
-    "label": null,
-    "expression": "Self . title ( starting : model . isStarting , recording : model . isRecording , phase : model . voiceSession . recordingTitle , autoFinishSeconds : model . autoFinishSeconds , limitWarning : model . timeLimitWarning )",
-    "note": "Quality: opens the same Meetings page and names its actual state: starting, recording, paused, reconnecting or finishing, the call-audio countdown, and the two-hour limit's warning from five minutes before it (#377).",
-    "kind": "action",
-    "belongsTo": "dictate"
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingQuickStatus.Button.stop-processing",
-    "surface": "quick panel status rows",
-    "label": "Stop processing",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: was Cancel, which kept the audio. Stop processing is the page's own word for the same action (1 Oct)."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.audio-recording-settings",
-    "surface": "meeting page",
-    "label": "Audio Recording Settings…",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Contextual recovery only for the documented Core Audio permission refusal. The existing Meetings owner checks the Settings-open result; arbitrary OSStatus errors do not infer permission denial."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.copy-transcript",
-    "surface": "meeting page",
-    "label": "Copy transcript",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality (#280): completed Meetings copies the exact committed transcript’s complete current wording through the existing History clipboard owner. No model or assistant setup, new store or automatic paste."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.history",
-    "surface": "meeting page",
-    "label": "History",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Quality: the meeting page's existing door to History takes the place's name (was Recent transcripts; #137)."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.microphone-settings",
-    "surface": "meeting page",
-    "label": "Microphone Settings…",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: a meeting refused the microphone opens its System Settings pane beside the problem, as the toolbar's dictation failure does (1 Oct).",
-    "aliasOf": "dictate"
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.models",
-    "surface": "meeting page",
-    "label": "Models…",
-    "kind": "action",
-    "belongsTo": "settings",
-    "note": "Door to Settings › Models beside the engine Meetings uses, the one place an engine is chosen (Grammar rule 9; 1 Oct)."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.prepare-follow-up",
-    "surface": "meeting page",
-    "label": "Prepare follow-up…",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Option of Hand off: opens the existing review with only this committed meeting as reference and a context-sensitive follow-up task; no send or automatic provider run."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.review-transcript",
-    "surface": "meeting page",
-    "label": "Review transcript",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Opens this committed meeting transcript in History without replacing the Dictate draft."
-  },
-  {
-    "id": "LocalVoice.MeetingWorkspaceView.MeetingWorkspaceView.Button.start-recording",
-    "surface": "meeting page",
-    "label": "Start recording",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: explicit one-click Start for the displayed source, with stale-offer and recording admission checks; source review remains available."
-  },
-  {
     "id": "LocalVoice.ModelSettingsView.ModelSettingsView.Button.runtime-53b2ce09b5d8",
     "surface": "settings page",
     "label": null,
     "expression": "actionTitle",
-    "note": "Quality (#15 / foundation J): Download Parakeet is deliberate; Use Parakeet selects and checks cached files only. In use reflects actual admission. Cancel setup remains reachable during preparation.",
+    "note": "Runtime label from actionTitle; no rendered text assumed.",
     "kind": "setting",
     "belongsTo": "settings"
   },
@@ -823,7 +654,7 @@
     "expression": "model . mode . actionTitle",
     "kind": "action",
     "belongsTo": "library",
-    "note": "Foundation A1/L4: the production Library opener uses a Copy-only context, with the complete saved prompt and no inferred external insertion target. Runtime label from model.mode.actionTitle; shared delivery state remains owned by the picker."
+    "note": "Runtime label from model . mode . actionTitle; no rendered text assumed."
   },
   {
     "id": "LocalVoice.PromptPicker.PromptPickerView.Button.runtime-54146627b2ad",
@@ -832,7 +663,7 @@
     "expression": "prompt . pickerTitle",
     "kind": "action",
     "belongsTo": "library",
-    "note": "Quality: one row per saved prompt, favourites first, replacing the menu's repeated prompt items (#159). Runtime label from prompt . pickerTitle; no rendered text assumed."
+    "note": "Runtime label from prompt . pickerTitle; no rendered text assumed."
   },
   {
     "id": "LocalVoice.PromptPicker.PromptPickerView.Button.runtime-7ace8db149f9",
@@ -841,7 +672,7 @@
     "expression": "model . showsDetails ? \"Hide details\" : \"Details\"",
     "kind": "action",
     "belongsTo": "library",
-    "note": "Quality: shows the last delivery's full reason behind its one-line status (#159). Runtime label; no rendered text assumed."
+    "note": "Runtime label from model . showsDetails ? \"Hide details\" : \"Details\"; no rendered text assumed."
   },
   {
     "id": "LocalVoice.PromptPicker.PromptPickerView.Button.show-all-prompts",
@@ -1033,42 +864,9 @@
     "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
   },
   {
-    "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.finish-meeting",
-    "surface": "floating toolbar activity chooser",
-    "label": "Finish meeting",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
-  },
-  {
-    "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.keep-recording",
-    "surface": "floating toolbar activity chooser",
-    "label": "Keep recording",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: cancels automatic Finish for the same recording; never starts another capture. Available only during the call-end grace period."
-  },
-  {
-    "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.open-meetings",
-    "surface": "floating toolbar activity chooser",
-    "label": "Open Meetings…",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Approved #134 overflow removal: this existing action now lives with its activity or live owner; selection alone never starts or ends work.",
-    "aliasOf": "dictate"
-  },
-  {
     "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.pause-dictation",
     "surface": "floating toolbar activity chooser",
     "label": "Pause dictation",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
-  },
-  {
-    "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.pause-meeting",
-    "surface": "floating toolbar activity chooser",
-    "label": "Pause meeting",
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
@@ -1086,14 +884,6 @@
     "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.resume-dictation",
     "surface": "floating toolbar activity chooser",
     "label": "Resume dictation",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
-  },
-  {
-    "id": "LocalVoice.ToolbarActivityActions.FloatingToolbar.command.resume-meeting",
-    "surface": "floating toolbar activity chooser",
-    "label": "Resume meeting",
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Quality: shared voice session transport. Finish saves and completes; Pause and Resume keep the same recording. Commands revalidate the displayed session and state."
@@ -1139,7 +929,7 @@
     "surface": "floating toolbar activity chooser",
     "label": null,
     "expression": "model . retryCaptureLabel",
-    "note": "Approved #134 overflow removal: this existing action now lives with its activity or live owner; selection alone never starts or ends work.",
+    "note": "Runtime label from model . retryCaptureLabel; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "dictate"
   },
@@ -1148,7 +938,7 @@
     "surface": "floating toolbar activity chooser",
     "label": null,
     "expression": "end",
-    "note": "Quality: the existing Persona End command names the active artwork or camera visit and revalidates that visit before ending it.",
+    "note": "Runtime label from end; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -1157,7 +947,7 @@
     "surface": "floating toolbar activity chooser",
     "label": null,
     "expression": "step . transport . title + \" timer\"",
-    "note": "Approved #134 overflow removal: this existing action now lives with its activity or live owner; selection alone never starts or ends work.",
+    "note": "Runtime label from step . transport . title + \" timer\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "timer"
   },
@@ -1166,7 +956,7 @@
     "surface": "floating toolbar activity chooser",
     "label": null,
     "expression": "visibility",
-    "note": "Quality: the existing Persona visibility command follows the current artwork or camera visit and keeps an old control from affecting a newer visit.",
+    "note": "Runtime label from visibility; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -1175,7 +965,7 @@
     "surface": "floating toolbar activity chooser",
     "label": null,
     "expression": "shown ? \"Hide timer\" : \"Show timer\"",
-    "note": "Quality (1 October, Ethan: the timer must not be an afterthought): one name, Timer, and one word set on every surface. Show timer or Hide timer acts on the timer's window alone; the countdown keeps running.",
+    "note": "Runtime label from shown ? \"Hide timer\" : \"Show timer\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "timer",
     "aliasOf": "timer"
@@ -1281,9 +1071,9 @@
     "belongsTo": "dictate"
   },
   {
-    "id": "LocalVoice.Views.DictionaryView.Button.back-to-dictate",
+    "id": "LocalVoice.Views.DictionaryView.Button.back-to-voice-to-text",
     "surface": "dictionary page",
-    "label": "Back to Dictate",
+    "label": "Back to Voice to Text",
     "kind": "action",
     "belongsTo": "dictate",
     "note": "Returns to the current Dictate draft without replacing it."
@@ -1302,7 +1092,7 @@
     "surface": "floating toolbar hover action",
     "label": null,
     "expression": "nextAction ( tool ) ! . title",
-    "note": "Quality: existing capability rows name only their own current operation. The shared operation vocabulary is unchanged; this expression reads the capability-scoped projection.",
+    "note": "Runtime label from nextAction ( tool ) ! . title; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "app"
   },
@@ -1338,7 +1128,7 @@
     "expression": "updates . buttonTitle",
     "kind": "action",
     "belongsTo": "settings",
-    "note": "Existing sidebar update action: a version, short release benefit and one routine install/restart choice. Preserves the current page; exceptional releases open native review."
+    "note": "Runtime label from updates . buttonTitle; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.Button.copy-again",
@@ -1371,7 +1161,7 @@
     "expression": "receipt . title",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the shelf's title is the receipt's own title, such as Copied, so the panel, Home and the floating receipt agree (#165). Runtime label from receipt . title; no rendered text assumed."
+    "note": "Runtime label from receipt . title; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-041b2865004f",
@@ -1380,7 +1170,7 @@
     "expression": "TextRules . wordCountLabel ( receipt . wordCount )",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the word count beside the title, as the floating receipt shows it (#165), from the one wordCountLabel that Dictate, History and Transcript review use, so one word reads 1 word everywhere (#357). Runtime label; no rendered text assumed."
+    "note": "Runtime label from TextRules . wordCountLabel ( receipt . wordCount ); no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-09d99a85b0f2",
@@ -1389,7 +1179,7 @@
     "expression": "unresolved . title",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality (#134 T5): an undelivered result's title, such as Copy failed or Paste unconfirmed, kept by the delivery owner rather than the receipt. Runtime label from unresolved . title; no rendered text assumed."
+    "note": "Runtime label from unresolved . title; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-226f79815f30",
@@ -1398,7 +1188,7 @@
     "expression": "receipt . detail",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality: the receipt's own detail, such as Paste with ⌘V., replacing the shelf's separate wording (#165). Runtime label from receipt . detail; no rendered text assumed."
+    "note": "Runtime label from receipt . detail; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchClipboardShelf.status.runtime-81dfc2765d94",
@@ -1407,22 +1197,22 @@
     "expression": "unresolved . detail",
     "kind": "status",
     "belongsTo": "dictate",
-    "note": "Quality (#134 T5): what happened and where the words are. Runtime label from unresolved . detail; no rendered text assumed."
+    "note": "Runtime label from unresolved . detail; no rendered text assumed."
   },
   {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Button.dictate-settings",
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Button.voice-to-text-settings",
     "surface": "settings page",
-    "label": "Dictate settings…",
-    "kind": "option",
+    "label": "Voice to Text settings…",
+    "kind": "action",
     "belongsTo": "dictate",
-    "note": "Opens the same Dictate settings sheet as the Dictate header."
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Button.runtime-154195417da5",
     "surface": "window sidebar",
     "label": null,
     "expression": "Image ( systemName : \"sidebar.left\" )",
-    "note": "Requested sidebar collapse/expand control. Its tooltip and accessibility label name the current action; Control-Command-S performs the same local navigation setting.",
+    "note": "Runtime label from Image ( systemName : \"sidebar.left\" ); no rendered text assumed.",
     "kind": "action",
     "belongsTo": "app"
   },
@@ -1506,19 +1296,20 @@
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.annotate",
     "surface": "window sidebar",
-    "label": "Draw",
+    "label": "Annotate",
     "page": "annotate",
     "kind": "capability",
     "belongsTo": "draw",
-    "note": "Quality: Annotate takes its Grammar name, Draw, in the same place. The alias it needed is gone (#134)."
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.dictate",
     "surface": "window sidebar",
-    "label": "Dictate",
+    "label": "Voice to Text",
     "page": "dictate",
     "kind": "capability",
-    "belongsTo": "dictate"
+    "belongsTo": "dictate",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.history",
@@ -1545,23 +1336,6 @@
     "kind": "place",
     "belongsTo": "library",
     "note": "Quality: Saved resources takes its Grammar place name, Library, in the same place. The alias it needed is gone (#134)."
-  },
-  {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.meeting",
-    "surface": "window sidebar",
-    "label": "Meetings",
-    "page": "meeting",
-    "kind": "workflow",
-    "belongsTo": "dictate",
-    "note": "Existing meeting/call transcription workflow promoted to a visible Meetings destination by the desktop redesign. Navigation starts no recording."
-  },
-  {
-    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.personas",
-    "surface": "window sidebar",
-    "label": "Persona",
-    "page": "personas",
-    "kind": "capability",
-    "belongsTo": "persona"
   },
   {
     "id": "LocalVoice.WorkbenchHome.WorkbenchHome.sidebar.present",
@@ -1682,7 +1456,7 @@
     "surface": "window home",
     "label": null,
     "expression": "dictationTitle",
-    "note": "Option: the guided first dictation; label follows phase as the Dictate page's microphone does (#134 W9): Start dictating, Finish dictation or Cancel, and VoiceOver speaks the words shown, with Cancel heard as Cancel microphone request, as on Dictate (#357). Finish dictation is the toolbar's word too; the toolbar's Dictate and Cancel request differ, and that difference is left to the Names decision.",
+    "note": "Runtime label from dictationTitle; no rendered text assumed.",
     "kind": "capability",
     "belongsTo": "dictate"
   },
@@ -1691,7 +1465,7 @@
     "surface": "window home",
     "label": null,
     "expression": "persona . rowTitle",
-    "note": "Quality: the live strip's Persona action (was Button.hide-persona), with its label and click now from the shared Persona action: Hide persona, Hide personas, or Show personas for a hidden prepared set, as the toolbar and panel read (#134).",
+    "note": "Runtime label from persona . rowTitle; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -1766,7 +1540,7 @@
     "expression": "text",
     "kind": "status",
     "belongsTo": "app",
-    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+    "note": "Runtime label from text; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchPageStyle.WorkbenchNote.status.runtime-982d9e3eb996.2",
@@ -1775,7 +1549,7 @@
     "expression": "text",
     "kind": "status",
     "belongsTo": "app",
-    "note": "Quality (#335): the kit's note in the panel, primary words beside the attention symbol. It carries the first sentence of a warning in the recovery row; the whole message is its help text and its page shows it in full."
+    "note": "Runtime label from text; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.PanelRecoveryRow.Button.runtime-27f7b4321a3d",
@@ -1784,7 +1558,7 @@
     "expression": "\"Open \\(name)…\"",
     "kind": "action",
     "belongsTo": "app",
-    "note": "Runtime label: Open and the page record's name for the page that shows the message and its recovery in full: Dictate, Read, Models, Snap & Talk, Draw, Present or Persona (#134). Detailed help opens the owning page."
+    "note": "Runtime label from \"Open \\(name)…\"; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.PanelRecoveryRow.status.runtime-533012ee421b",
@@ -1793,7 +1567,7 @@
     "expression": "Self . headline ( message )",
     "kind": "status",
     "belongsTo": "app",
-    "note": "Runtime label: the first sentence of what needs attention, a Dictate or Read error, a drawing, scene or persona notice, a Snap & Talk notice or speech that is not ready, in place of the whole message (#134). The whole message is its help text, and its page shows it in full."
+    "note": "Runtime label from Self . headline ( message ); no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.WorkbenchQuickPanel.quick-panel-annotate-options.NativeControlMenu.options",
@@ -1819,21 +1593,6 @@
     "kind": "action",
     "belongsTo": "history",
     "note": "Quality: Dictate's recent-transcripts option in the same slot, renamed to the place it opens. It opens History on Transcripts (#137)."
-  },
-  {
-    "id": "LocalVoice.WorkbenchQuickPanel.WorkbenchQuickPanel.quick-panel-dictate-options.ToolbarMenuAction.meetings",
-    "surface": "quick panel dictate options",
-    "label": "Meetings…",
-    "kind": "workflow",
-    "belongsTo": "dictate",
-    "note": "Existing meeting/call transcription workflow promoted to a visible Meetings destination by the desktop redesign. Navigation starts no recording."
-  },
-  {
-    "id": "LocalVoice.WorkbenchQuickPanel.WorkbenchQuickPanel.quick-panel-dictate-options.ToolbarMenuAction.open-dictate",
-    "surface": "quick panel dictate options",
-    "label": "Open Dictate…",
-    "kind": "action",
-    "belongsTo": "dictate"
   },
   {
     "id": "LocalVoice.WorkbenchQuickPanel.WorkbenchQuickPanel.quick-panel-dictate-options.ToolbarMenuAction.set-up-automatic-paste",
@@ -1943,7 +1702,7 @@
     "surface": "quick panel rows",
     "label": null,
     "expression": "state . actionTitle ( tool )",
-    "note": "Quality: existing rows use only their own capability state and owner admission, with a guard against obsolete clicks. No new entry or preference. Runtime label from state . actionTitle ( tool ); no rendered text assumed.",
+    "note": "Runtime label from state . actionTitle ( tool ); no rendered text assumed.",
     "kind": "action",
     "belongsTo": "app"
   },
@@ -2012,7 +1771,7 @@
     "expression": "updates . buttonTitle",
     "kind": "action",
     "belongsTo": "settings",
-    "note": "The same updater action as the sidebar; native review is retained for exceptional releases."
+    "note": "Runtime label from updates . buttonTitle; no rendered text assumed."
   },
   {
     "id": "LocalVoice.WorkbenchUpdates.WorkbenchUpdateSettings.Button.release-notes-and-downloads",
@@ -2037,12 +1796,12 @@
     "belongsTo": "settings"
   },
   {
-    "id": "LocalVoice.main.AppDelegate.NSMenuItem.draw",
+    "id": "LocalVoice.main.AppDelegate.NSMenuItem.annotate",
     "surface": "app menu bar",
-    "label": "Draw",
+    "label": "Annotate",
     "kind": "action",
     "belongsTo": "draw",
-    "note": "Quality: the top-level Annotate menu takes its Grammar name, Draw, in the same place, holding the same Draw menu (#134)."
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
   },
   {
     "id": "LocalVoice.main.AppDelegate.NSMenuItem.services",
@@ -2162,7 +1921,7 @@
     "expression": "Self . floatingToolbarTitle ( visible : model . floatingToolbarVisible )",
     "kind": "action",
     "belongsTo": "app",
-    "note": "Runtime label: Show Floating Toolbar while the saved preference is off and Hide Floating Toolbar while it is on, in the menus' title case; the same switch as the panel and Settings (#134 H3). Focus Floating Toolbar stays beside it."
+    "note": "Runtime label from Self . floatingToolbarTitle ( visible : model . floatingToolbarVisible ); no rendered text assumed."
   },
   {
     "id": "LocalVoice.main.AppDelegate.addItem.select-all",
@@ -2222,20 +1981,20 @@
   {
     "id": "LocalVoice.main.AppDelegate.page-item.annotate",
     "surface": "app menu bar",
-    "label": "Draw",
+    "label": "Annotate",
     "page": "annotate",
     "kind": "action",
     "belongsTo": "draw",
-    "note": "Quality: Window lists every sidebar page in the sidebar's order, named by the page record (#134; 1 Oct). Opens the Draw page; the top-level Draw menu holds the tools."
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "LocalVoice.main.AppDelegate.page-item.dictate",
     "surface": "app menu bar",
-    "label": "Dictate",
+    "label": "Voice to Text",
     "page": "dictate",
     "kind": "action",
     "belongsTo": "dictate",
-    "note": "Quality: Window lists every sidebar page in the sidebar's order, named by the page record (#134; 1 Oct)."
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "LocalVoice.main.AppDelegate.page-item.history",
@@ -2254,15 +2013,6 @@
     "kind": "action",
     "belongsTo": "library",
     "note": "Quality: Window › Library takes its name and route from the page record, keeps ⌘L and focuses Library's search as the Library shortcut does (#134)."
-  },
-  {
-    "id": "LocalVoice.main.AppDelegate.page-item.meeting",
-    "surface": "app menu bar",
-    "label": "Meetings…",
-    "page": "meeting",
-    "kind": "workflow",
-    "belongsTo": "dictate",
-    "note": "Existing meeting/call transcription workflow promoted to a visible Meetings destination by the desktop redesign. Navigation starts no recording."
   },
   {
     "id": "LocalVoice.main.AppDelegate.page-item.personas",
@@ -2547,7 +2297,7 @@
     "surface": "Present menu",
     "label": null,
     "expression": "step . title",
-    "note": "Quality (#276): the phone status’s one next step from PhoneLink (Show and the source’s name, Choose screen…, Reconnect or Camera Settings…), the same step the Present page and the stage controls offer. Camera Settings… only opens System Settings; nothing is changed for the person.",
+    "note": "Runtime label from step . title; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "present"
   },
@@ -2635,7 +2385,7 @@
     "surface": "local profile",
     "label": null,
     "expression": "\"Use \\(selected.name) as My Profile\"",
-    "note": "Renamed 8 Oct 2026 (Ethan: the two first-class Persona sources are Live Camera and My Profile). Local My Profile editor uses the existing Persona library and appearance editor. Changes save only on explicit confirmation; Cancel preserves prior work.",
+    "note": "Runtime label from \"Use \\(selected.name) as My Profile\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -2785,7 +2535,7 @@
     "expression": "\"Replace Shown with \" + name",
     "kind": "action",
     "belongsTo": "persona",
-    "note": "Quality within Persona (#170): replaces the shown floating card, shown or hidden, with the preparation selection, keeping its size, place and lock. Named by the selection's public label only."
+    "note": "Runtime label from \"Replace Shown with \" + name; no rendered text assumed."
   },
   {
     "id": "StageKit.Persona.PersonaLibrary.StageMenuAction.show-again",
@@ -3096,7 +2846,7 @@
     "surface": "local profile",
     "label": null,
     "expression": "saveTitle",
-    "note": "Local Me profile uses the existing Persona library and appearance editor. Changes save only on explicit confirmation; Cancel preserves prior work.",
+    "note": "Runtime label from saveTitle; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -3271,7 +3021,7 @@
     "surface": "Persona live copies",
     "label": null,
     "expression": "copy . visible ? \"Hide selected\" : \"Show selected\"",
-    "note": "Approved #134 overflow removal: this existing action now lives with its activity or live owner; selection alone never starts or ends work.",
+    "note": "Runtime label from copy . visible ? \"Hide selected\" : \"Show selected\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "persona"
   },
@@ -3477,7 +3227,7 @@
     "expression": "\"\\(chosen.formatted(.number)) min\"",
     "kind": "option",
     "belongsTo": "timer",
-    "note": "Duration's readback (#174): shown, checked, only while the saved duration matches none of the presets, such as the Timer page's 3 min or a typed 20 or 2.5, so the menu shows what Start will run. Choosing it keeps that duration. Runtime label from \"\\(chosen.formatted(.number)) min\"; no rendered text assumed."
+    "note": "Runtime label from \"\\(chosen.formatted(.number)) min\"; no rendered text assumed."
   },
   {
     "id": "StageKit.StageKitController.StageKitController.StageMenuAction.chime-when-time-is-up",
@@ -3507,7 +3257,7 @@
     "surface": "Timer menu",
     "label": null,
     "expression": "shown ? \"Hide Timer\" : \"Show Timer\"",
-    "note": "Quality (1 October, Ethan: the timer must not be an afterthought): one name, Timer, and one word set on every surface. Show Timer or Hide Timer acts on the timer's window alone; the countdown keeps running.",
+    "note": "Runtime label from shown ? \"Hide Timer\" : \"Show Timer\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "timer"
   },
@@ -3516,7 +3266,7 @@
     "surface": "Timer menu",
     "label": null,
     "expression": "transport . transport . title + \" Timer\"",
-    "note": "Quality (1 October, Ethan: the timer must not be an afterthought): one name, Timer, and one word set on every surface. The one next step (Start, Pause, Resume or Restart Timer) for the countdown shown (#174). It replaces a separate Start Timer that silently restarted a running countdown, and Reset Timer, which Stop and Restart cover.",
+    "note": "Runtime label from transport . transport . title + \" Timer\"; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "timer"
   },
@@ -3591,17 +3341,18 @@
     "id": "ToolbarCore.ToolbarNextAction.ToolbarNextAction.hover-title.dictate",
     "surface": "floating toolbar next action",
     "label": null,
-    "expression": "live . canRecordAgain ? \"Record again\" : \"Dictate\"",
-    "note": "Runtime label from live . canRecordAgain ? \"Record again\" : \"Dictate\"; no rendered text assumed.",
+    "expression": "live . canRecordAgain ? \"Record again\" : \"Voice to Text\"",
+    "note": "Runtime label from live . canRecordAgain ? \"Record again\" : \"Voice to Text\"; no rendered text assumed.",
     "kind": "capability",
     "belongsTo": "dictate"
   },
   {
     "id": "ToolbarCore.ToolbarNextAction.ToolbarNextAction.hover-title.draw",
     "surface": "floating toolbar next action",
-    "label": "Draw",
+    "label": "Annotate",
     "kind": "capability",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "ToolbarCore.ToolbarNextAction.ToolbarNextAction.hover-title.endPresentation",
@@ -3729,7 +3480,7 @@
     "surface": "floating toolbar next action",
     "label": null,
     "expression": "live . dictation == . cancelling ? \"Cancelling…\" : live . dictation == . processing | | live . dictation == . waitingForDrawing ? \"Processing…\" : \"Capturing…\"",
-    "note": "Runtime label from live . dictation == . cancelling ? \"Cancelling…\" : live . dictation == . processing | | live . dictation == . waitingForDrawing ? \"Processing…\" : \"Capturing…\". Quality (#211 F5): words waiting for drawing that has already ended read Processing…, as other processing does; while drawing continues, Stop drawing leads instead.",
+    "note": "Runtime label from live . dictation == . cancelling ? \"Cancelling…\" : live . dictation == . processing | | live . dictation == . waitingForDrawing ? \"Processing…\" : \"Capturing…\"; no rendered text assumed.",
     "kind": "status",
     "belongsTo": "app"
   },
@@ -3774,18 +3525,20 @@
   {
     "id": "ToolbarCore.ToolbarViewState.ToolbarMode.title.dictate",
     "surface": "floating toolbar modes",
-    "label": "Dictate",
+    "label": "Voice to Text",
     "case": "dictate",
     "kind": "capability",
-    "belongsTo": "dictate"
+    "belongsTo": "dictate",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "ToolbarCore.ToolbarViewState.ToolbarMode.title.draw",
     "surface": "floating toolbar modes",
-    "label": "Draw",
+    "label": "Annotate",
     "case": "draw",
     "kind": "capability",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "ToolbarCore.ToolbarViewState.ToolbarMode.title.persona",
@@ -4155,18 +3908,20 @@
   {
     "id": "quick-panel.row.annotate",
     "surface": "quick panel rows",
-    "label": "Draw",
+    "label": "Annotate",
     "case": "annotate",
     "kind": "capability",
-    "belongsTo": "draw"
+    "belongsTo": "draw",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "quick-panel.row.dictate",
     "surface": "quick panel rows",
-    "label": "Dictate",
+    "label": "Voice to Text",
     "case": "dictate",
     "kind": "capability",
-    "belongsTo": "dictate"
+    "belongsTo": "dictate",
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "quick-panel.row.persona",
@@ -4386,11 +4141,11 @@
   {
     "id": "shortcut.stage.pen",
     "surface": "global shortcuts",
-    "label": "Draw",
+    "label": "Annotate",
     "case": "pen",
     "kind": "action",
     "belongsTo": "draw",
-    "note": "Quality (#76; 15 October): renamed from Pen to Draw, the name Home teaches for this presenter key (hold it to draw with the pen), so Settings › Keyboard, the shortcut editors and conflict messages say the same. The action and its saved shortcut are unchanged. Draw's tool list keeps the tool's own name, Pen (choices.DrawingTool.pen)."
+    "note": "Quality: renamed the existing entry to the current core tool name; stored identifiers and behavior stay compatible."
   },
   {
     "id": "shortcut.stage.personaNext",
@@ -4515,7 +4270,7 @@
     "surface": "handoff review",
     "label": null,
     "expression": "backTitle",
-    "note": "Foundation C (#281): handoff review retains the full request and selection while choosing manual copy or an explicitly started checked runner.",
+    "note": "Runtime label from backTitle; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "history"
   },
@@ -4894,7 +4649,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "Image ( systemName : item . favorite ? \"star.fill\" : \"star\" )",
-    "note": "Runtime label from Image ( systemName : item . favorite ? \"star.fill\" : \"star\" ); no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from Image ( systemName : item . favorite ? \"star.fill\" : \"star\" ); no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -4904,7 +4659,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "item . primaryActionTitle",
-    "note": "Runtime label from item . primaryActionTitle; no rendered text assumed. Foundation A2/L1: current resource primary action is Copy prompt, Open link, Open in default browser, Open file or Locate file. Rechecks the rendered resource ID before dispatch.",
+    "note": "Runtime label from item . primaryActionTitle; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -4914,7 +4669,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "Image ( systemName : \"xmark\" )",
-    "note": "Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from Image ( systemName : \"xmark\" ); no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -4924,7 +4679,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "Image ( systemName : \"trash\" )",
-    "note": "Runtime label from Image ( systemName : \"trash\" ); no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from Image ( systemName : \"trash\" ); no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -4948,9 +4703,9 @@
     "note": "Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text."
   },
   {
-    "id": "LocalVoice.DemoLibraryView.DemoLibraryView.Button.save-dictate-transcript-as-prompt",
+    "id": "LocalVoice.DemoLibraryView.DemoLibraryView.Button.save-voice-to-text-transcript-as-prompt",
     "surface": "Library Resources",
-    "label": "Save Dictate transcript as prompt…",
+    "label": "Save Voice to Text transcript as prompt…",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library",
@@ -4997,7 +4752,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "\"Chrome · \\(target.profileName)\"",
-    "note": "Runtime label from \"Chrome · \\(target.profileName)\"; no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from \"Chrome · \\(target.profileName)\"; no rendered text assumed.",
     "kind": "status",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5034,7 +4789,7 @@
     "surface": "Library Resources",
     "label": null,
     "expression": "Image ( systemName : library . favoritesOnly ? \"star.fill\" : \"star\" )",
-    "note": "Runtime label from Image ( systemName : library . favoritesOnly ? \"star.fill\" : \"star\" ); no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from Image ( systemName : library . favoritesOnly ? \"star.fill\" : \"star\" ); no rendered text assumed.",
     "kind": "option",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5071,7 +4826,7 @@
     "surface": "Library resource editor",
     "label": null,
     "expression": "item . content",
-    "note": "Runtime label from item . content; no rendered text assumed. Foundation A2/L1: existing Library resource control now covered by the page-local scanner; uses the same resource owner and never starts a tool or submits text.",
+    "note": "Runtime label from item . content; no rendered text assumed.",
     "kind": "status",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5306,7 +5061,7 @@
     "surface": "Library Packs",
     "label": null,
     "expression": "entry . actionTitle",
-    "note": "Use skill, Add scene, Add persona or Save resource for this verified pack entry. Dual-input skills require an explicit destination; personal copies select their owner without Show/Present; saved files return to Resources after verified reference creation.",
+    "note": "Runtime label from entry . actionTitle; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5397,7 +5152,7 @@
     "surface": "Library Packs",
     "label": null,
     "expression": "pack . repository",
-    "note": "Runtime label from pack . repository; no rendered text assumed. Foundation A2/L2: contextual control in existing Library Packs; content remains usable offline and preparation never starts capture or submission.",
+    "note": "Runtime label from pack . repository; no rendered text assumed.",
     "kind": "action",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5407,7 +5162,7 @@
     "surface": "Library Packs",
     "label": null,
     "expression": "Image ( systemName : \"ellipsis.circle\" )",
-    "note": "Runtime label from Image ( systemName : \"ellipsis.circle\" ); no rendered text assumed. Foundation A2/L2: contextual control in existing Library Packs; content remains usable offline and preparation never starts capture or submission.",
+    "note": "Runtime label from Image ( systemName : \"ellipsis.circle\" ); no rendered text assumed.",
     "kind": "option",
     "belongsTo": "library",
     "aliasOf": "library"
@@ -5477,7 +5232,7 @@
     "kind": "action",
     "belongsTo": "settings",
     "note": "Quality (#15): contextual deferral of speech setup, using the existing Not now grammar; keeps saved work and unrelated tools usable and starts no capture.",
-    "aliasOf": "LocalVoice.MeetingWorkspaceView.MeetingOfferPanelController.Button.not-now"
+    "aliasOf": "dictate"
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-90b2ee8a5505",
@@ -5486,7 +5241,7 @@
     "expression": "action . title",
     "kind": "setting",
     "belongsTo": "app",
-    "note": "Ethan 7 Oct 2026 (docs/desktop.md decisions): a permission row's Set up… shows macOS's request for that one approval through the owner its tool already uses; Open System Settings… opens Privacy & Security at that approval; Change… on an allowed row opens its list, where the person turns it off (8 Oct: macOS doesn't let an app revoke its own approval). Nothing is requested by looking, and no tool waits on it."
+    "note": "Runtime label from action . title; no rendered text assumed."
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.show-details",
@@ -5497,38 +5252,13 @@
     "note": "Quality: shows each approval when the panel is folded; local to the panel (docs/desktop.md § Home)."
   },
   {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.copy-transcript",
-    "surface": "window home",
-    "label": "Copy transcript",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "aliasOf": "dictate",
-    "note": "Option: Copy transcript on Home's Last meeting copies the saved meeting's complete current text through the same owner as Meetings' Copy transcript (MeetingTranscriptCopy); same words, same result (Fit rule 6)."
-  },
-  {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.open-meetings",
-    "surface": "window home",
-    "label": "Open Meetings",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Option: a door to Meetings from the Last meeting tile while a meeting records or finishes; it starts nothing."
-  },
-  {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.open-meetings.2",
-    "surface": "window home",
-    "label": "Open Meetings",
-    "kind": "action",
-    "belongsTo": "dictate",
-    "note": "Option: the empty Last meeting tile's one next step; opening Meetings starts nothing (Start stays explicit)."
-  },
-  {
     "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up",
     "surface": "history page",
     "label": "Prepare follow-up…",
     "kind": "action",
     "belongsTo": "history",
     "aliasOf": "history",
-    "note": "Option: the same reviewed follow-up handoff that Meetings' and Home's Prepare follow-up\u2026 open, on every meeting or call in History (22 October 2026: a past meeting otherwise took a checkbox, Hand off\u2026, a skill change and a cleared selection). Nothing is sent until the review (Fit rule 6); the result lands in History, where the person acted."
+    "note": "Option: the same reviewed follow-up handoff that Meetings' and Home's Prepare follow-up… open, on every meeting or call in History (22 October 2026: a past meeting otherwise took a checkbox, Hand off…, a skill change and a cleared selection). Nothing is sent until the review (Fit rule 6); the result lands in History, where the person acted."
   },
   {
     "id": "LocalVoice.CaptureHistoryView.TranscriptHistoryRow.Button.prepare-follow-up.2",
@@ -5540,22 +5270,13 @@
     "note": "The row's context menu carries the same door, as it carries every row action."
   },
   {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.prepare-follow-up",
-    "surface": "window home",
-    "label": "Prepare follow-up…",
-    "kind": "action",
-    "belongsTo": "history",
-    "aliasOf": "history",
-    "note": "Option: the same reviewed follow-up handoff that Meetings' Prepare follow-up… opens for that transcript; nothing is sent until the review (Fit rule 6). Stays while the follow-up is only prepared with the door's own skill and request, so reopening reaches that same task and Start task can bring its result to the tile (#377)."
-  },
-  {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.runtime-fe289c1404ed",
     "surface": "window home",
     "label": null,
     "expression": "snapshot . isComplete ? \"Hide details\" : \"Done for now\"",
     "kind": "action",
     "belongsTo": "app",
-    "note": "Quality: the Permissions panel's fold, Done for now (saved) or Hide details once all is allowed; only something that turns off after folding opens it again (docs/desktop.md § Home)."
+    "note": "Runtime label from snapshot . isComplete ? \"Hide details\" : \"Done for now\"; no rendered text assumed."
   },
   {
     "id": "LocalVoice.HomePermissions.HomePermissionsPanel.Button.copy-permission-details",
@@ -5612,7 +5333,7 @@
     "expression": "deck . title",
     "kind": "action",
     "belongsTo": "snapAndTalk",
-    "note": "Option: an earlier session's one line (its title) opens it in Snap & Talk through the same switch as Sessions…."
+    "note": "Runtime label from deck . title; no rendered text assumed."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeDecksTile.Button.sample-deck",
@@ -5637,7 +5358,7 @@
     "expression": "\"View the first screen of \" + deck . title",
     "kind": "action",
     "belongsTo": "snapAndTalk",
-    "note": "Quality: a session's first screen opens as a read-only picture (Fit rule 3)."
+    "note": "Runtime label from \"View the first screen of \" + deck . title; no rendered text assumed."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeDecksTile.CapturePreviewButton.view-the-sample-deck-s-slides",
@@ -5695,7 +5416,7 @@
     "expression": "\"Put \\(HomeKeys.name(entry)) on \\(shortcut.label)\"",
     "kind": "setting",
     "belongsTo": "settings",
-    "note": "Ethan 7 Oct 2026: Put Snap on ⌥G (or the next free left-hand key, never ⌥E) assigns a key to a core tool that ships without one, through the Keyboard coach's conflict check and registration probe."
+    "note": "Runtime label from \"Put \\(HomeKeys.name(entry)) on \\(shortcut.label)\"; no rendered text assumed."
   },
   {
     "id": "LocalVoice.HomeTiles.HomeKeysTile.Button.stop-practice",
@@ -5704,31 +5425,6 @@
     "kind": "action",
     "belongsTo": "settings",
     "note": "Option: stops a practice started from Your keys; the Keyboard coach's own stop."
-  },
-  {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.open-follow-up",
-    "surface": "window home",
-    "label": "Open follow-up",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Option: once a follow-up from the newest meeting has run in Workbench (finished or not), or was prepared with another request or skill than the meeting's door, opens that task in History, where Copy result, Start task…, Retry… and its receipt are. A follow-up only prepared by the door, such as one copied to the person's own assistant, keeps Prepare follow-up… (#377)."
-  },
-  {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.review-transcript",
-    "surface": "window home",
-    "label": "Review transcript",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Option: Review transcript opens that exact transcript in History, as Meetings' Review transcript does; nothing is selected or loaded into Dictate."
-  },
-  {
-    "id": "LocalVoice.HomeTiles.HomeMeetingTile.Button.runtime-fec7ab1d0f54",
-    "surface": "window home",
-    "label": null,
-    "expression": "meeting . heading",
-    "kind": "action",
-    "belongsTo": "history",
-    "note": "Option: an earlier meeting's one line (its heading) opens that transcript in History."
   },
   {
     "id": "LocalVoice.main.AppDelegate.addItem.minimize",
@@ -5812,5 +5508,103 @@
     "kind": "option",
     "belongsTo": "persona",
     "note": "Option of Persona's Live Camera (Ethan, 8 Oct: Centre Stage as a setting). Shown only while the bubble shows a camera with a Center Stage format (AVCaptureDevice.Format.isCenterStageSupported). Sets macOS's per-app switch in cooperative control, so the menu bar's Video menu changes it too and Workbench keeps no copy. See docs/research/2026-10-08-persona-live-camera-and-profile.md. It applies to Workbench as a whole, including Take photo… in My Profile. en-AU spelling, as macOS's Video menu reads on Ethan's Mac; the API names keep Apple's spelling in code."
+  },
+  {
+    "id": "LocalVoice.LegacyMeetingArchive.LegacyMeetingRecoveryView.Button.done",
+    "surface": "settings page",
+    "label": "Done",
+    "kind": "action",
+    "belongsTo": "history",
+    "note": "Closes the legacy recording recovery sheet, with the same standard Done dismissal label used by the dictation guide.",
+    "aliasOf": "dictate"
+  },
+  {
+    "id": "LocalVoice.LegacyMeetingArchive.LegacyMeetingRecoveryView.Button.open-meetings",
+    "surface": "settings page",
+    "label": "Open Meetings",
+    "kind": "action",
+    "belongsTo": "history",
+    "note": "Recovery only: shown for retained old recordings; opens the separate Meetings app or reveals originals for explicit copy-only import. No capture, detection or automatic migration."
+  },
+  {
+    "id": "LocalVoice.LegacyMeetingArchive.LegacyMeetingRecoveryView.Button.show-saved-recordings",
+    "surface": "settings page",
+    "label": "Show saved recordings",
+    "kind": "action",
+    "belongsTo": "history",
+    "note": "Recovery only: shown for retained old recordings; opens the separate Meetings app or reveals originals for explicit copy-only import. No capture, detection or automatic migration."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Button.back-to-present",
+    "surface": "window sidebar",
+    "label": "Back to Present",
+    "kind": "action",
+    "belongsTo": "present",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Button.persona-profile-camera",
+    "surface": "window sidebar",
+    "label": "Persona, profile & camera…",
+    "kind": "action",
+    "belongsTo": "persona",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHome.Toggle.snap-talk",
+    "surface": "settings page",
+    "label": "Snap & Talk",
+    "kind": "option",
+    "belongsTo": "snapAndTalk",
+    "note": "User-authorized option: Settings Experimental features explicitly enables Snap & Talk. New and upgraded profiles default off; active capture, transcription or unsaved edits prevent disabling."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.Button.runtime-357058dfdca3",
+    "surface": "window home",
+    "label": null,
+    "expression": "WorkbenchHome . name ( of : route )",
+    "note": "Runtime label from WorkbenchHome . name ( of : route ); no rendered text assumed.",
+    "kind": "action",
+    "belongsTo": "app"
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.choice.annotate",
+    "surface": "window home",
+    "label": "annotate",
+    "kind": "action",
+    "belongsTo": "draw",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.choice.dictate",
+    "surface": "window home",
+    "label": "dictate",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.choice.present",
+    "surface": "window home",
+    "label": "present",
+    "kind": "action",
+    "belongsTo": "present",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchHome.WorkbenchHomePage.choice.snap",
+    "surface": "window home",
+    "label": "snap",
+    "kind": "action",
+    "belongsTo": "snap",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
+  },
+  {
+    "id": "LocalVoice.WorkbenchQuickPanel.WorkbenchQuickPanel.quick-panel-dictate-options.ToolbarMenuAction.open-voice-to-text",
+    "surface": "quick panel dictate options",
+    "label": "Open Voice to Text…",
+    "kind": "action",
+    "belongsTo": "dictate",
+    "note": "Quality: core tools and saved work retain their existing owners. This entry opens the named owner; it never starts capture or changes originals."
   }
 ]
