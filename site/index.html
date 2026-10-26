@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Workbench · Free tools on top of every app on your Mac</title>
-  <meta name="description" content="Workbench is a free set of tools that sit on top of every app on your Mac. Talk and it types. Snap a few screens and get a deck. Draw on anything, and put yourself in the demo.">
+  <meta name="description" content="Workbench is a free set of tools that sit on top of every app on your Mac. Talk and it types. Capture, copy and drag an image. Annotate anything, and present with your face and phone.">
   <link rel="canonical" href="{{SITE_ORIGIN}}/">
   <meta property="og:site_name" content="Workbench">
   <meta property="og:type" content="website">
   <meta property="og:url" content="{{SITE_ORIGIN}}/">
   <meta property="og:title" content="Workbench · Say it. Snap it. Show it.">
-  <meta property="og:description" content="Free smart tools on top of every app on your Mac: dictation, snaps that become decks, drawing on screen and presenting with your face and phone.">
+  <meta property="og:description" content="Free smart tools on top of every app on your Mac: Voice to Text, Snap, Annotate and Present with your face and phone.">
   <meta property="og:image" content="{{SITE_ORIGIN}}/assets/share/workbench.png">
   <meta property="og:image:width" content="2400"><meta property="og:image:height" content="1260">
-  <meta property="og:image:alt" content="Say it. Snap it. Show it. A Mac window with a dictated sentence and a chart, the Workbench toolbar recording underneath, three snaps handed to Claude as a deck, and a persona bubble with a voice ring.">
+  <meta property="og:image:alt" content="Say it. Snap it. Show it. A Mac window with a dictated sentence and a chart, the Workbench toolbar recording underneath, a captured image ready to copy or drag, and a persona bubble with a voice ring.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Workbench · Say it. Snap it. Show it.">
-  <meta name="twitter:description" content="Free smart tools on top of every app on your Mac: dictation, snaps that become decks, drawing on screen and presenting with your face and phone.">
+  <meta name="twitter:description" content="Free smart tools on top of every app on your Mac: Voice to Text, Snap, Annotate and Present with your face and phone.">
   <meta name="twitter:image" content="{{SITE_ORIGIN}}/assets/share/workbench.png">
   <meta name="theme-color" content="#e9f2f4" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0f252d" media="(prefers-color-scheme: dark)">
@@ -42,7 +42,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Free Mac app for demos, calls and walkthroughs</p>
           <h1 class="hero-title" id="hero-title"><span class="nb"><span class="w hl">Say</span> <span class="w hl">it.</span></span> <span class="nb"><span class="w hl">Snap</span> <span class="w hl">it.</span></span> <span class="nb" id="mark-target"><span class="w hl">Show</span> <span class="w hl">it.</span></span></h1>
-          <p class="lede">Workbench puts a set of tools on top of every app on your Mac. Talk and it types. Snap a few screens and get a deck. Draw on anything, and put yourself in the demo.</p>
+          <p class="lede">Workbench puts a set of tools on top of every app on your Mac. Talk and it types. Capture, copy and drag an image. Annotate anything, and present with your face and phone.</p>
           <div class="cta"><a class="btn dl" href="{{DOWNLOAD_URL}}">Download for Mac</a><a class="btn ghost" href="#tools">See what it does ↓</a></div>
           <p class="fine"><span>Free</span><span>Macs with M1 or later</span><span>macOS 14 or later</span><span>Version {{RELEASE_VERSION}}</span></p>
           <p class="on-phone">Workbench is a Mac app. Open this page on your Mac to download it.</p>
@@ -62,10 +62,10 @@
             <div class="deck-cards">
               <div class="card c3"><i></i><i></i><i></i></div>
               <div class="card c2"><b></b><i></i><i></i></div>
-              <div class="card c1"><span></span><span></span><span></span><span class="hot"></span><span></span><em>PPTX</em></div>
+              <div class="card c1"><span></span><span></span><span></span><span class="hot"></span><span></span><em>PNG</em></div>
             </div>
-            <p class="deck-hand"><span class="ai-mark claude"></span>Hand off to Claude</p>
-            <p class="deck-name"><b>Launch walkthrough.pptx</b><span>3 slides</span></p>
+            <p class="deck-hand">Copy or drag your Snap</p>
+            <p class="deck-name"><b>Launch capture.png</b><span>Original preserved</span></p>
             <p class="deck-tag"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>Saved to History · searchable</p>
           </div>
         </div>
@@ -86,10 +86,10 @@
       <div class="toolbar-try" id="toolbar-try" hidden>
         <button class="cap-hit" type="button" aria-expanded="false" aria-controls="try-tray" aria-label="Try the toolbar yourself"></button>
         <div class="try-tray" id="try-tray" role="group" aria-label="Play a moment">
-          <button type="button" data-moment="dictate" aria-pressed="false"><svg viewBox="0 0 24 24"><circle class="rec" cx="6" cy="12" r="3.2"/><path d="M12.5 9v6M16.5 6v12M20.5 10v4"/></svg><span>Dictate</span></button>
-          <button type="button" data-moment="snap" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="15" height="12" rx="2" stroke-dasharray="2.6 2.2"/><circle class="rec ring" cx="18.5" cy="17.5" r="3.4"/></svg><span>Snap &amp; Talk</span></button>
-          <button type="button" data-moment="draw" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19.5l1.2-4.3L16.4 5a1.9 1.9 0 0 1 2.7 2.7L8.8 17.9z"/><path d="M14.6 6.8l2.7 2.7"/></svg><span>Draw</span></button>
-          <button type="button" data-moment="persona" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="12" cy="10.5" r="2.8"/><path d="M7.5 18c.9-2.4 2.6-3.4 4.5-3.4s3.6 1 4.5 3.4"/></svg><span>Persona</span></button>
+          <button type="button" data-moment="dictate" aria-pressed="false"><svg viewBox="0 0 24 24"><circle class="rec" cx="6" cy="12" r="3.2"/><path d="M12.5 9v6M16.5 6v12M20.5 10v4"/></svg><span>Voice to Text</span></button>
+          <button type="button" data-moment="snap" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="15" height="12" rx="2" stroke-dasharray="2.6 2.2"/><circle class="rec ring" cx="18.5" cy="17.5" r="3.4"/></svg><span>Snap</span></button>
+          <button type="button" data-moment="draw" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 19.5l1.2-4.3L16.4 5a1.9 1.9 0 0 1 2.7 2.7L8.8 17.9z"/><path d="M14.6 6.8l2.7 2.7"/></svg><span>Annotate</span></button>
+          <button type="button" data-moment="persona" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="12" cy="10.5" r="2.8"/><path d="M7.5 18c.9-2.4 2.6-3.4 4.5-3.4s3.6 1 4.5 3.4"/></svg><span>Present</span></button>
           <span class="sep"></span>
           <button type="button" class="tray-close" aria-label="Close and let it play"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
         </div>
@@ -110,15 +110,15 @@
         <div class="tool-art art-dictate" aria-hidden="true">
           <div class="prompt"><span class="ai-mark spark"></span><p><span>Summarise</span> <span>the</span> <span>launch</span> <span>plan</span> <span>and</span> <span>flag</span> <span>risks</span><i class="caret static"></i></p><span class="mic-pill"><i></i><b></b><b></b><b></b><b></b><b></b></span></div>
           <div class="call">
-            <p class="call-head"><span class="rec">Rec</span>Launch sync<span class="time">12:04</span></p>
-            <p class="call-people"><span>Others</span><span>You</span></p>
-            <p class="line l1"><b>Others</b>Can we ship Thursday?</p>
-            <p class="line l2"><b>You</b>Yes, once QA signs off.</p>
+            <p class="call-head"><span class="rec">Saved</span>Your words<span class="time">Ready</span></p>
+            <p class="call-people"><span>Original kept</span><span>Copy any time</span></p>
+            <p class="line l1"><b>You</b>The launch moves to Thursday.</p>
+            <p class="line l2"><b>History</b>Your complete words stay here.</p>
           </div>
         </div>
-        <p class="tool-name">Dictate and Meetings</p>
+        <p class="tool-name">Voice to Text</p>
         <h3>Talk, and it types.</h3>
-        <p>Speak a prompt, a note or a whole email into any app. In Meetings, start on your call and the words appear as people speak, labelled You and Others, with the recording kept beside them. Speech recognition runs on your Mac, and your original words are always kept.</p>
+        <p>Speak a prompt, a note or an email where you are working. Automatic paste puts the words in your chosen field; Copy is ready if the field or permission gets in the way. Built-in recognition runs on your Mac, and the original words stay in History.</p>
       </article>
 
       <article class="tool">
@@ -127,18 +127,18 @@
             <div class="st-stack">
               <div class="card c3"><i></i><i></i><i></i></div>
               <div class="card c2"><b></b><i></i><i></i></div>
-              <div class="card c1"><span></span><span></span><span></span><span class="hot"></span><span></span><em>PPTX</em></div>
+              <div class="card c1"><span></span><span></span><span></span><span class="hot"></span><span></span><em>PNG</em></div>
             </div>
             <div class="st-hand">
-              <span class="st-btn">Hand off<span class="ai-mark claude"></span><span class="ai-mark codex"></span></span>
-              <span class="st-menu"><span class="pick"><span class="ai-mark claude"></span>Claude</span><span><span class="ai-mark codex"></span>Codex</span></span>
+              <span class="st-btn">Copy image</span>
+              <span class="st-menu"><span class="pick">Copy</span><span>Drag into your work</span></span>
             </div>
-            <p class="st-file"><b>Launch walkthrough.pptx</b><span>3 slides</span></p>
+            <p class="st-file"><b>Launch capture.png</b><span>Original preserved</span></p>
           </div>
         </div>
-        <p class="tool-name">Snap &amp; Talk</p>
-        <h3>Talk through your screens. Get a deck.</h3>
-        <p>Snap a few screens while you explain them. Workbench keeps each snap with what you said, then hands the set to Claude or Codex to build the deck. Every snap stays searchable, even the words inside the picture.</p>
+        <p class="tool-name">Snap</p>
+        <h3>Capture it. Put it to use.</h3>
+        <p>Capture a region, a window or the screen. Copy the image, drag it into your work, or add a quick crop and annotation. Saved Snaps stay searchable, with their originals preserved.</p>
       </article>
 
       <article class="tool">
@@ -153,7 +153,7 @@
             <text class="hand" x="50" y="50">here!</text>
           </svg>
         </div>
-        <p class="tool-name">Draw</p>
+        <p class="tool-name">Annotate</p>
         <h3>Point at anything.</h3>
         <p>Pen, arrows and shapes over whatever is on screen, in any app. Press Escape and you are back in your work. A whiteboard and a break timer are one click away.</p>
       </article>
@@ -177,9 +177,9 @@
           <div class="bd b1 cover"></div>
         </div>
         <div class="tool-text">
-          <p class="tool-name">Present and Persona</p>
+          <p class="tool-name">Present</p>
           <h3>Put yourself in the demo.</h3>
-          <p>Plug in your iPhone and it shows up on a clean backdrop you can share in any call. Switch scenes for each audience, and add your face or a persona card for the role you are playing.</p>
+          <p>Show your iPhone on a clean stage, or put a live camera, profile photo or persona over your work. Turn on the voice wave when you want it to react as you speak. Each live tool has its own clear exit.</p>
         </div>
       </article>
     </div>
@@ -189,13 +189,13 @@
     <article class="panel" id="history">
       <p class="tool-name">History</p>
       <h2>Nothing gets lost.</h2>
-      <p>Dictations, meetings, snaps and decks all land in one place. Search across everything, then hand a selection to Claude or Codex. The result comes back to History too.</p>
+      <p>Your words, Snaps and assistant results stay in one searchable place. Original images and wording are preserved, ready to copy or reuse.</p>
       <div class="history" aria-hidden="true">
         <div class="search"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg><span>launch</span></div>
         <ul>
-          <li><b>Launch walkthrough</b><span>Deck · 3 snaps</span></li>
+          <li><b>Launch capture</b><span>Snap · original preserved</span></li>
           <li><b>Moves to Thursday</b><span>Dictation · 9:41</span></li>
-          <li><b>Launch sync with Sam</b><span>Meeting · 14 min</span></li>
+          <li><b>Launch notes</b><span>Saved text</span></li>
         </ul>
         <p class="handoff">Hand off <span>→ Claude</span></p>
       </div>
@@ -233,10 +233,10 @@
       <ol id="install-workbench">
         <li><b>Open the download.</b><span>It unzips to <strong>{{APP_BUNDLE}}</strong>.</span></li>
         <li><b>Move it into Applications.</b><span>For a first install, choose Finder › Go › Home, then move it into the Applications folder there, creating the folder if needed. Already have a copy? Quit it and replace it in that same Applications folder, including /Applications. Updates can’t install from Downloads.</span></li>
-        <li><b>Open it and pick a tool.</b><span>Dictate, Meetings and Snap &amp; Talk narration turn speech into text with a one-time ~450 MB download, which can take a few minutes. Snap, Draw, Present and Persona work without it.</span></li>
+        <li><b>Open it and pick a tool.</b><span>Voice to Text uses a one-time ~450 MB speech-model download, which can take a few minutes. Snap, Annotate and Present work without it. Snap &amp; Talk is available from Settings → General → Experimental features and starts off disabled.</span></li>
       </ol>
       <p class="already"><b>Already using Workbench?</b> {{UPDATE_QUICK_START}}</p>
-      <details id="first-open"><summary>What it asks permission for, and when</summary><div><p>Nothing is requested at first launch; each permission is asked for when you first use what needs it. Microphone access is requested when you first dictate, record a meeting or turn on React to my voice; Snap &amp; Talk asks for it, with Screen Recording, when you choose Request capture access. Accessibility is optional, for automatic paste. Snap and Snap &amp; Talk need Screen Recording access. Transcribing a call app needs macOS 14.2 or later and the system-audio permission, which macOS asks for the first time Meetings records a call (from macOS 15 it sits under Screen &amp; System Audio Recording as System Audio Recording Only). Camera access is used when you take a profile photo, start Persona’s camera bubble or choose device video. Drawing overlays alone need no permission.</p><p>This download is Developer ID signed and notarized by Apple. <a href="{{RELEASE_URL}}">Release notes and testing details</a> · <a href="{{CHECKSUM_URL}}">Download checksum</a>. If macOS reports a damaged or unsafe app, stop and report the exact message. <a href="https://support.apple.com/en-au/102445">Apple’s opening guidance</a> explains the normal checks. A managed work Mac may need your IT team’s approval.</p></div></details>
+      <details id="first-open"><summary>What it asks permission for, and when</summary><div><p>Nothing is requested at first launch; each permission is asked for when you first use what needs it. Microphone access is requested when you first use Voice to Text or turn on React to my voice; Snap &amp; Talk asks for it, with Screen Recording, when you choose Request capture access. Accessibility is optional, for automatic paste. Snap and Snap &amp; Talk need Screen Recording access. Workbench does not request system-audio access or detect meetings. Camera access is used when you take a profile photo, start Persona’s camera bubble or choose device video. Drawing overlays alone need no permission.</p><p>This download is Developer ID signed and notarized by Apple. <a href="{{RELEASE_URL}}">Release notes and testing details</a> · <a href="{{CHECKSUM_URL}}">Download checksum</a>. If macOS reports a damaged or unsafe app, stop and report the exact message. <a href="https://support.apple.com/en-au/102445">Apple’s opening guidance</a> explains the normal checks. A managed work Mac may need your IT team’s approval.</p></div></details>
       <details id="update-from-downloads"><summary>Updates and your saved work</summary><div><p>{{UPDATE_INSTALL_NOTE}}</p><p>{{UPDATE_DETAILS}} Saved text, scenes and settings live outside the application and survive replacement. To install a download over an existing copy, quit Workbench and replace it in the same Applications folder. If an update stopped because the app is in Downloads, quit Workbench, move <strong>{{APP_BUNDLE}}</strong> into Applications, open it from there and try again.</p><p>{{RELEASE_INSTALL_CONTEXT}} {{RELEASE_DATA_NOTE}} This edition stores its saved work under <code>~/Library/Application Support/{{APP_DATA_DIRECTORY}}</code>.</p><p>Built-in speech runs locally after model download. A local server may forward audio if you configure it that way. <a href="/privacy.html">See privacy details</a>.</p></div></details>
       <details><summary>Which Macs it runs on</summary><div><p>Workbench needs a Mac with an Apple M-series chip running macOS 14 or later. Check <strong>Apple menu → About This Mac</strong>. Intel Macs and Windows are not supported. Work on iPhone, iPad and the Chrome extension is paused while the Mac app comes first.</p></div></details>
     </div>

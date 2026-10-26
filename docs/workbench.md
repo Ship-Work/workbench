@@ -10,6 +10,16 @@ The current [capability delivery, issue #112](https://github.com/Ship-Work/workb
 
 ## Grammar
 
+### Core utilities and separate Meetings · 26 October 2026
+
+The next release keeps four core tools: **Annotate**, **Voice to Text**, **Snap** and **Present**. These reuse the existing drawing, dictation, capture and presentation owners. Internal identifiers, shortcut preferences and saved formats retain their historical names. Voice to Text defaults to automatic paste, with existing delivery choices and focus protection preserved. Present brings the phone stage, My Profile, saved personas, live camera and optional voice wave together without merging their independent lifecycles.
+
+**Snap & Talk is experimental and off by default**, including on upgrade. Settings → General → Experimental features enables it. Its controls, shortcuts, session polling, resumed processing and automatic preparation stay inactive until enabled. Turning it off preserves every session and must first resolve active capture, processing or unsaved edits through the existing owners. Enabled Snap & Talk retains the complete capture, narration, skill and handoff workflow.
+
+**Meetings is a separate Mac app.** Workbench no longer detects calls, records another app's audio, names meetings or compresses meeting recordings. It requests no system-audio permission. Existing transcripts remain readable as saved text; original recording folders and recovery journals stay untouched. The Meetings app offers explicit copy-only import from either Workbench edition, with no deletion or write back to the source. Its own app identity, permissions, settings and history are independent.
+
+This decision supersedes earlier sections that describe Meetings as a Workbench destination, Snap & Talk as a default tool, or Draw/Dictate as the visible tool names. Read remains retired; mobile and browser-extension work remain paused. Implementation, native verification and publication are recorded separately in [#401](https://github.com/Ship-Work/workbench/issues/401) and [#7](https://github.com/Ship-Work/workbench/issues/7).
+
 ### Decided refinement target · 6 October 2026
 
 The [focused Mac foundation](mac-foundation.md) is the decided refinement brief, with [current evidence, adversarial findings and rejected alternatives](research/mac-foundation-2026-10.md). **Read is retired from the target product**, including contextual TTS, providers and Services; old text/exports remain preserved. Keep names and state owners for retained tools where they serve the job, not as permanent entitlements. Meetings leads to directly copyable words; handoff keeps manual delivery usable without optional setup; Present means a phone on a clean stage. Optional setup cannot block a permission-free action on saved material. Read retirement is implemented in source; signed upgrade and shipped identity remain separate acceptance claims.

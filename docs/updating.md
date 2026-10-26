@@ -4,6 +4,8 @@ Workbench has two persistent Mac identities: **Workbench**, the public productio
 
 ## For users
 
+The core-utilities update keeps Workbench's existing identity, data and preferences. Draw is now called Annotate; Dictate is Voice to Text. Their saved shortcut assignments are retained. Snap & Talk starts disabled and can be enabled in Settings → General → Experimental features; its existing session folders remain intact. Meetings runs as a separate app. Use its explicit Import from Workbench action to copy old recordings and transcripts from the edition you used. Keep the originals until you have checked the imported work. Replacing Workbench never moves or deletes those folders, and the new Meetings app has its own macOS permission grants.
+
 Install a published signed, notarized **Workbench.app**. An extracted app left in Downloads is not the installed copy and can appear as another Spotlight result.
 
 1. Quit the edition you are replacing. Unzip the download, then move the app from Downloads into the **same Applications folder** as the existing copy and choose Replace. For a first install, use **Applications in your home folder** (`~/Applications`). Keep an existing `/Applications` installation in that location.

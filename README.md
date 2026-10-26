@@ -7,7 +7,7 @@
 
 [Download Workbench](https://workbench-mac.vercel.app/) · [Product guide](https://workbench-mac.vercel.app/guide/) · [Contribute](CONTRIBUTING.md) · [Mac release gate](https://github.com/Ship-Work/workbench/issues/7)
 
-Workbench brings dictation, narrated screen captures, drawing, presentation and saved prompts into one native Mac app.
+Workbench brings **Annotate**, **Voice to Text**, **Snap** and **Present** into one native Mac app. Present includes the phone stage, live camera, profile/persona and optional voice wave. Snap & Talk is available through **Settings → General → Experimental features**, disabled by default. Meetings runs as a separate Mac app; existing recordings and transcripts are preserved for explicit copy-only import.
 
 ## Current focus: get Mac right
 
@@ -28,14 +28,14 @@ These surfaces share the same underlying jobs and saved resources. Starting or a
 ## Get started
 
 1. Install **Workbench** from the [website](https://workbench-mac.vercel.app/). Open it from Applications.
-2. Open **Settings → Models** to prepare the default local Parakeet recognizer, then try Dictate with a disposable sentence. The first model download can take several minutes.
+2. Open **Settings → Models** to prepare the default local Parakeet recognizer, then try Voice to Text with a disposable sentence. The first model download can take several minutes.
 3. Use the menu bar for quick actions and the floating toolbar while working. Open the desktop app for preparation and review.
 4. Open **Settings → Keyboard** to see, change or practise shortcuts. Recording a shortcut temporarily suspends Workbench's global shortcuts.
 5. Choose **Update to [version]** in the sidebar when an update is ready; **Settings › General › Updates** checks and holds the automatic options. Use **Copy build details** when reporting a problem.
 
 Closing the desktop window leaves Workbench available. Quit Workbench stops the app. Open at login is optional. Older releases without the updater need one manual upgrade; see [installation and updates](docs/updating.md).
 
-The [product guide](https://workbench-mac.vercel.app/guide/) explains dictation, Snap & Talk, drawing, device presentation, personas and saved resources. Device presentation is video-only; Apple's QuickTime and iPhone Mirroring remain separate apps. A connected iPhone used as a Mac presentation source does not imply an active Workbench iOS release.
+The [product guide](https://workbench-mac.vercel.app/guide/) explains the core tools, experimental Snap & Talk, presentation sources and saved resources. Device presentation is video-only; Apple's QuickTime and iPhone Mirroring remain separate apps. A connected iPhone used as a Mac presentation source does not imply an active Workbench iOS release.
 
 **Team packs (2.2+):** open **Library → Packs**, connect GitHub and add the private repository link your team shares. Choose a compatible skill or import your own scene/persona copy. New sessions carry the complete versioned skill and resources for the existing **Hand off** flow. Share the [installation guide](https://workbench-mac.vercel.app/guide/#servicenow-pack) and pack link with colleagues. Ordinary Workbench tools remain account-free; existing sessions keep their own files.
 

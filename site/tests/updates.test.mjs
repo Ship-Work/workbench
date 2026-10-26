@@ -114,9 +114,9 @@ test('install and update copy matches what the app does, on the home page and in
   const forbidden = ['Signed by Apple', 'about a minute', 'minute away', 'in a minute', 'compact links',
     'when you open a session', 'In Preview:', 'Everything else works without it', '{{'];
   const required = {
-    // Snap & Talk narration is transcribed by the same speech model as Dictate and Meetings.
+    // Speech setup is optional; experimental narration stays opt-in.
     index: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder', 'Request capture access',
-      'Snap &amp; Talk narration turn speech into text'],
+      'Voice to Text uses a one-time', 'Experimental features', 'starts off disabled'],
     guide: ['Update to', 'General › Updates', 'Go › Home', 'same Applications folder']
   };
   for (const record of [production, feedPreview]) {

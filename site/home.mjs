@@ -1,5 +1,5 @@
 // The homepage hero plays Workbench's four moments across the page itself:
-// words fly into the headline, snaps fold into a deck, the headline gets circled,
+// words fly into the headline, a Snap becomes a reusable image, the headline gets circled,
 // and a persona comes on screen. State is a pure function of time, so a jump or
 // a resize never leaves it half-built.
 const LOOP = 19.4, FADE = 18.4, INTRO = 2.1;
@@ -29,9 +29,9 @@ const ICONS = {
 };
 // Each moment reveals its tool's row, like hovering the real toolbar; the first icon is active.
 const ROWS = {
-  snap: { icons: ['snapTalk', 'region', 'window', 'screen'], hint: 'Snap & Talk · Screen' },
-  draw: { icons: ['pen', 'arrow', 'shape', 'board'], hint: 'Draw · Pen' },
-  persona: { icons: ['persona', 'camera', 'hide'], hint: 'Persona · Site manager' }
+  snap: { icons: ['region', 'window', 'screen'], hint: 'Snap · Screen' },
+  draw: { icons: ['pen', 'arrow', 'shape', 'board'], hint: 'Annotate · Pen' },
+  persona: { icons: ['persona', 'camera', 'hide'], hint: 'Present · Persona' }
 };
 // Where the circle sits in persona-site-manager.png, as a share of the image.
 const FACE = { cx: 50.2, cy: 46.7, r: 39.2 };
@@ -149,7 +149,7 @@ class Hero {
     }
     if (state !== this.cap) {
       this.s.dataset.cap = state; this.cap = state; this.capWidth(state);
-      if (state === 'rec') this.hint.textContent = 'Dictate';
+      if (state === 'rec') this.hint.textContent = 'Voice to Text';
       else if (state === 'tool') this.hint.textContent = ROWS[this.tool].hint;
       this.hint.classList.toggle('on', state !== 'idle');
     }
