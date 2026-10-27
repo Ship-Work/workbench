@@ -1,0 +1,31 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Workbench Preview</title>
+        <item>
+            <title>2.8.0</title>
+            <pubDate>Tue, 27 Oct 2026 11:32:22 +1100</pubDate>
+            <sparkle:version>20261026215541</sparkle:version>
+            <sparkle:shortVersionString>2.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description><![CDATA[<h1>Workbench Preview 2.8.0</h1>
+<p>Four familiar tools, with a simpler way to move between them.</p>
+<ul>
+<li><strong>Find the tool you need.</strong> Annotate, Voice to Text, Snap and Present are the core navigation. Profile cards, live camera and voice reaction controls live with Present.</li>
+<li><strong>Copy a Snap while you work.</strong> Copy the image with your current edits, keep working, undo or save it later. Saved images reopen ready to copy and reuse.</li>
+<li><strong>Choose when to use Snap &amp; Talk.</strong> Turn it on in Settings → General → Experimental features. It starts off, keeps its saved sessions, and stays inactive until enabled.</li>
+<li><strong>Meetings has its own app.</strong> Meetings 1.0.1 is available separately through the <a href="https://github.com/Ship-Work/meetings/releases/tag/v1.0.1">private Meetings repository</a>; downloading it requires repository access. Existing transcripts remain in Workbench History. The separate app can copy your recordings and transcripts without moving or deleting the Workbench originals. If you do not have Meetings, Settings retains Show saved recordings for recovery.</li>
+</ul>
+<p>Your saved work and settings remain in this edition’s library. Meetings uses its own library and manual updates; installing Workbench does not move your recordings or install Meetings.</p>
+<p>Use Settings → General → Updates in Workbench Preview for this edition’s updates. For a first download, unzip, move Workbench Preview.app to Applications and open it there. When replacing an existing copy manually, quit the app and replace it at the same Applications location. Keep your Application Support data.</p>
+<p>Automatic paste depends on the destination and permissions; use Copy and paste manually when needed. Receiving-app image dragging remains unverified; use Copy or Export image. Connected iPhone/USB and external call-receiver workflows have not been newly verified.</p>
+]]></description>
+            <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.8.0-preview.1/Workbench.Preview.zip" length="76231130" type="application/octet-stream" sparkle:edSignature="6uKiCGu5BaZOpSwRbcP02U1VAeqox6pjOSZHEpiDicVAa91mkR+wFZghyQKMfsvf3V02ZAaYMTvaB65WLqGjCg=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: PYHpEqSfuEY/EenKmMYSUORG/i6R0AzszKhKJrpue/j63JAN5ALXTyGzXVe0Ut+DDfX55IFg5t23HFugu2IyDA==
+length: 3170
+-->
