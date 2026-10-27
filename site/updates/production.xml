@@ -6,6 +6,27 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Workbench</title>
         <item>
+            <title>2.8.0</title>
+            <pubDate>Tue, 27 Oct 2026 11:43:37 +1100</pubDate>
+            <sparkle:version>20261027003443</sparkle:version>
+            <sparkle:shortVersionString>2.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description><![CDATA[<h1>Workbench 2.8.0</h1>
+<p>Four familiar tools, with a simpler way to move between them.</p>
+<ul>
+<li><strong>Find the tool you need.</strong> Annotate, Voice to Text, Snap and Present are the core navigation. Profile cards, live camera and voice reaction controls live with Present.</li>
+<li><strong>Copy a Snap while you work.</strong> Copy the image with your current edits, keep working, undo or save it later. Saved images reopen ready to copy and reuse.</li>
+<li><strong>Choose when to use Snap &amp; Talk.</strong> Turn it on in Settings → General → Experimental features. It starts off, keeps its saved sessions, and stays inactive until enabled.</li>
+<li><strong>Meetings has its own app.</strong> Meetings 1.0.1 is available separately through the <a href="https://github.com/Ship-Work/meetings/releases/tag/v1.0.1">private Meetings repository</a>; downloading it requires repository access. Existing transcripts remain in Workbench History. The separate app can copy your recordings and transcripts without moving or deleting the Workbench originals. If you do not have Meetings, Settings retains Show saved recordings for recovery.</li>
+</ul>
+<p>Your saved work and settings remain in this edition’s library. Meetings uses its own library and manual updates; installing Workbench does not move your recordings or install Meetings.</p>
+<p>Use Settings → General → Updates in Workbench for this edition’s updates. For a first download, unzip, move Workbench.app to Applications and open it there. When replacing an existing copy manually, quit the app and replace it at the same Applications location. Keep your Application Support data.</p>
+<p>Automatic paste depends on the destination and permissions; use Copy and paste manually when needed. Receiving-app image dragging remains unverified; use Copy or Export image. Connected iPhone/USB and external call-receiver workflows have not been newly verified.</p>
+]]></description>
+            <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.8.0/Workbench.zip" length="76364727" type="application/octet-stream" sparkle:edSignature="ztgpVQJOwJC5zJaxfP9V2y6zfeQbhkqraGs1QTcyAmq/HIDAHhKEKaGjQnbvT3HMVPJjxS8CV1UW0MnnHnX5BA=="/>
+        </item>
+        <item>
             <title>2.7.0</title>
             <pubDate>Thu, 22 Oct 2026 18:26:32 +1100</pubDate>
             <sparkle:version>20261022072417</sparkle:version>
@@ -62,50 +83,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.6.0/Workbench.zip" length="76628112" type="application/octet-stream" sparkle:edSignature="nUDKubbLl7tpYbz1HYsnYdEtBCgHyBssdA//dY0mDKhq/kVGTryBWNC28DEzyKVu4SAkrCIvYdhyYWRoTIPJBA=="/>
         </item>
-        <item>
-            <title>2.5.0</title>
-            <pubDate>Fri, 09 Oct 2026 09:22:33 +1100</pubDate>
-            <sparkle:version>20261008222126</sparkle:version>
-            <sparkle:shortVersionString>2.5.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description><![CDATA[<h2>Workbench 2.5.0</h2>
-<p>A Home worth opening, your phone on a clean stage, and a way to tell us when something goes wrong.</p>
-<ul>
-<li><strong>Home shows what's yours.</strong> Your latest meetings with the follow-up you prepared, your Snap &amp; Talk decks (a sample deck shows until you build one), what this Mac lets Workbench use, and the keys worth learning next. Set up a permission from the same card, or change one in System Settings; Workbench asks only when you choose to. On a work Mac it says when an administrator has to switch something on, and Copy permission details gives your IT team what to allow.</li>
-<li><strong>Automatic paste, explained and on your layout.</strong> If automatic paste is off, the first copy says it needs Accessibility. Dictated words now paste with your keyboard layout's own ⌘V key, so Dvorak and Turkish F paste instead of sending another shortcut.</li>
-<li><strong>Learn your keys.</strong> Your keys shows your shortcuts on a keyboard and rings the next ones worth learning. Practice one, change it, or put Snap on ⌥G in one click. A key counts as learned once you've practised it or used it for real.</li>
-<li><strong>Present with your phone.</strong> Plug in your iPhone with a cable and it appears in the preview before you press Present. One line says what is happening and the one next step. If the phone doesn't appear, Can't see your phone? walks through the checks.</li>
-<li><strong>Report a problem.</strong> Choose Help › Report a Problem…, say what happened, and add a screenshot or a short voice note if it helps. The report goes privately to the Workbench team, and its receipt says when it was received. The same button sits beside a Dictate or Snap problem.</li>
-<li><strong>Every page, one way.</strong> Dictate, Meetings, Snap, Snap &amp; Talk, Draw, History, Library, Persona and Settings share one set of cards, notes and a single primary action. A problem looks the same on every page, with its fix beside it.</li>
-<li><strong>The Mac's own menus.</strong> Hide Others, Show All, Zoom, Bring All to Front and Redo are where you expect them, and ⌘M minimises the window. Workbench reopens where you left it, and opening at login keeps it in the menu bar.</li>
-</ul>
-<p>Also in this release:</p>
-<ul>
-<li><strong>History you can use again.</strong> Search saved work, review a transcript, and reuse it from the same place.</li>
-<li><strong>Meetings keep their words.</strong> Copy a finished transcript directly, and a recovered meeting keeps the text it had.</li>
-<li><strong>Dictation that fits.</strong> Words land with the spacing and capitals the insertion point needs, and names keep their capitals mid-sentence. Cancelling a paste leaves your transcript on the clipboard.</li>
-<li><strong>First speech setup you control.</strong> The model download is explicit and cancellable, and files already on this Mac are kept.</li>
-<li><strong>Library and Packs.</strong> Resources are easier to find, reuse and recover. Installed Packs work without setup.</li>
-<li><strong>Hand off without an assistant connected.</strong> Copy instructions carries the whole request, the selected text and the attachments to name, ready to paste into any assistant. Snap &amp; Talk names the app it actually opened.</li>
-<li><strong>Updates in one click</strong> from the sidebar, with a line about what's new.</li>
-<li><strong>Persona: your camera and your photo, one click apart.</strong> Choose Persona leads with <strong>My Profile</strong> and <strong>Live Camera</strong>, and switching fades one into the other in place. <strong>React to my voice</strong> rings both. Live Camera offers <strong>Centre Stage</strong> where the camera supports it and opens <strong>Video Effects…</strong>, with gesture reactions off, so a thumbs-up mid-demo fires nothing. Connecting headphones while the ring listens can no longer stop Workbench.</li>
-</ul>
-<p>What's gone or paused since 2.4.1:</p>
-<ul>
-<li><strong>Read is retired:</strong> its page, its voices and its Services menu item. Text you saved in Read is kept, word for word, in Library.</li>
-<li><strong>Switch to Browser Tab is paused.</strong> Saved links and browser settings are kept.</li>
-<li><strong>Present's gentle motion is retired,</strong> and a scene can no longer be set as your desktop picture. Restore desktop still puts back a picture Workbench applied earlier.</li>
-<li><strong>Library's From iPhone section and the photo handoff settings are gone;</strong> they never worked in the public app. Photos already saved on this Mac are untouched.</li>
-</ul>
-<p>When you're ready, update from Settings: Workbench updates in 2.4.1, or General › Updates from 2.5.0 on. Your saved work stays in this edition's library.</p>
-<p>First download: unzip Workbench, move it to Applications in your home folder, then open it there. When replacing an existing copy, quit it and use the same Applications folder.</p>
-]]></description>
-            <enclosure url="https://github.com/Ship-Work/workbench/releases/download/v2.5.0/Workbench.zip" length="75756934" type="application/octet-stream" sparkle:edSignature="UogfnJ1E/7UEj68BtVh1DNKgx6XFLEscci7qd/7sPVvUcuLErq0jwArhxxdFsjPIhwHtN4195Oqij1HT0fDdDQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: tjyEB4FMPKtnIpGOa51IBiPJo3QD6zUMKuFuOtg5uTb3df51DtGiFDkoy5xTT5EhnD1uYlOnVMbcUqS9EUDvBQ==
-length: 13430
+edSignature: +bfHCG37yujHN8dYtc+JNYGrJXUizT5wk7xHrOwgz/hROXdSNrHgfpgjKj2mJDqESJFt7SSnAzdQbu7Q/qSGBw==
+length: 10429
 -->
